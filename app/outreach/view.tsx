@@ -1,0 +1,477 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Loader2, CheckCircle2, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { generateDrafts, logOutreach, type DueContact, type EmailDraft } from "./actions";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtDate(iso: string | null) {
+  if (!iso) return "Never contacted";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function tierCls(tier: number | null) {
+  if (tier === 1) return "bg-orange-100 text-orange-700";
+  if (tier === 2) return "bg-blue-100 text-blue-700";
+  return "bg-muted text-muted-foreground";
+}
+
+function tierLabel(tier: number | null) {
+  if (tier === 1) return "T1";
+  if (tier === 2) return "T2";
+  if (tier === 3) return "T3";
+  return "—";
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function OutreachView({
+  initialContacts,
+}: {
+  initialContacts: DueContact[];
+}) {
+  const [contacts, setContacts] = useState<DueContact[]>(initialContacts);
+  const [step, setStep] = useState<"select" | "review">("select");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [drafts, setDrafts] = useState<EmailDraft[]>([]);
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [brokerContext, setBrokerContext] = useState("");
+
+  // Draft edits
+  const [editedSubjects, setEditedSubjects] = useState<Record<string, string>>({});
+  const [editedBodies, setEditedBodies] = useState<Record<string, string>>({});
+
+  // Load broker context from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("beacon_broker_context");
+    if (saved) setBrokerContext(saved);
+  }, []);
+
+  function saveBrokerContext(val: string) {
+    setBrokerContext(val);
+    localStorage.setItem("beacon_broker_context", val);
+  }
+
+  const overdueContacts = contacts.filter((c) => c.daysOverdue > 0);
+  const dueSoonContacts = contacts.filter((c) => c.daysOverdue <= 0);
+
+  function toggleContact(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllOverdue() {
+    setSelected(new Set(overdueContacts.map((c) => c.id)));
+  }
+
+  async function handleGenerate() {
+    if (selected.size === 0) return;
+    setGenerating(true);
+    setError(null);
+    setStep("review");
+
+    const result = await generateDrafts([...selected], brokerContext);
+    setGenerating(false);
+
+    if (result.error) {
+      setError(result.error);
+      setStep("select");
+      return;
+    }
+
+    const generatedDrafts = result.drafts ?? [];
+    setDrafts(generatedDrafts);
+
+    // Initialize edited state from drafts
+    const subjects: Record<string, string> = {};
+    const bodies: Record<string, string> = {};
+    for (const d of generatedDrafts) {
+      subjects[d.contactId] = d.subject;
+      bodies[d.contactId] = d.body;
+    }
+    setEditedSubjects(subjects);
+    setEditedBodies(bodies);
+    setSentIds(new Set());
+  }
+
+  async function handleMarkSent(contactId: string) {
+    const subject = editedSubjects[contactId] ?? "";
+    const body = editedBodies[contactId] ?? "";
+    const result = await logOutreach(contactId, subject, body);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setSentIds((prev) => new Set([...prev, contactId]));
+    // Update the contact's last_contacted_at in parent contacts state
+    setContacts((prev) =>
+      prev.map((c) =>
+        c.id === contactId
+          ? { ...c, last_contacted_at: new Date().toISOString(), daysOverdue: -99 }
+          : c
+      )
+    );
+  }
+
+  async function handleMarkAllSent() {
+    for (const draft of drafts) {
+      if (!sentIds.has(draft.contactId)) {
+        await handleMarkSent(draft.contactId);
+      }
+    }
+  }
+
+  // ── Select view ───────────────────────────────────────────────────────────
+
+  if (step === "select") {
+    return (
+      <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Outreach</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {overdueContacts.length} overdue · {dueSoonContacts.length} due this week
+          </p>
+        </div>
+
+        {/* Broker context */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">About you</label>
+          <textarea
+            value={brokerContext}
+            onChange={(e) => saveBrokerContext(e.target.value)}
+            rows={3}
+            placeholder="e.g. I'm [name], a commercial broker in Miami specializing in industrial properties over 50,000 sqft…"
+            className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background resize-y placeholder:text-muted-foreground/60"
+          />
+          <p className="text-xs text-muted-foreground">
+            Claude will use this to personalize each draft.
+          </p>
+        </div>
+
+        {error && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        {contacts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+            <CheckCircle2 className="size-10 text-green-500" />
+            <p className="font-medium">All caught up — no contacts are due.</p>
+            <p className="text-sm text-muted-foreground">
+              Check back when contacts are due for outreach.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Select all overdue */}
+            {overdueContacts.length > 0 && (
+              <button
+                onClick={selectAllOverdue}
+                className="text-xs text-primary hover:underline underline-offset-2"
+              >
+                Select all overdue ({overdueContacts.length})
+              </button>
+            )}
+
+            {/* Overdue section */}
+            {overdueContacts.length > 0 && (
+              <ContactSection
+                title="Overdue"
+                contacts={overdueContacts}
+                selected={selected}
+                onToggle={toggleContact}
+                accent="border-l-destructive/50"
+              />
+            )}
+
+            {/* Due this week section */}
+            {dueSoonContacts.length > 0 && (
+              <ContactSection
+                title="Due this week"
+                contacts={dueSoonContacts}
+                selected={selected}
+                onToggle={toggleContact}
+                accent="border-l-amber-400/50"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Sticky bottom bar */}
+        {selected.size > 0 && (
+          <div className="fixed bottom-0 left-52 right-0 border-t bg-background/95 backdrop-blur px-6 py-4 flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              {selected.size} contact{selected.size !== 1 ? "s" : ""} selected
+            </p>
+            <button
+              onClick={handleGenerate}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Zap className="size-4" />
+              Generate drafts for {selected.size} contact{selected.size !== 1 ? "s" : ""} →
+            </button>
+          </div>
+        )}
+        {/* Spacer for sticky bar */}
+        {selected.size > 0 && <div className="h-20" />}
+      </div>
+    );
+  }
+
+  // ── Review view ───────────────────────────────────────────────────────────
+
+  return (
+    <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => { setStep("select"); setError(null); }}
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          ← Back
+        </button>
+        <h1 className="text-2xl font-bold tracking-tight">Review drafts</h1>
+      </div>
+
+      {error && (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+
+      {generating ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+          <Loader2 className="size-8 animate-spin" />
+          <p className="text-sm">Generating personalized drafts…</p>
+        </div>
+      ) : (
+        <>
+          {/* Mark all unsent */}
+          {drafts.some((d) => !sentIds.has(d.contactId)) && (
+            <button
+              onClick={handleMarkAllSent}
+              className="text-xs text-primary hover:underline underline-offset-2"
+            >
+              Mark all unsent as sent
+            </button>
+          )}
+
+          <div className="space-y-6">
+            {drafts.map((draft) => {
+              const contact = contacts.find((c) => c.id === draft.contactId);
+              const isSent = sentIds.has(draft.contactId);
+              const subject = editedSubjects[draft.contactId] ?? draft.subject;
+              const body = editedBodies[draft.contactId] ?? draft.body;
+              const email = contact?.email ?? null;
+
+              const mailtoHref = email
+                ? `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+                : null;
+
+              return (
+                <div
+                  key={draft.contactId}
+                  className={cn(
+                    "rounded-lg border bg-card shadow-sm overflow-hidden",
+                    isSent && "opacity-60"
+                  )}
+                >
+                  {/* Draft card header */}
+                  <div className="px-4 py-3 border-b bg-muted/20 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-sm">
+                        {contact?.name ?? "Unknown"}
+                      </p>
+                      {email && (
+                        <p className="text-xs text-muted-foreground">{email}</p>
+                      )}
+                    </div>
+                    {isSent && (
+                      <span className="inline-flex items-center gap-1 text-xs text-green-700 font-medium">
+                        <CheckCircle2 className="size-3.5" />
+                        Sent
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Draft card body */}
+                  <div className="p-4 space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Subject
+                      </label>
+                      <input
+                        type="text"
+                        value={subject}
+                        onChange={(e) =>
+                          setEditedSubjects((prev) => ({
+                            ...prev,
+                            [draft.contactId]: e.target.value,
+                          }))
+                        }
+                        disabled={isSent}
+                        className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background disabled:opacity-50"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Body
+                      </label>
+                      <textarea
+                        value={body}
+                        rows={6}
+                        onChange={(e) =>
+                          setEditedBodies((prev) => ({
+                            ...prev,
+                            [draft.contactId]: e.target.value,
+                          }))
+                        }
+                        disabled={isSent}
+                        className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background resize-y disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Draft card footer */}
+                  <div className="px-4 py-3 border-t bg-muted/10 flex items-center justify-end gap-2">
+                    {mailtoHref ? (
+                      <a
+                        href={mailtoHref}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
+                      >
+                        Open in email ↗
+                      </a>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-border opacity-40 cursor-not-allowed"
+                      >
+                        Open in email ↗
+                      </button>
+                    )}
+                    {!isSent && (
+                      <button
+                        onClick={() => handleMarkSent(draft.contactId)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                      >
+                        Mark as sent
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Contact section ──────────────────────────────────────────────────────────
+
+function ContactSection({
+  title,
+  contacts,
+  selected,
+  onToggle,
+  accent,
+}: {
+  title: string;
+  contacts: DueContact[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  accent: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h2>
+      <div className="space-y-1">
+        {contacts.map((c) => (
+          <ContactRow
+            key={c.id}
+            contact={c}
+            checked={selected.has(c.id)}
+            onToggle={() => onToggle(c.id)}
+            accent={accent}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContactRow({
+  contact: c,
+  checked,
+  onToggle,
+  accent,
+}: {
+  contact: DueContact;
+  checked: boolean;
+  onToggle: () => void;
+  accent: string;
+}) {
+  const overdueLabel =
+    c.daysOverdue > 0
+      ? `${c.daysOverdue} day${c.daysOverdue !== 1 ? "s" : ""} overdue`
+      : c.daysOverdue === 0
+      ? "Due today"
+      : `Due in ${Math.abs(c.daysOverdue)} day${Math.abs(c.daysOverdue) !== 1 ? "s" : ""}`;
+
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 rounded-lg border bg-card cursor-pointer hover:bg-muted/20 transition-colors border-l-4",
+        accent,
+        checked && "bg-primary/5 border-primary/30"
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="size-4 rounded border-border accent-primary cursor-pointer"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm truncate">
+            {c.name ?? "Unknown"}
+          </span>
+          {c.company && (
+            <span className="text-xs text-muted-foreground truncate">
+              {c.company}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {overdueLabel} · {fmtDate(c.last_contacted_at)}
+        </p>
+      </div>
+      <span
+        className={cn(
+          "shrink-0 text-xs font-semibold rounded-full px-2 py-0.5",
+          tierCls(c.contact_tier)
+        )}
+      >
+        {tierLabel(c.contact_tier)}
+      </span>
+    </label>
+  );
+}
