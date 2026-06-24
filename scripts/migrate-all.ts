@@ -36,6 +36,14 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-new-fields.ts",
     description: "New fields — prospect_number, land_sqft, asset_description on properties; mailing_address on contacts",
   },
+  {
+    file: "migrate-owner-mailing.ts",
+    description: "Properties — owner_mailing_address column (from MDPA owner record)",
+  },
+  {
+    file: "migrate-activities.ts",
+    description: "Activities — activities table with RLS (contact + property touch-point log)",
+  },
 ];
 
 const hr = "─".repeat(60);

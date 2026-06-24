@@ -19,6 +19,11 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { PropertyContactsSection, type LinkedContact } from "./contacts-section";
+import { PropertyActivitySection, type ActivityContact } from "./activity-section";
+import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
+import { SunbizSection } from "./sunbiz-section";
+import { CoStarSection } from "./costar-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +49,7 @@ type Property = {
   land_sqft: number | null;
   asset_description: string | null;
   prospect_number: number | null;
+  owner_mailing_address: string | null;
   property_type: string | null;
   last_sale_date: string | null;
   last_sale_price: number | null;
@@ -69,6 +75,12 @@ function fmtDate(iso: string | null) {
     day: "numeric",
   });
 }
+// Returns true when an owner name looks like a Florida-registered corporate entity
+function isEntityName(name: string | null): boolean {
+  if (!name) return false;
+  return /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(name);
+}
+
 function folio(sourceUrl: string | null) {
   if (!sourceUrl?.startsWith("mdpa:")) return null;
   return sourceUrl.replace("mdpa:", "");
@@ -108,13 +120,26 @@ export default async function PropertyPage({
   if (error || !data) notFound();
   const p = data as Property;
 
-  const { data: fdData } = await supabase
-    .from("field_definitions")
-    .select("*")
-    .eq("entity_type", "property")
-    .order("created_at", { ascending: true });
+  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities] = await Promise.all([
+    supabase
+      .from("field_definitions")
+      .select("*")
+      .eq("entity_type", "property")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("contacts")
+      .select("id, name, email, phone, mailing_address, company, role, contact_tier")
+      .contains("linked_properties", [id])
+      .order("created_at", { ascending: true }),
+    fetchActivitiesByProperty(id),
+  ]);
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = p.custom_fields ?? {};
+  const linkedContacts = (linkedContactsData ?? []) as LinkedContact[];
+  const activityContacts: ActivityContact[] = linkedContacts.map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
 
   const folioNumber = folio(p.source_url);
 
@@ -346,6 +371,30 @@ export default async function PropertyPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Contacts */}
+      <PropertyContactsSection
+        propertyId={id}
+        initialContacts={linkedContacts}
+        ownerName={p.owner_name}
+        ownerMailingAddress={p.owner_mailing_address}
+        isMdpa={!!folioNumber}
+      />
+
+      {/* Sunbiz public records lookup — shown only for entity-named owners */}
+      {isEntityName(p.owner_name) && p.owner_name && (
+        <SunbizSection propertyId={id} ownerName={p.owner_name} />
+      )}
+
+      {/* CoStar owner enrichment via file upload */}
+      <CoStarSection propertyId={id} />
+
+      {/* Activity timeline */}
+      <PropertyActivitySection
+        propertyId={id}
+        linkedContacts={activityContacts}
+        initialActivities={propertyActivities as Activity[]}
+      />
 
       {/* Building composition */}
       {bc && (

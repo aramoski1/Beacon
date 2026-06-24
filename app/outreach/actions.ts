@@ -2,6 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { logActivity } from "@/lib/activity-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -304,5 +305,14 @@ export async function logOutreach(
     .eq("id", contactId);
 
   if (updateErr) return { error: updateErr.message };
+
+  // Fire-and-forget: log this send as an activity record
+  await logActivity(supabase, user.id, {
+    contact_id: contactId,
+    activity_type: "email",
+    activity_date: now,
+    notes: subject,
+  });
+
   return {};
 }

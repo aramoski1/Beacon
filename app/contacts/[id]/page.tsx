@@ -14,6 +14,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { ContactActivitySection } from "./activity-section";
+import { fetchActivitiesByContact, type Activity } from "@/app/activities/actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -139,6 +141,9 @@ export default async function ContactPage({
       .in("id", linkedIds);
     linkedProps = (propsData ?? []) as LinkedProperty[];
   }
+
+  // Fetch activities for this contact
+  const activities: Activity[] = await fetchActivitiesByContact(id);
 
   const days = daysSince(c.last_contacted_at);
   const outreachHistory = [...(c.outreach_history ?? [])].reverse();
@@ -362,6 +367,9 @@ export default async function ContactPage({
           )}
         </CardContent>
       </Card>
+
+      {/* Activity timeline */}
+      <ContactActivitySection contactId={id} initialActivities={activities} />
 
       {/* Outreach history */}
       <Card>

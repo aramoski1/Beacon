@@ -18,6 +18,10 @@ export async function createContact(
   const tierRaw = formData.get("contact_tier") as string | null;
   const contact_tier = tierRaw ? Number(tierRaw) : null;
 
+  // Optional single property ID to link on creation (e.g. from property detail page)
+  const linkedPropId = (formData.get("linked_properties") as string | null)?.trim();
+  const linked_properties = linkedPropId ? [linkedPropId] : [];
+
   // Collect custom fields — any key starting with "cf_"
   const custom_fields: Record<string, string | null> = {};
   for (const [key, value] of formData.entries()) {
@@ -39,6 +43,7 @@ export async function createContact(
       mailing_address: (formData.get("mailing_address") as string | null)?.trim() || null,
       contact_tier,
       client_status: (formData.get("client_status") as string | null) || null,
+      linked_properties,
       action_tags: [],
       outreach_history: [],
       custom_fields,

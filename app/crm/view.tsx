@@ -170,11 +170,13 @@ function EditableSelect({
 function EditableText({
   value,
   placeholder = "—",
+  displayValue,
   onSave,
   displayClassName,
 }: {
   value: string | null;
   placeholder?: string;
+  displayValue?: string | null;
   onSave: (v: string | null) => void;
   displayClassName?: string;
 }) {
@@ -204,13 +206,14 @@ function EditableText({
     );
   }
 
+  const shown = displayValue !== undefined ? displayValue : value;
   return (
     <span
       onClick={() => { setDraft(value ?? ""); setEditing(true); }}
       className={cn("cursor-text rounded px-1 py-0.5 -mx-1 hover:bg-muted/60 text-sm", displayClassName)}
       title="Click to edit"
     >
-      {value ?? <span className="text-muted-foreground">{placeholder}</span>}
+      {shown ?? <span className="text-muted-foreground">{placeholder}</span>}
     </span>
   );
 }
@@ -455,6 +458,7 @@ const tdCls = "px-3 py-2 align-middle border-b border-border/50";
 function PropertiesTable({
   rows,
   propContacts,
+  customDefs,
   onSave,
   deletingId,
   onDeleteRequest,
@@ -463,6 +467,7 @@ function PropertiesTable({
 }: {
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo>;
+  customDefs: FieldDefinition[];
   onSave: (id: string, field: string, value: unknown) => void;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
@@ -502,6 +507,9 @@ function PropertiesTable({
             <th className={thCls}>Notes</th>
             <th className={thCls}>Last Sale Date</th>
             <th className={thR}>Last Sale Value</th>
+            {customDefs.map((f) => (
+              <th key={f.id} className={thCls}>{f.field_name}</th>
+            ))}
             <th className={cn(thCls, "w-8")} />
           </tr>
         </thead>
@@ -512,7 +520,16 @@ function PropertiesTable({
               <tr key={p.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
                 {/* Prospect # */}
                 <td className={cn(tdR, "w-12 font-mono")}>
-                  {p.prospect_number != null ? `#${p.prospect_number}` : <span className="text-muted-foreground/30">—</span>}
+                  <EditableText
+                    value={p.prospect_number != null ? String(p.prospect_number) : null}
+                    displayValue={p.prospect_number != null ? `#${p.prospect_number}` : null}
+                    placeholder="—"
+                    displayClassName="tabular-nums"
+                    onSave={(v) => {
+                      const n = v ? parseInt(v.replace(/\D/g, ""), 10) : null;
+                      onSave(p.id, "prospect_number", n != null && !isNaN(n) ? n : null);
+                    }}
+                  />
                 </td>
 
                 {/* Ownership Entity */}
@@ -542,19 +559,42 @@ function PropertiesTable({
                         displayClassName="font-medium truncate max-w-[180px] block"
                         onSave={(v) => onSave(p.id, "address", v)}
                       />
-                      {p.city && <span className="text-muted-foreground">{p.city}</span>}
+                      <EditableText
+                        value={p.city}
+                        placeholder="city"
+                        displayClassName="text-muted-foreground"
+                        onSave={(v) => onSave(p.id, "city", v)}
+                      />
                     </div>
                   </div>
                 </td>
 
                 {/* Building SF */}
                 <td className={cn(tdR, "w-20")}>
-                  {p.size_sqft != null ? p.size_sqft.toLocaleString() : <span className="text-muted-foreground/30">—</span>}
+                  <EditableText
+                    value={p.size_sqft != null ? String(p.size_sqft) : null}
+                    displayValue={p.size_sqft != null ? p.size_sqft.toLocaleString() : null}
+                    placeholder="—"
+                    displayClassName="tabular-nums text-muted-foreground"
+                    onSave={(v) => {
+                      const n = v ? parseFloat(v.replace(/,/g, "")) : null;
+                      onSave(p.id, "size_sqft", n != null && !isNaN(n) ? n : null);
+                    }}
+                  />
                 </td>
 
                 {/* Land SF */}
                 <td className={cn(tdR, "w-20")}>
-                  {p.land_sqft != null ? p.land_sqft.toLocaleString() : <span className="text-muted-foreground/30">—</span>}
+                  <EditableText
+                    value={p.land_sqft != null ? String(p.land_sqft) : null}
+                    displayValue={p.land_sqft != null ? p.land_sqft.toLocaleString() : null}
+                    placeholder="—"
+                    displayClassName="tabular-nums text-muted-foreground"
+                    onSave={(v) => {
+                      const n = v ? parseFloat(v.replace(/,/g, "")) : null;
+                      onSave(p.id, "land_sqft", n != null && !isNaN(n) ? n : null);
+                    }}
+                  />
                 </td>
 
                 {/* Asset Description */}
@@ -608,14 +648,50 @@ function PropertiesTable({
                 </td>
 
                 {/* Last Sale Date */}
-                <td className={cn(tdCls, "whitespace-nowrap text-muted-foreground w-24")}>
-                  {fmtDate(p.last_sale_date) ?? <span className="text-muted-foreground/30">—</span>}
+                <td className={cn(tdCls, "whitespace-nowrap w-24")}>
+                  <EditableText
+                    value={p.last_sale_date ? p.last_sale_date.slice(0, 10) : null}
+                    displayValue={fmtDate(p.last_sale_date)}
+                    placeholder="—"
+                    displayClassName="text-muted-foreground whitespace-nowrap"
+                    onSave={(v) => onSave(p.id, "last_sale_date", v || null)}
+                  />
                 </td>
 
                 {/* Last Sale Value */}
                 <td className={cn(tdR, "w-24")}>
-                  {p.last_sale_price != null ? fmt(p.last_sale_price) : <span className="text-muted-foreground/30">—</span>}
+                  <EditableText
+                    value={p.last_sale_price != null ? String(p.last_sale_price) : null}
+                    displayValue={p.last_sale_price != null ? fmt(p.last_sale_price) : null}
+                    placeholder="—"
+                    displayClassName="tabular-nums text-muted-foreground"
+                    onSave={(v) => {
+                      const n = v ? parseFloat(v.replace(/[^0-9.]/g, "")) : null;
+                      onSave(p.id, "last_sale_price", n != null && !isNaN(n) ? n : null);
+                    }}
+                  />
                 </td>
+
+                {/* Custom fields */}
+                {customDefs.map((f) => {
+                  const slug = fieldSlug(f.field_name);
+                  const val = p.custom_fields?.[slug];
+                  return (
+                    <td key={f.id} className={cn(tdCls, "min-w-[100px] max-w-[160px]")}>
+                      <EditableText
+                        value={val != null ? String(val) : null}
+                        placeholder="—"
+                        displayClassName="truncate block text-muted-foreground"
+                        onSave={(v) =>
+                          onSave(p.id, "custom_fields", {
+                            ...(p.custom_fields ?? {}),
+                            [slug]: v,
+                          })
+                        }
+                      />
+                    </td>
+                  );
+                })}
 
                 {/* Delete */}
                 <td className={cn(tdCls, "w-8 text-right pr-2")}>
@@ -1291,12 +1367,12 @@ export default function CRMView() {
     setProperties(rows);
     setTotalProps(count ?? 0);
 
-    // Fetch linked contacts for this page and build a per-property map
+    // Fetch linked contacts + their most recent activity for this page of properties
     const idSet = new Set(rows.map((p) => p.id));
     if (idSet.size > 0) {
       const { data: contactData } = await supabase
         .from("contacts")
-        .select("id, name, email, mailing_address, outreach_history, linked_properties")
+        .select("id, name, email, mailing_address, linked_properties")
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .overlaps("linked_properties", [...idSet] as any)
         .order("created_at", { ascending: true });
@@ -1306,25 +1382,45 @@ export default function CRMView() {
         name: string | null;
         email: string | null;
         mailing_address: string | null;
-        outreach_history: Array<{ sent_at: string; method?: string; body?: string }> | null;
         linked_properties: string[] | null;
       };
 
+      const contacts = (contactData ?? []) as RawContact[];
+      const contactIds = contacts.map((c) => c.id);
+
+      // Fetch most recent activity per contact
+      type RawActivity = {
+        contact_id: string;
+        activity_date: string;
+        activity_type: string;
+        notes: string | null;
+      };
+      const activityMap = new Map<string, RawActivity>();
+      if (contactIds.length > 0) {
+        const { data: activityData } = await supabase
+          .from("activities")
+          .select("contact_id, activity_date, activity_type, notes")
+          .in("contact_id", contactIds)
+          .order("activity_date", { ascending: false });
+        for (const a of (activityData ?? []) as RawActivity[]) {
+          if (!activityMap.has(a.contact_id)) {
+            activityMap.set(a.contact_id, a);
+          }
+        }
+      }
+
       const map = new Map<string, LinkedContactInfo>();
-      for (const c of (contactData ?? []) as RawContact[]) {
+      for (const c of contacts) {
         for (const propId of c.linked_properties ?? []) {
           if (idSet.has(propId) && !map.has(propId)) {
-            const history = [...(c.outreach_history ?? [])].sort(
-              (a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()
-            );
-            const latest = history[0];
+            const a = activityMap.get(c.id);
             map.set(propId, {
               name: c.name,
               email: c.email,
               mailing_address: c.mailing_address,
-              last_activity_date: latest?.sent_at ?? null,
-              last_activity_type: latest?.method ?? null,
-              last_activity_notes: latest?.body ?? null,
+              last_activity_date: a?.activity_date ?? null,
+              last_activity_type: a?.activity_type ?? null,
+              last_activity_notes: a?.notes ?? null,
             });
           }
         }
@@ -1878,6 +1974,7 @@ export default function CRMView() {
                 <PropertiesTable
                   rows={properties}
                   propContacts={propContacts}
+                  customDefs={customPropertyDefs}
                   onSave={saveProp}
                   deletingId={deletingId}
                   onDeleteRequest={setDeletingId}

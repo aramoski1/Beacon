@@ -5,11 +5,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type IngestionStage =
-  | "gis_fetch"   // Miami-Dade GIS address search
-  | "mdpa_fetch"  // MDPA folio detail lookup
-  | "jina_fetch"  // Jina Reader web page fetch
-  | "ai_extract"  // Claude field extraction
-  | "db_save";    // Supabase upsert
+  | "gis_fetch"      // Miami-Dade GIS address search
+  | "mdpa_fetch"     // MDPA folio detail lookup
+  | "jina_fetch"     // Jina Reader web page fetch
+  | "ai_extract"     // Claude field extraction
+  | "db_save"        // Supabase upsert
+  | "sunbiz_search"  // Sunbiz entity name search
+  | "sunbiz_detail"; // Sunbiz corporation detail page fetch
 
 export type IngestionSourceType = "address" | "url" | "upload";
 

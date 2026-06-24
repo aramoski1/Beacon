@@ -19,6 +19,8 @@ export type PropertyPreview = ExtractedProperty & {
   address: string;
   city: string;
   strap: string;
+  // Owner mailing address read directly from OwnerInfos[0] — not AI-extracted
+  owner_mailing_address: string | null;
 };
 
 export type IngestResult =
@@ -82,6 +84,27 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
 
   const strap         = formData.get("strap")         as string;
   const siteAddress   = formData.get("siteAddress")   as string;
+
+  // Extract owner mailing address directly from raw MDPA JSON — no AI involved.
+  // Fields: OwnerInfos[0].MailingAddress1/2, City, State, ZipCode
+  function extractOwnerMailing(raw: unknown): string | null {
+    const ownerInfo = (raw as { OwnerInfos?: Array<{
+      MailingAddress1?: string;
+      MailingAddress2?: string;
+      City?: string;
+      State?: string;
+      ZipCode?: string;
+    }> })?.OwnerInfos?.[0];
+    if (!ownerInfo) return null;
+    const parts: string[] = [];
+    if (ownerInfo.MailingAddress1?.trim()) parts.push(ownerInfo.MailingAddress1.trim());
+    if (ownerInfo.MailingAddress2?.trim()) parts.push(ownerInfo.MailingAddress2.trim());
+    const cityState = ownerInfo.City?.trim() && ownerInfo.State?.trim()
+      ? `${ownerInfo.City.trim()}, ${ownerInfo.State.trim()}${ownerInfo.ZipCode?.trim() ? " " + ownerInfo.ZipCode.trim() : ""}`
+      : null;
+    if (cityState) parts.push(cityState);
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
 
   let detail: unknown;
   try {
@@ -160,6 +183,7 @@ STRICT RULES — violation is not permitted:
       address: siteAddress,
       city: "Miami",
       strap,
+      owner_mailing_address: extractOwnerMailing(detail),
     },
   };
 }
@@ -187,7 +211,11 @@ export async function saveIngestedProperty(
       preview,
       "tax_roll",
       `mdpa:${preview.strap}`,
-      { address: preview.address, city: preview.city }
+      {
+        address: preview.address,
+        city: preview.city,
+        owner_mailing_address: preview.owner_mailing_address ?? null,
+      }
     );
     return { id };
   } catch (e) {

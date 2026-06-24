@@ -214,27 +214,29 @@ export async function savePipelineProperty(
     address?: string | null;
     city?: string | null;
     submarket?: string | null;
+    owner_mailing_address?: string | null;
   }
 ): Promise<string> {
   const bc = fields.building_composition;
   return upsertProperty(supabase, userId, {
     owner_id: userId,
-    address:          overrides?.address    ?? fields.address,
-    city:             overrides?.city       ?? fields.city,
-    submarket:        overrides?.submarket  ?? fields.submarket,
-    owner_name:       fields.owner_name,
-    ownership_type:   fields.ownership_type,
-    size_sqft:        fields.size_sqft,
-    property_type:    fields.property_type,
-    last_sale_date:   fields.last_sale_date  || null,
-    last_sale_price:  fields.last_sale_price ?? null,
-    building_composition: bc as Record<string, unknown>,
-    land_sqft:        (bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null) ?? null,
-    asset_description: (bc?.dor_description as string | null | undefined) ?? null,
+    address:               overrides?.address    ?? fields.address,
+    city:                  overrides?.city       ?? fields.city,
+    submarket:             overrides?.submarket  ?? fields.submarket,
+    owner_name:            fields.owner_name,
+    ownership_type:        fields.ownership_type,
+    size_sqft:             fields.size_sqft,
+    property_type:         fields.property_type,
+    last_sale_date:        fields.last_sale_date  || null,
+    last_sale_price:       fields.last_sale_price ?? null,
+    building_composition:  bc as Record<string, unknown>,
+    land_sqft:             (bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null) ?? null,
+    asset_description:     (bc?.dor_description as string | null | undefined) ?? null,
+    owner_mailing_address: overrides?.owner_mailing_address ?? null,
     source,
-    source_url:       sourceUrl ?? null,
-    ingested_at:      new Date().toISOString(),
-    confidence_flags: fields.confidence_flags,
-    custom_fields:    fields.custom_fields ?? {},
+    source_url:            sourceUrl ?? null,
+    ingested_at:           new Date().toISOString(),
+    confidence_flags:      fields.confidence_flags,
+    custom_fields:         fields.custom_fields ?? {},
   });
 }

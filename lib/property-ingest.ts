@@ -69,6 +69,7 @@ export type PropertyPayload = {
   building_composition: Record<string, unknown> | null;
   land_sqft?: number | null;
   asset_description?: string | null;
+  owner_mailing_address?: string | null;
   source: string;
   source_url: string | null;
   ingested_at: string;
