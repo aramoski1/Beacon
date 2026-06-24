@@ -216,6 +216,7 @@ export async function savePipelineProperty(
     submarket?: string | null;
   }
 ): Promise<string> {
+  const bc = fields.building_composition;
   return upsertProperty(supabase, userId, {
     owner_id: userId,
     address:          overrides?.address    ?? fields.address,
@@ -227,7 +228,9 @@ export async function savePipelineProperty(
     property_type:    fields.property_type,
     last_sale_date:   fields.last_sale_date  || null,
     last_sale_price:  fields.last_sale_price ?? null,
-    building_composition: fields.building_composition as Record<string, unknown>,
+    building_composition: bc as Record<string, unknown>,
+    land_sqft:        (bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null) ?? null,
+    asset_description: (bc?.dor_description as string | null | undefined) ?? null,
     source,
     source_url:       sourceUrl ?? null,
     ingested_at:      new Date().toISOString(),

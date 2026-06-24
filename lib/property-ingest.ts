@@ -67,6 +67,8 @@ export type PropertyPayload = {
   last_sale_date: string | null;
   last_sale_price: number | null;
   building_composition: Record<string, unknown> | null;
+  land_sqft?: number | null;
+  asset_description?: string | null;
   source: string;
   source_url: string | null;
   ingested_at: string;

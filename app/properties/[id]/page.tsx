@@ -41,6 +41,9 @@ type Property = {
   owner_name: string | null;
   ownership_type: string | null;
   size_sqft: number | null;
+  land_sqft: number | null;
+  asset_description: string | null;
+  prospect_number: number | null;
   property_type: string | null;
   last_sale_date: string | null;
   last_sale_price: number | null;
@@ -143,6 +146,12 @@ export default async function PropertyPage({
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1 flex-wrap">
             <MapPin className="size-3.5 shrink-0" />
             {[p.city, p.submarket].filter(Boolean).join(" · ") || "Unknown location"}
+            {p.prospect_number != null && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="font-mono text-xs">#{p.prospect_number}</span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
@@ -273,10 +282,22 @@ export default async function PropertyPage({
             />
             <Field
               icon={<Ruler className="size-4" />}
-              label="Building area"
+              label="Building SF"
               value={p.size_sqft != null ? `${fmt(p.size_sqft)} sqft` : "—"}
               flagReason={flagMap.get("size_sqft")}
             />
+            <Field
+              icon={<Ruler className="size-4" />}
+              label="Land SF"
+              value={p.land_sqft != null ? `${fmt(p.land_sqft)} sqft` : "—"}
+            />
+            {p.asset_description && (
+              <Field
+                icon={<Building2 className="size-4" />}
+                label="Asset description"
+                value={p.asset_description}
+              />
+            )}
             <Field
               icon={<Calendar className="size-4" />}
               label="Last sale date"

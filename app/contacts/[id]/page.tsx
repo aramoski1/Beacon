@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import {
   Mail,
+  MapPin,
   Phone,
   Building2,
   User,
@@ -30,6 +31,7 @@ type Contact = {
   role: string | null;
   email: string | null;
   phone: string | null;
+  mailing_address: string | null;
   contact_tier: number | null;
   client_status: string | null;
   linked_properties: string[] | null;
@@ -238,7 +240,13 @@ export default async function ContactPage({
               </a>
             </div>
           )}
-          {!c.role && !c.email && !c.phone && (
+          {c.mailing_address && (
+            <div className="flex items-start gap-2 text-sm">
+              <MapPin className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+              <span className="font-medium">{c.mailing_address}</span>
+            </div>
+          )}
+          {!c.role && !c.email && !c.phone && !c.mailing_address && (
             <p className="text-sm text-muted-foreground">No contact info on file.</p>
           )}
         </CardContent>

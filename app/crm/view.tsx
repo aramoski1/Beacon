@@ -19,14 +19,27 @@ type Property = {
   owner_name: string | null;
   ownership_type: string | null;
   size_sqft: number | null;
+  land_sqft: number | null;
+  asset_description: string | null;
+  prospect_number: number | null;
   size_category: string | null;
   geographic_category: string | null;
   property_type: string | null;
+  last_sale_date: string | null;
   last_sale_price: number | null;
   source: string | null;
   source_url: string | null;
   ingested_at: string | null;
   custom_fields: Record<string, unknown> | null;
+};
+
+type LinkedContactInfo = {
+  name: string | null;
+  email: string | null;
+  mailing_address: string | null;
+  last_activity_date: string | null;
+  last_activity_type: string | null;
+  last_activity_notes: string | null;
 };
 
 type Contact = {
@@ -35,6 +48,7 @@ type Contact = {
   company: string | null;
   email: string | null;
   phone: string | null;
+  mailing_address: string | null;
   contact_tier: number | null;
   client_status: string | null;
   action_tags: string[];
@@ -440,7 +454,7 @@ const tdCls = "px-3 py-2 align-middle border-b border-border/50";
 
 function PropertiesTable({
   rows,
-  customDefs,
+  propContacts,
   onSave,
   deletingId,
   onDeleteRequest,
@@ -448,7 +462,7 @@ function PropertiesTable({
   onDeleteCancel,
 }: {
   rows: Property[];
-  customDefs: FieldDefinition[];
+  propContacts: Map<string, LinkedContactInfo>;
   onSave: (id: string, field: string, value: unknown) => void;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
@@ -467,171 +481,165 @@ function PropertiesTable({
     );
   }
 
+  const thR = cn(thCls, "text-right");
+  const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
+
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
+      <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={thCls}>Address</th>
-            <th className={thCls}>Owner</th>
-            <th className={thCls}>Type</th>
-            <th className={thCls}>Ownership</th>
-            <th className={thCls}>Size cat</th>
-            <th className={thCls}>Geo cat</th>
-            <th className={thCls}>Sqft</th>
-            <th className={thCls}>Last sale</th>
-            <th className={thCls}>Source</th>
-            {customDefs.map((def) => (
-              <th key={def.id} className={thCls}>
-                {def.field_name}
-                {def.fill_mode === "extract" && (
-                  <span className="ml-1 text-muted-foreground/50 font-normal" title="Auto-extracted by AI">✦</span>
-                )}
-              </th>
-            ))}
-            <th className={thCls + " w-8"} />
+            <th className={cn(thR, "w-12")}>Prospect #</th>
+            <th className={thCls}>Ownership Entity</th>
+            <th className={thCls}>Property Address</th>
+            <th className={thR}>Building SF</th>
+            <th className={thR}>Land SF</th>
+            <th className={thCls}>Asset Description</th>
+            <th className={thCls}>Owner Contact</th>
+            <th className={thCls}>Owner Address</th>
+            <th className={thCls}>Owner Email</th>
+            <th className={thCls}>Activity Date/Type</th>
+            <th className={thCls}>Notes</th>
+            <th className={thCls}>Last Sale Date</th>
+            <th className={thR}>Last Sale Value</th>
+            <th className={cn(thCls, "w-8")} />
           </tr>
         </thead>
         <tbody>
-          {rows.map((p) => (
-            <tr key={p.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
-              <td className={tdCls}>
-                <div className="flex items-start gap-1.5 min-w-0">
-                  <Link
-                    href={`/properties/${p.id}`}
-                    className="shrink-0 mt-1 text-muted-foreground hover:text-primary"
-                    title="Open property"
-                  >
-                    <ExternalLink className="size-3" />
-                  </Link>
-                  <div className="min-w-0 flex-1">
-                    <EditableText
-                      value={p.address}
-                      placeholder="No address"
-                      displayClassName="font-medium block truncate max-w-48"
-                      onSave={(v) => onSave(p.id, "address", v)}
-                    />
-                    <EditableText
-                      value={p.city}
-                      placeholder="City"
-                      displayClassName="text-xs text-muted-foreground"
-                      onSave={(v) => onSave(p.id, "city", v)}
-                    />
-                  </div>
-                </div>
-              </td>
-              <td className={tdCls}>
-                <EditableText
-                  value={p.owner_name}
-                  placeholder="—"
-                  onSave={(v) => onSave(p.id, "owner_name", v)}
-                />
-              </td>
-              <td className={cn(tdCls, "min-w-28")}>
-                <EditableSelect
-                  value={p.property_type}
-                  options={PROP_TYPES}
-                  onSave={(v) => onSave(p.id, "property_type", v)}
-                />
-              </td>
-              <td className={cn(tdCls, "min-w-36")}>
-                <EditableSelect
-                  value={p.ownership_type}
-                  options={OWNERSHIP_TYPES}
-                  onSave={(v) => onSave(p.id, "ownership_type", v)}
-                />
-              </td>
-              <td className={cn(tdCls, "min-w-28")}>
-                <EditableText
-                  value={p.size_category}
-                  onSave={(v) => onSave(p.id, "size_category", v)}
-                />
-              </td>
-              <td className={cn(tdCls, "min-w-28")}>
-                <EditableText
-                  value={p.geographic_category}
-                  onSave={(v) => onSave(p.id, "geographic_category", v)}
-                />
-              </td>
-              <td className={cn(tdCls, "min-w-24")}>
-                <EditableText
-                  value={p.size_sqft != null ? String(p.size_sqft) : null}
-                  placeholder="—"
-                  displayClassName="text-muted-foreground"
-                  onSave={(v) => {
-                    const n = v ? Number(v.replace(/[^0-9.]/g, "")) : NaN;
-                    onSave(p.id, "size_sqft", isNaN(n) ? null : n);
-                  }}
-                />
-              </td>
-              <td className={cn(tdCls, "min-w-24")}>
-                <EditableText
-                  value={p.last_sale_price != null ? String(p.last_sale_price) : null}
-                  placeholder="—"
-                  displayClassName="text-muted-foreground"
-                  onSave={(v) => {
-                    const n = v ? Number(v.replace(/[^0-9.]/g, "")) : NaN;
-                    onSave(p.id, "last_sale_price", isNaN(n) ? null : n);
-                  }}
-                />
-              </td>
-              <td className={tdCls}>
-                <div className="flex items-center gap-1.5">
-                  <Badge variant="outline" className="text-xs whitespace-nowrap">
-                    {p.source === "tax_roll" ? "Tax roll" : p.source === "url" ? "URL" : p.source ?? "—"}
-                  </Badge>
-                  {p.source === "url" && p.source_url && (
-                    <a href={p.source_url} target="_blank" rel="noopener noreferrer" title={p.source_url}>
-                      <ExternalLink className="size-3 text-muted-foreground hover:text-foreground" />
-                    </a>
-                  )}
-                </div>
-              </td>
-              {customDefs.map((def) => {
-                const slug = fieldSlug(def.field_name);
-                const rawVal = p.custom_fields?.[slug];
-                const strVal = rawVal != null ? String(rawVal) : null;
-                return (
-                  <td key={def.id} className={cn(tdCls, "min-w-32")}>
-                    <EditableText
-                      value={strVal}
-                      placeholder="—"
-                      onSave={(v) =>
-                        onSave(p.id, "custom_fields", {
-                          ...(p.custom_fields ?? {}),
-                          [slug]: v,
-                        })
-                      }
-                    />
-                  </td>
-                );
-              })}
-              <td className={cn(tdCls, "w-8 text-right pr-2")}>
-                {deletingId === p.id ? (
-                  <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
-                    <button
-                      onClick={() => onDeleteConfirm(p.id)}
-                      className="font-medium hover:underline"
+          {rows.map((p) => {
+            const c = propContacts.get(p.id);
+            return (
+              <tr key={p.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
+                {/* Prospect # */}
+                <td className={cn(tdR, "w-12 font-mono")}>
+                  {p.prospect_number != null ? `#${p.prospect_number}` : <span className="text-muted-foreground/30">—</span>}
+                </td>
+
+                {/* Ownership Entity */}
+                <td className={cn(tdCls, "min-w-[120px]")}>
+                  <EditableText
+                    value={p.owner_name}
+                    placeholder="—"
+                    displayClassName="truncate max-w-[140px] block"
+                    onSave={(v) => onSave(p.id, "owner_name", v)}
+                  />
+                </td>
+
+                {/* Property Address */}
+                <td className={cn(tdCls, "min-w-[160px]")}>
+                  <div className="flex items-start gap-1.5">
+                    <Link
+                      href={`/properties/${p.id}`}
+                      className="shrink-0 mt-0.5 text-muted-foreground hover:text-primary"
+                      title="Open property"
                     >
-                      Delete
+                      <ExternalLink className="size-3" />
+                    </Link>
+                    <div className="min-w-0">
+                      <EditableText
+                        value={p.address}
+                        placeholder="No address"
+                        displayClassName="font-medium truncate max-w-[180px] block"
+                        onSave={(v) => onSave(p.id, "address", v)}
+                      />
+                      {p.city && <span className="text-muted-foreground">{p.city}</span>}
+                    </div>
+                  </div>
+                </td>
+
+                {/* Building SF */}
+                <td className={cn(tdR, "w-20")}>
+                  {p.size_sqft != null ? p.size_sqft.toLocaleString() : <span className="text-muted-foreground/30">—</span>}
+                </td>
+
+                {/* Land SF */}
+                <td className={cn(tdR, "w-20")}>
+                  {p.land_sqft != null ? p.land_sqft.toLocaleString() : <span className="text-muted-foreground/30">—</span>}
+                </td>
+
+                {/* Asset Description */}
+                <td className={cn(tdCls, "min-w-[120px]")}>
+                  <EditableText
+                    value={p.asset_description}
+                    placeholder="—"
+                    displayClassName="truncate max-w-[150px] block text-muted-foreground"
+                    onSave={(v) => onSave(p.id, "asset_description", v)}
+                  />
+                </td>
+
+                {/* Owner Contact */}
+                <td className={cn(tdCls, "min-w-[100px]")}>
+                  {c?.name
+                    ? <span className="truncate max-w-[120px] block font-medium">{c.name}</span>
+                    : <span className="text-muted-foreground/30 italic">—</span>}
+                </td>
+
+                {/* Owner Address */}
+                <td className={cn(tdCls, "min-w-[120px]")}>
+                  {c?.mailing_address
+                    ? <span className="truncate max-w-[150px] block text-muted-foreground">{c.mailing_address}</span>
+                    : <span className="text-muted-foreground/30 italic">—</span>}
+                </td>
+
+                {/* Owner Email */}
+                <td className={cn(tdCls, "min-w-[130px]")}>
+                  {c?.email
+                    ? <a href={`mailto:${c.email}`} className="truncate max-w-[160px] block text-primary hover:underline underline-offset-2">{c.email}</a>
+                    : <span className="text-muted-foreground/30 italic">—</span>}
+                </td>
+
+                {/* Activity Date/Type */}
+                <td className={cn(tdCls, "min-w-[110px] whitespace-nowrap")}>
+                  {c?.last_activity_date ? (
+                    <span className="text-muted-foreground">
+                      {fmtDate(c.last_activity_date)}
+                      {c.last_activity_type && (
+                        <span className="ml-1 text-muted-foreground/60 capitalize">· {c.last_activity_type}</span>
+                      )}
+                    </span>
+                  ) : <span className="text-muted-foreground/30 italic">—</span>}
+                </td>
+
+                {/* Notes */}
+                <td className={cn(tdCls, "min-w-[120px] max-w-[200px]")}>
+                  {c?.last_activity_notes
+                    ? <span className="line-clamp-2 text-muted-foreground">{c.last_activity_notes}</span>
+                    : <span className="text-muted-foreground/30 italic">—</span>}
+                </td>
+
+                {/* Last Sale Date */}
+                <td className={cn(tdCls, "whitespace-nowrap text-muted-foreground w-24")}>
+                  {fmtDate(p.last_sale_date) ?? <span className="text-muted-foreground/30">—</span>}
+                </td>
+
+                {/* Last Sale Value */}
+                <td className={cn(tdR, "w-24")}>
+                  {p.last_sale_price != null ? fmt(p.last_sale_price) : <span className="text-muted-foreground/30">—</span>}
+                </td>
+
+                {/* Delete */}
+                <td className={cn(tdCls, "w-8 text-right pr-2")}>
+                  {deletingId === p.id ? (
+                    <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
+                      <button onClick={() => onDeleteConfirm(p.id)} className="font-medium hover:underline">Delete</button>
+                      <span className="text-muted-foreground">·</span>
+                      <button onClick={onDeleteCancel} className="text-muted-foreground hover:text-foreground">
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onDeleteRequest(p.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                      title="Delete property"
+                    >
+                      <Trash2 className="size-3.5" />
                     </button>
-                    <span className="text-muted-foreground">·</span>
-                    <button onClick={onDeleteCancel} className="text-muted-foreground hover:text-foreground">
-                      <X className="size-3" />
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => onDeleteRequest(p.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                    title="Delete property"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1169,6 +1177,7 @@ export default function CRMView() {
 
   // ── Data state ─────────────────────────────────────────────────────────────
   const [properties, setProperties] = useState<Property[]>([]);
+  const [propContacts, setPropContacts] = useState<Map<string, LinkedContactInfo>>(new Map());
   const [leases, setLeases] = useState<LeaseAbstract[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [customPropertyDefs, setCustomPropertyDefs] = useState<FieldDefinition[]>([]);
@@ -1278,8 +1287,53 @@ export default function CRMView() {
     }
 
     const { data, count } = await q;
-    setProperties(data ?? []);
+    const rows: Property[] = data ?? [];
+    setProperties(rows);
     setTotalProps(count ?? 0);
+
+    // Fetch linked contacts for this page and build a per-property map
+    const idSet = new Set(rows.map((p) => p.id));
+    if (idSet.size > 0) {
+      const { data: contactData } = await supabase
+        .from("contacts")
+        .select("id, name, email, mailing_address, outreach_history, linked_properties")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .overlaps("linked_properties", [...idSet] as any)
+        .order("created_at", { ascending: true });
+
+      type RawContact = {
+        id: string;
+        name: string | null;
+        email: string | null;
+        mailing_address: string | null;
+        outreach_history: Array<{ sent_at: string; method?: string; body?: string }> | null;
+        linked_properties: string[] | null;
+      };
+
+      const map = new Map<string, LinkedContactInfo>();
+      for (const c of (contactData ?? []) as RawContact[]) {
+        for (const propId of c.linked_properties ?? []) {
+          if (idSet.has(propId) && !map.has(propId)) {
+            const history = [...(c.outreach_history ?? [])].sort(
+              (a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()
+            );
+            const latest = history[0];
+            map.set(propId, {
+              name: c.name,
+              email: c.email,
+              mailing_address: c.mailing_address,
+              last_activity_date: latest?.sent_at ?? null,
+              last_activity_type: latest?.method ?? null,
+              last_activity_notes: latest?.body ?? null,
+            });
+          }
+        }
+      }
+      setPropContacts(map);
+    } else {
+      setPropContacts(new Map());
+    }
+
     setPropsLoading(false);
   }, [propPage, propFilters, activeSearch]);
 
@@ -1823,7 +1877,7 @@ export default function CRMView() {
               <div className={cn(propsLoading && "opacity-60 pointer-events-none")}>
                 <PropertiesTable
                   rows={properties}
-                  customDefs={customPropertyDefs}
+                  propContacts={propContacts}
                   onSave={saveProp}
                   deletingId={deletingId}
                   onDeleteRequest={setDeletingId}

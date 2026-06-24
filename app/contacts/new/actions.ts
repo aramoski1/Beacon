@@ -36,6 +36,7 @@ export async function createContact(
       phone: (formData.get("phone") as string | null)?.trim() || null,
       company: (formData.get("company") as string | null)?.trim() || null,
       role: (formData.get("role") as string | null)?.trim() || null,
+      mailing_address: (formData.get("mailing_address") as string | null)?.trim() || null,
       contact_tier,
       client_status: (formData.get("client_status") as string | null) || null,
       action_tags: [],

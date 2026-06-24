@@ -124,6 +124,18 @@ export default function NewContactPage() {
           </select>
         </div>
 
+        {/* Mailing address */}
+        <div className="space-y-1.5">
+          <Label htmlFor="mailing_address">Mailing address</Label>
+          <Input
+            id="mailing_address"
+            name="mailing_address"
+            type="text"
+            placeholder="123 Main St, Miami, FL 33101"
+            disabled={isPending}
+          />
+        </div>
+
         {/* Status */}
         <div className="space-y-1.5">
           <Label htmlFor="client_status">Status</Label>

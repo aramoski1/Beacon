@@ -32,6 +32,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-ingestion-errors.ts",
     description: "Ingestion errors — error log table + RLS",
   },
+  {
+    file: "migrate-new-fields.ts",
+    description: "New fields — prospect_number, land_sqft, asset_description on properties; mailing_address on contacts",
+  },
 ];
 
 const hr = "─".repeat(60);
