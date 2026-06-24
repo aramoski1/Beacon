@@ -11,6 +11,9 @@ import {
   ExternalLink,
   Info,
   ArrowLeft,
+  CheckSquare,
+  Square,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +29,7 @@ import {
   type PropertyPreview,
   type IngestResult,
 } from "./actions";
+import type { SunbizPerson } from "@/lib/sunbiz";
 import { createClient } from "@/lib/supabase/client";
 import { fetchFieldDefs, fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 
@@ -79,12 +83,15 @@ function PropertyPreviewCard({
   saving,
 }: {
   preview: PropertyPreview;
-  onSave: (merged: PropertyPreview) => void;
+  onSave: (merged: PropertyPreview, sunbizPersons: SunbizPerson[]) => void;
   onDiscard: () => void;
   saving: boolean;
 }) {
   const [customDefs, setCustomDefs] = useState<FieldDefinition[]>([]);
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
+  const [selectedSunbizPersons, setSelectedSunbizPersons] = useState<Set<number>>(
+    () => new Set(preview.sunbiz_result?.persons.map((_, i) => i) ?? [])
+  );
 
   useEffect(() => {
     const supabase = createClient();
@@ -95,6 +102,9 @@ function PropertyPreviewCard({
   const manualDefs  = customDefs.filter(f => f.fill_mode === "manual");
 
   function handleSaveClick() {
+    const sunbizPersons = (preview.sunbiz_result?.persons ?? []).filter((_, i) =>
+      selectedSunbizPersons.has(i)
+    );
     const merged: PropertyPreview = {
       ...preview,
       custom_fields: {
@@ -109,7 +119,16 @@ function PropertyPreviewCard({
         ),
       },
     };
-    onSave(merged);
+    onSave(merged, sunbizPersons);
+  }
+
+  function toggleSunbizPerson(i: number) {
+    setSelectedSunbizPersons(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
   }
 
   const flagMap = new Map(preview.confidence_flags.map((f) => [f.field, f.reason]));
@@ -274,6 +293,65 @@ function PropertyPreviewCard({
             </div>
           )}
 
+          {/* Sunbiz error — shown when the lookup was attempted but failed */}
+          {preview.sunbiz_error && !preview.sunbiz_result && (
+            <div className="border-t pt-3">
+              <div className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-50 dark:bg-yellow-950/20 px-3 py-2 text-xs text-yellow-800 dark:text-yellow-400">
+                <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-medium">Sunbiz auto-lookup: </span>
+                  {preview.sunbiz_error} You can still run it manually from the property detail page.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Sunbiz persons — auto-found for entity owners */}
+          {preview.sunbiz_result && preview.sunbiz_result.persons.length > 0 && (
+            <div className="border-t pt-3 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Users className="size-3.5" />
+                Florida Sunbiz — {preview.sunbiz_result.entity_name}
+                <span className="ml-1 font-normal normal-case text-muted-foreground/70">
+                  · {preview.sunbiz_result.status.charAt(0).toUpperCase() + preview.sunbiz_result.status.slice(1).toLowerCase()}
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Save as contacts tagged{" "}
+                <span className="font-mono">sunbiz</span> +{" "}
+                <span className="font-mono">unverified</span>. Uncheck any you don&apos;t want.
+              </p>
+              <div className="space-y-1.5">
+                {preview.sunbiz_result.persons.map((person, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors cursor-pointer ${
+                      selectedSunbizPersons.has(i)
+                        ? "border-primary/40 bg-primary/5"
+                        : "hover:bg-muted/30"
+                    }`}
+                    onClick={() => toggleSunbizPerson(i)}
+                  >
+                    <span className="shrink-0 mt-0.5">
+                      {selectedSunbizPersons.has(i) ? (
+                        <CheckSquare className="size-4 text-primary" />
+                      ) : (
+                        <Square className="size-4 text-muted-foreground" />
+                      )}
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium">{person.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {person.title}
+                        {person.address ? ` · ${person.address}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Custom fields */}
           {(extractDefs.length > 0 || manualDefs.length > 0) && (
             <div className="border-t pt-3 space-y-3">
@@ -420,11 +498,11 @@ export default function NewPropertyPage() {
     });
   }
 
-  // Step 2 confirmed — save (preview card passes merged custom fields)
-  function handleSave(mergedPreview: PropertyPreview) {
+  // Step 2 confirmed — save (preview card passes merged custom fields + selected Sunbiz persons)
+  function handleSave(mergedPreview: PropertyPreview, sunbizPersons: SunbizPerson[]) {
     setError(null);
     startTransition(async () => {
-      const result = await saveIngestedProperty(mergedPreview);
+      const result = await saveIngestedProperty(mergedPreview, sunbizPersons);
       if ("error" in result) {
         setError(result.error);
       } else {

@@ -1,18 +1,16 @@
 // Florida Division of Corporations public records scraper.
-// search.sunbiz.org has no API — this scrapes the public HTML search.
-// Two-step: search by entity name → fetch detail page → Claude extracts persons.
+// search.sunbiz.org has no API — this scrapes the public HTML.
+// URL format as of June 2026: GET /SearchResults/EntityName/{name}/Page1
+// (old SearchResults?inquiryType=...&searchTerm=... GET endpoint is gone;
+//  new ByName POST endpoint returns a redirect to the path-based GET URL).
 
 import Anthropic from "@anthropic-ai/sdk";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 const SUNBIZ_BASE = "https://search.sunbiz.org";
-
-// Polite user-agent for a public government website
-const FETCH_HEADERS: Record<string, string> = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.5",
-};
 
 // ─── HTML → plain text ────────────────────────────────────────────────────────
 
@@ -21,6 +19,7 @@ function htmlToText(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -39,7 +38,7 @@ export interface SunbizMatch {
   entity_name: string;
   document_number: string;
   status: string;
-  detail_path: string;
+  detail_path: string; // full URL path+query for the SearchResultDetail page
 }
 
 export interface SunbizPerson {
@@ -54,64 +53,104 @@ export interface SunbizResult {
   status: string;
   principal_address: string | null;
   mailing_address: string | null;
-  persons: SunbizPerson[]; // all listed people incl. registered agent
+  persons: SunbizPerson[];
   source_url: string;
 }
 
-// ─── HTTP ─────────────────────────────────────────────────────────────────────
+export interface SunbizLookup {
+  result: SunbizResult | null;
+  matches_found: number;
+}
+
+// ─── Search URL construction ──────────────────────────────────────────────────
+// Sunbiz now uses a path-based results URL: /SearchResults/EntityName/{name}/Page1
+// The searchNameOrder param is the name uppercased, de-punctuated, without common
+// entity-type suffixes — used by Sunbiz as the initial alpha sort cursor.
+
+function buildSearchUrl(entityName: string): string {
+  const encoded = encodeURIComponent(entityName);
+  // searchNameOrder must strip the entity-type suffix and all punctuation.
+  // Strip periods first so "L.L.C." → "LLC" before the suffix removal pattern.
+  const order = entityName
+    .toUpperCase()
+    .replace(/\./g, "")
+    .replace(/[,\s]+(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\s*$/i, "")
+    .replace(/[^A-Z0-9]/g, "");
+  return (
+    `${SUNBIZ_BASE}/Inquiry/CorporationSearch/SearchResults/EntityName/${encoded}/Page1` +
+    `?searchNameOrder=${order}`
+  );
+}
+
+// ─── HTTP fetch ───────────────────────────────────────────────────────────────
+// Uses curl instead of Node.js native fetch.
+// Sunbiz is behind Cloudflare's TLS fingerprint check: Node.js (OpenSSL) gets
+// a 403 challenge page, while curl (Schannel on Windows) passes through cleanly.
 
 export async function fetchSunbizHtml(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: FETCH_HEADERS,
-    redirect: "follow",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) {
-    throw new Error(`Sunbiz returned HTTP ${res.status} fetching ${url}`);
+  const { stdout } = await execFileAsync(
+    "curl",
+    [
+      "-s",                 // silent — no progress bar
+      "-L",                 // follow redirects
+      "-f",                 // fail on HTTP >= 400 (throws non-zero exit code)
+      "--max-time", "20",
+      "--compressed",       // accept gzip/brotli and decompress
+      "-A",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "-H", "Accept-Language: en-US,en;q=0.5",
+      url,
+    ],
+    { maxBuffer: 10 * 1024 * 1024 }
+  );
+
+  if (!stdout?.trim()) {
+    throw new Error(`Sunbiz returned empty response for ${url}`);
   }
-  return res.text();
+  return stdout;
 }
 
 // ─── Search results parser ────────────────────────────────────────────────────
-// Splits by </tr> and looks for GetCorpDetails hrefs in each row.
+// Results are in a <table> with <tbody><tr> rows, each containing:
+//   <td class="large-width">  <a href="/...SearchResultDetail?..." title="Go to Detail Screen">NAME</a>
+//   <td class="medium-width"> DOCUMENT_NUMBER
+//   <td class="small-width">  STATUS
 
 export function parseSearchResults(html: string): SunbizMatch[] {
   const results: SunbizMatch[] = [];
   const rows = html.split("</tr>");
 
   for (const row of rows) {
-    if (!row.includes("GetCorpDetails")) continue;
+    if (!row.includes("SearchResultDetail")) continue;
 
-    // Extract document number from the href — appears as ?id=XXXXX or &id=XXXXX
-    const idMatch = row.match(/[?&](?:amp;)?id=([A-Z0-9]+)/i);
-    if (!idMatch) continue;
-    const documentNumber = idMatch[1].trim();
-    if (!documentNumber) continue;
+    // href — HTML entities decoded
+    const hrefMatch = row.match(
+      /href="(\/Inquiry\/CorporationSearch\/SearchResultDetail[^"]+)"/i
+    );
+    if (!hrefMatch) continue;
+    const detailPath = hrefMatch[1].replace(/&amp;/g, "&");
 
-    // Entity name is the link text inside the GetCorpDetails anchor
-    const nameMatch = row.match(/GetCorpDetails[^>]*>([^<]+)<\/a>/i);
+    // Entity name between title="Go to Detail Screen">...</a>
+    const nameMatch = row.match(/title="Go to Detail Screen">([^<]+)<\/a>/i);
     if (!nameMatch) continue;
     const entityName = nameMatch[1].trim();
-    if (!entityName) continue;
 
-    // Status appears as a bare word in the row cells
-    const statusMatch = row.match(
-      /\b(ACTIVE|INACTIVE|DISSOLVED|REVOKED|ADMIN DISSOLVED|ADMIN REVOKED)\b/i
-    );
-    const status = statusMatch ? statusMatch[1].toUpperCase() : "UNKNOWN";
+    // Document number in <td class="medium-width">
+    const docMatch = row.match(/<td[^>]*class="medium-width"[^>]*>\s*([^<]+?)\s*<\/td>/i);
+    if (!docMatch) continue;
+    const documentNumber = docMatch[1].trim();
 
-    results.push({
-      entity_name: entityName,
-      document_number: documentNumber,
-      status,
-      detail_path: `/Inquiry/CorporationSearch/GetCorpDetails?id=${documentNumber}`,
-    });
+    // Status in <td class="small-width">
+    const statusMatch = row.match(/<td[^>]*class="small-width"[^>]*>\s*([^<]+?)\s*<\/td>/i);
+    const status = statusMatch ? statusMatch[1].trim().toUpperCase() : "UNKNOWN";
+
+    results.push({ entity_name: entityName, document_number: documentNumber, status, detail_path: detailPath });
   }
-
   return results;
 }
 
-// Pick the best match: prefer ACTIVE, then closest name to search term.
+// Pick best match: prefer ACTIVE, then closest name to the search term.
 function pickBestMatch(
   matches: SunbizMatch[],
   searchTerm: string
@@ -119,11 +158,7 @@ function pickBestMatch(
   if (matches.length === 0) return null;
 
   const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[.,]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    s.toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
   const target = norm(searchTerm);
 
   const scored = matches.map((m) => {
@@ -155,7 +190,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       status: { type: "string" },
       principal_address: {
         type: ["string", "null"],
-        description: "Principal/registered office address of the entity, if listed",
+        description: "Principal/registered office address, if listed",
       },
       mailing_address: {
         type: ["string", "null"],
@@ -164,9 +199,9 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       persons: {
         type: "array",
         description:
-          "All listed people: set title to 'Registered Agent' for the registered agent, " +
-          "expand abbreviated Sunbiz titles (MGR→Manager, P→President, VP→Vice President, " +
-          "T→Treasurer, S→Secretary, D→Director, AUT→Authorized Person, MGRM→Manager/Member). " +
+          "All listed people. Set title to 'Registered Agent' for the registered agent. " +
+          "Expand abbreviated titles: MGR→Manager, P→President, VP→Vice President, " +
+          "T→Treasurer, S→Secretary, D→Director, AUT→Authorized Person, MGRM→Manager/Member. " +
           "Combine multi-line addresses into one string.",
         items: {
           type: "object",
@@ -217,24 +252,11 @@ async function claudeExtract(pageText: string): Promise<ExtractOutput> {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-export interface SunbizLookup {
-  result: SunbizResult | null;   // null = no match found
-  matches_found: number;          // total results from search page
-}
-
 export async function searchAndExtractSunbiz(
   entityName: string
 ): Promise<SunbizLookup> {
-  // 1. Search by entity name
-  const searchUrl =
-    `${SUNBIZ_BASE}/Inquiry/CorporationSearch/SearchResults` +
-    `?inquiryType=EntityName` +
-    `&inquiryDirectionType=ForwardList` +
-    `&searchNameOrder=` +
-    `&masterDataToType=` +
-    `&searchTerm=${encodeURIComponent(entityName)}` +
-    `&listNameOrder=`;
-
+  // 1. Search — directly GET-able path-based URL (discovered June 2026)
+  const searchUrl = buildSearchUrl(entityName);
   const searchHtml = await fetchSunbizHtml(searchUrl);
   const matches = parseSearchResults(searchHtml);
   const best = pickBestMatch(matches, entityName);
@@ -244,11 +266,13 @@ export async function searchAndExtractSunbiz(
   }
 
   // 2. Fetch the detail page
-  const detailUrl = `${SUNBIZ_BASE}${best.detail_path}`;
+  const detailUrl = best.detail_path.startsWith("http")
+    ? best.detail_path
+    : `${SUNBIZ_BASE}${best.detail_path}`;
   const detailHtml = await fetchSunbizHtml(detailUrl);
   const detailText = htmlToText(detailHtml);
 
-  // 3. Claude extracts structured persons/addresses from the plain text
+  // 3. Claude extracts structured persons/addresses from plain text
   const extracted = await claudeExtract(detailText);
 
   const persons: SunbizPerson[] = (extracted.persons ?? []).map((p) => ({

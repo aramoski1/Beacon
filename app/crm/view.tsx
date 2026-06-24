@@ -466,7 +466,7 @@ function PropertiesTable({
   onDeleteCancel,
 }: {
   rows: Property[];
-  propContacts: Map<string, LinkedContactInfo>;
+  propContacts: Map<string, LinkedContactInfo[]>;
   customDefs: FieldDefinition[];
   onSave: (id: string, field: string, value: unknown) => void;
   deletingId: string | null;
@@ -515,7 +515,10 @@ function PropertiesTable({
         </thead>
         <tbody>
           {rows.map((p) => {
-            const c = propContacts.get(p.id);
+            const cs = propContacts.get(p.id) ?? [];
+            const activity = cs
+              .filter(c => c.last_activity_date)
+              .sort((a, b) => new Date(b.last_activity_date!).getTime() - new Date(a.last_activity_date!).getTime())[0];
             return (
               <tr key={p.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
                 {/* Prospect # */}
@@ -609,32 +612,38 @@ function PropertiesTable({
 
                 {/* Owner Contact */}
                 <td className={cn(tdCls, "min-w-[100px]")}>
-                  {c?.name
-                    ? <span className="truncate max-w-[120px] block font-medium">{c.name}</span>
+                  {cs.some(c => c.name)
+                    ? cs.map((c, i) => c.name
+                        ? <span key={i} className="truncate max-w-[120px] block font-medium">{c.name}</span>
+                        : null)
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Owner Address */}
                 <td className={cn(tdCls, "min-w-[120px]")}>
-                  {c?.mailing_address
-                    ? <span className="truncate max-w-[150px] block text-muted-foreground">{c.mailing_address}</span>
+                  {cs.some(c => c.mailing_address)
+                    ? cs.map((c, i) => c.mailing_address
+                        ? <span key={i} className="truncate max-w-[150px] block text-muted-foreground">{c.mailing_address}</span>
+                        : null)
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Owner Email */}
                 <td className={cn(tdCls, "min-w-[130px]")}>
-                  {c?.email
-                    ? <a href={`mailto:${c.email}`} className="truncate max-w-[160px] block text-primary hover:underline underline-offset-2">{c.email}</a>
+                  {cs.some(c => c.email)
+                    ? cs.map((c, i) => c.email
+                        ? <a key={i} href={`mailto:${c.email}`} className="truncate max-w-[160px] block text-primary hover:underline underline-offset-2">{c.email}</a>
+                        : null)
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
-                {/* Activity Date/Type */}
+                {/* Activity Date/Type — most recent across all linked contacts */}
                 <td className={cn(tdCls, "min-w-[110px] whitespace-nowrap")}>
-                  {c?.last_activity_date ? (
+                  {activity?.last_activity_date ? (
                     <span className="text-muted-foreground">
-                      {fmtDate(c.last_activity_date)}
-                      {c.last_activity_type && (
-                        <span className="ml-1 text-muted-foreground/60 capitalize">· {c.last_activity_type}</span>
+                      {fmtDate(activity.last_activity_date)}
+                      {activity.last_activity_type && (
+                        <span className="ml-1 text-muted-foreground/60 capitalize">· {activity.last_activity_type}</span>
                       )}
                     </span>
                   ) : <span className="text-muted-foreground/30 italic">—</span>}
@@ -642,8 +651,8 @@ function PropertiesTable({
 
                 {/* Notes */}
                 <td className={cn(tdCls, "min-w-[120px] max-w-[200px]")}>
-                  {c?.last_activity_notes
-                    ? <span className="line-clamp-2 text-muted-foreground">{c.last_activity_notes}</span>
+                  {activity?.last_activity_notes
+                    ? <span className="line-clamp-2 text-muted-foreground">{activity.last_activity_notes}</span>
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
@@ -1253,7 +1262,7 @@ export default function CRMView() {
 
   // ── Data state ─────────────────────────────────────────────────────────────
   const [properties, setProperties] = useState<Property[]>([]);
-  const [propContacts, setPropContacts] = useState<Map<string, LinkedContactInfo>>(new Map());
+  const [propContacts, setPropContacts] = useState<Map<string, LinkedContactInfo[]>>(new Map());
   const [leases, setLeases] = useState<LeaseAbstract[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [customPropertyDefs, setCustomPropertyDefs] = useState<FieldDefinition[]>([]);
@@ -1409,20 +1418,22 @@ export default function CRMView() {
         }
       }
 
-      const map = new Map<string, LinkedContactInfo>();
+      const map = new Map<string, LinkedContactInfo[]>();
       for (const c of contacts) {
         for (const propId of c.linked_properties ?? []) {
-          if (idSet.has(propId) && !map.has(propId)) {
-            const a = activityMap.get(c.id);
-            map.set(propId, {
-              name: c.name,
-              email: c.email,
-              mailing_address: c.mailing_address,
-              last_activity_date: a?.activity_date ?? null,
-              last_activity_type: a?.activity_type ?? null,
-              last_activity_notes: a?.notes ?? null,
-            });
-          }
+          if (!idSet.has(propId)) continue;
+          const a = activityMap.get(c.id);
+          const info: LinkedContactInfo = {
+            name: c.name,
+            email: c.email,
+            mailing_address: c.mailing_address,
+            last_activity_date: a?.activity_date ?? null,
+            last_activity_type: a?.activity_type ?? null,
+            last_activity_notes: a?.notes ?? null,
+          };
+          const existing = map.get(propId);
+          if (existing) existing.push(info);
+          else map.set(propId, [info]);
         }
       }
       setPropContacts(map);

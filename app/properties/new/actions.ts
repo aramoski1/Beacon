@@ -6,6 +6,7 @@ import { searchByAddressGIS, getPropertyDetail } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
+import { searchAndExtractSunbiz, type SunbizResult, type SunbizPerson } from "@/lib/sunbiz";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,12 @@ export type PropertyPreview = ExtractedProperty & {
   strap: string;
   // Owner mailing address read directly from OwnerInfos[0] — not AI-extracted
   owner_mailing_address: string | null;
+  // Auto Sunbiz lookup result (entity owners only; null if not an entity or lookup failed)
+  sunbiz_result?: SunbizResult | null;
+  // Non-null when Sunbiz was attempted but failed — surfaces the reason in the UI
+  sunbiz_error?: string | null;
 };
+
 
 export type IngestResult =
   | { error: string }
@@ -176,6 +182,34 @@ STRICT RULES — violation is not permitted:
     return { error: msg };
   }
 
+  // Auto Sunbiz: run for entity owners (LLC, INC, CORP, etc.) — non-blocking.
+  // A failed Sunbiz lookup never prevents the property preview from returning.
+  let sunbiz_result: SunbizResult | null = null;
+  let sunbiz_error: string | null = null;
+  const ownerName = fields.owner_name?.trim() ?? "";
+  // Normalize before the entity check: MDPA sometimes stores "L.L.C." (with dots)
+  // instead of "LLC", so strip periods first to match either form.
+  const ownerNorm = ownerName.replace(/\./g, "");
+  const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
+  if (isEntity && ownerName) {
+    try {
+      const lookup = await searchAndExtractSunbiz(ownerName);
+      sunbiz_result = lookup.result;
+      if (!sunbiz_result) {
+        sunbiz_error = "No matching entity found on Sunbiz.";
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sunbiz_error = `Sunbiz lookup failed: ${msg}`;
+      await logIngestionError(supabase, user.id, {
+        stage: "sunbiz_search",
+        source_type: "address",
+        source_ref: ownerName,
+        error_message: `Auto Sunbiz: ${msg}`,
+      });
+    }
+  }
+
   return {
     preview: {
       ...fields,
@@ -184,6 +218,8 @@ STRICT RULES — violation is not permitted:
       city: "Miami",
       strap,
       owner_mailing_address: extractOwnerMailing(detail),
+      sunbiz_result,
+      sunbiz_error,
     },
   };
 }
@@ -191,7 +227,8 @@ STRICT RULES — violation is not permitted:
 // ─── Broker confirmed — save to DB ────────────────────────────────────────────
 
 export async function saveIngestedProperty(
-  preview: PropertyPreview
+  preview: PropertyPreview,
+  sunbizPersonsToCreate?: SunbizPerson[]
 ): Promise<{ id: string } | { error: string }> {
   const supabase = await createClient();
   const {
@@ -204,8 +241,9 @@ export async function saveIngestedProperty(
     return { error: "Cannot save a property without an address." };
   }
 
+  let id: string;
   try {
-    const id = await savePipelineProperty(
+    id = await savePipelineProperty(
       supabase,
       user.id,
       preview,
@@ -217,7 +255,6 @@ export async function saveIngestedProperty(
         owner_mailing_address: preview.owner_mailing_address ?? null,
       }
     );
-    return { id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logIngestionError(supabase, user.id, {
@@ -228,4 +265,26 @@ export async function saveIngestedProperty(
     });
     return { error: msg };
   }
+
+  // Create Sunbiz contacts linked to the new property — best-effort, non-fatal.
+  if (sunbizPersonsToCreate?.length) {
+    for (const person of sunbizPersonsToCreate) {
+      try {
+        await supabase.from("contacts").insert({
+          owner_id: user.id,
+          name: person.name,
+          role: person.title || null,
+          mailing_address: person.address ?? null,
+          linked_properties: [id],
+          action_tags: ["sunbiz", "unverified"],
+          outreach_history: [],
+          custom_fields: {},
+        });
+      } catch {
+        // Individual contact failure is silently ignored; property is already saved.
+      }
+    }
+  }
+
+  return { id };
 }
