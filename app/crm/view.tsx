@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
-import { interpretSearch, deleteProperty, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
+import { interpretSearch, deleteProperty, deleteContact, deleteLease, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { createFieldDefinition, deleteFieldDefinition } from "@/app/settings/fields/actions";
 import { fieldSlug, type FieldDefinition, type EntityType, type FieldType } from "@/lib/custom-fields";
 
@@ -734,9 +734,17 @@ function PropertiesTable({
 function ContactsTable({
   rows,
   onSave,
+  deletingId,
+  onDeleteRequest,
+  onDeleteConfirm,
+  onDeleteCancel,
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
+  deletingId: string | null;
+  onDeleteRequest: (id: string) => void;
+  onDeleteConfirm: (id: string) => void;
+  onDeleteCancel: () => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -764,11 +772,12 @@ function ContactsTable({
             <th className={thCls}>Geo cat</th>
             <th className={thCls}>Ownership</th>
             <th className={thCls}>Last contact</th>
+            <th className={thCls} />
           </tr>
         </thead>
         <tbody>
           {rows.map((c) => (
-            <tr key={c.id} className="hover:bg-muted/20 transition-colors">
+            <tr key={c.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5")}>
               <td className={tdCls}>
                 <div>
                   <Link href={`/contacts/${c.id}`} className="font-medium hover:underline underline-offset-2">
@@ -817,6 +826,25 @@ function ContactsTable({
                   {fmtDate(c.last_contacted_at) ?? "—"}
                 </span>
               </td>
+              <td className={cn(tdCls, "w-8 text-right pr-2")}>
+                {deletingId === c.id ? (
+                  <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
+                    <button onClick={() => onDeleteConfirm(c.id)} className="font-medium hover:underline">Delete</button>
+                    <span className="text-muted-foreground">·</span>
+                    <button onClick={onDeleteCancel}>
+                      <X className="size-3 text-muted-foreground hover:text-foreground" />
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onDeleteRequest(c.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                    title="Delete contact"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -851,7 +879,19 @@ const LEASE_STATUS_LABEL: Record<string, string> = {
   active: "Active", expiring: "Expiring soon", expired: "Expired", unknown: "No expiry",
 };
 
-function LeasesTable({ rows }: { rows: LeaseAbstract[] }) {
+function LeasesTable({
+  rows,
+  deletingId,
+  onDeleteRequest,
+  onDeleteConfirm,
+  onDeleteCancel,
+}: {
+  rows: LeaseAbstract[];
+  deletingId: string | null;
+  onDeleteRequest: (id: string) => void;
+  onDeleteConfirm: (id: string) => void;
+  onDeleteCancel: () => void;
+}) {
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
@@ -876,13 +916,14 @@ function LeasesTable({ rows }: { rows: LeaseAbstract[] }) {
             <th className={thCls}>Term</th>
             <th className={thCls}>Base rate</th>
             <th className={thCls}>Added</th>
+            <th className={thCls} />
           </tr>
         </thead>
         <tbody>
           {rows.map((a) => {
             const status = leaseStatus(a.expiration_date);
             return (
-              <tr key={a.id} className="hover:bg-muted/20 transition-colors">
+              <tr key={a.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === a.id && "bg-destructive/5")}>
                 <td className={tdCls}>
                   <Link
                     href={`/abstracts/${a.id}`}
@@ -924,6 +965,25 @@ function LeasesTable({ rows }: { rows: LeaseAbstract[] }) {
                   <span className="text-muted-foreground text-xs whitespace-nowrap">
                     {fmtDate(a.created_at) ?? "—"}
                   </span>
+                </td>
+                <td className={cn(tdCls, "w-8 text-right pr-2")}>
+                  {deletingId === a.id ? (
+                    <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
+                      <button onClick={() => onDeleteConfirm(a.id)} className="font-medium hover:underline">Delete</button>
+                      <span className="text-muted-foreground">·</span>
+                      <button onClick={onDeleteCancel}>
+                        <X className="size-3 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onDeleteRequest(a.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                      title="Delete lease"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  )}
                 </td>
               </tr>
             );
@@ -1311,6 +1371,8 @@ export default function CRMView() {
 
   // ── Delete state ───────────────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+  const [deletingLeaseId, setDeletingLeaseId] = useState<string | null>(null);
 
   // ── Load filter options once ───────────────────────────────────────────────
   const loadFilterOpts = useCallback(async () => {
@@ -1570,7 +1632,7 @@ export default function CRMView() {
       .eq("id", id);
   }, []);
 
-  // ── Delete handler ─────────────────────────────────────────────────────────
+  // ── Delete handlers ────────────────────────────────────────────────────────
   const handleDeleteConfirm = useCallback(async (id: string) => {
     setProperties((prev) => prev.filter((p) => p.id !== id));
     setTotalProps((t) => (t !== null ? t - 1 : null));
@@ -1580,6 +1642,29 @@ export default function CRMView() {
       await loadProperties();
     }
   }, [loadProperties]);
+
+  const handleDeleteContactConfirm = useCallback(async (id: string) => {
+    setContacts((prev) => prev.filter((c) => c.id !== id));
+    setDeletingContactId(null);
+    const result = await deleteContact(id);
+    if (result.error) {
+      // Reload contacts on failure to restore removed row
+      const supabase = createClient();
+      const { data } = await supabase.from("contacts").select("*").order("created_at", { ascending: false });
+      if (data) setContacts(data as Contact[]);
+    }
+  }, []);
+
+  const handleDeleteLeaseConfirm = useCallback(async (id: string) => {
+    setLeases((prev) => prev.filter((a) => a.id !== id));
+    setDeletingLeaseId(null);
+    const result = await deleteLease(id);
+    if (result.error) {
+      const supabase = createClient();
+      const { data } = await supabase.from("lease_abstracts").select("*").order("created_at", { ascending: false });
+      if (data) setLeases(data as LeaseAbstract[]);
+    }
+  }, []);
 
   // ── Search handler ─────────────────────────────────────────────────────────
   async function runSearch(query: string) {
@@ -2002,7 +2087,13 @@ export default function CRMView() {
               </div>
             ) : (
               <div className={cn(leasesLoading && "opacity-60 pointer-events-none")}>
-                <LeasesTable rows={leases} />
+                <LeasesTable
+                  rows={leases}
+                  deletingId={deletingLeaseId}
+                  onDeleteRequest={setDeletingLeaseId}
+                  onDeleteConfirm={handleDeleteLeaseConfirm}
+                  onDeleteCancel={() => setDeletingLeaseId(null)}
+                />
               </div>
             )
           ) : (
@@ -2013,7 +2104,14 @@ export default function CRMView() {
               </div>
             ) : (
               <div className={cn(contactsLoading && "opacity-60 pointer-events-none")}>
-                <ContactsTable rows={contacts} onSave={saveContact} />
+                <ContactsTable
+                  rows={contacts}
+                  onSave={saveContact}
+                  deletingId={deletingContactId}
+                  onDeleteRequest={setDeletingContactId}
+                  onDeleteConfirm={handleDeleteContactConfirm}
+                  onDeleteCancel={() => setDeletingContactId(null)}
+                />
               </div>
             )
           )}

@@ -203,6 +203,36 @@ export async function deleteProperty(id: string): Promise<{ error?: string }> {
   return {};
 }
 
+export async function deleteContact(id: string): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  const { error } = await supabase
+    .from("contacts")
+    .delete()
+    .eq("id", id)
+    .eq("owner_id", user.id);
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function deleteLease(id: string): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  const { error } = await supabase
+    .from("lease_abstracts")
+    .delete()
+    .eq("id", id)
+    .eq("owner_id", user.id);
+  if (error) return { error: error.message };
+  return {};
+}
+
 // ─── Search ───────────────────────────────────────────────────────────────────
 
 export async function interpretSearch(query: string): Promise<SearchResponse> {
