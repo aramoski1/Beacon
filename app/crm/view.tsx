@@ -1,12 +1,12 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus } from "lucide-react";
-import { interpretSearch, deleteProperty, type SearchResult, type PropertySearchFilters, type ContactSearchFilters } from "./actions";
+import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { interpretSearch, deleteProperty, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { createFieldDefinition, deleteFieldDefinition } from "@/app/settings/fields/actions";
 import { fieldSlug, type FieldDefinition, type EntityType, type FieldType } from "@/lib/custom-fields";
 
@@ -68,56 +68,13 @@ type ConFilters = {
   ownership: string;
   tag: string;
 };
-
-// ─── Client-side search filter application ────────────────────────────────────
-// Claude returns structured filter objects. We apply them in JS — no SQL built.
-
-function applyPropertySearch(rows: Property[], f: PropertySearchFilters): Property[] {
-  const now = Date.now();
-  void now; // not needed for properties but keep consistent signature
-  return rows.filter((p) => {
-    if (f.property_type && p.property_type !== f.property_type) return false;
-    if (f.ownership_type && p.ownership_type !== f.ownership_type) return false;
-    if (f.size_sqft_min != null && (p.size_sqft == null || p.size_sqft < f.size_sqft_min)) return false;
-    if (f.size_sqft_max != null && p.size_sqft != null && p.size_sqft > f.size_sqft_max) return false;
-    if (f.last_sale_price_min != null && (p.last_sale_price == null || p.last_sale_price < f.last_sale_price_min)) return false;
-    if (f.last_sale_price_max != null && p.last_sale_price != null && p.last_sale_price > f.last_sale_price_max) return false;
-    if (f.geographic_keyword) {
-      const kw = f.geographic_keyword.toLowerCase();
-      const hit = [p.address, p.city, p.geographic_category].some((s) => s?.toLowerCase().includes(kw));
-      if (!hit) return false;
-    }
-    if (f.owner_name_contains && !p.owner_name?.toLowerCase().includes(f.owner_name_contains.toLowerCase())) return false;
-    if (f.size_category_keyword && !p.size_category?.toLowerCase().includes(f.size_category_keyword.toLowerCase())) return false;
-    return true;
-  });
-}
-
-function applyContactSearch(rows: Contact[], f: ContactSearchFilters): Contact[] {
-  const now = Date.now();
-  return rows.filter((c) => {
-    if (f.contact_tier != null && c.contact_tier !== f.contact_tier) return false;
-    if (f.client_status && c.client_status !== f.client_status) return false;
-    if (f.action_tags_includes && !(c.action_tags ?? []).includes(f.action_tags_includes)) return false;
-    if (f.not_contacted_in_days != null) {
-      const cutoff = now - f.not_contacted_in_days * 86_400_000;
-      // Include if never contacted OR last contact is older than cutoff
-      if (c.last_contacted_at && new Date(c.last_contacted_at).getTime() >= cutoff) return false;
-    }
-    if (f.last_contacted_within_days != null) {
-      const cutoff = now - f.last_contacted_within_days * 86_400_000;
-      if (!c.last_contacted_at || new Date(c.last_contacted_at).getTime() < cutoff) return false;
-    }
-    if (f.geographic_keyword && !c.geographic_category?.toLowerCase().includes(f.geographic_keyword.toLowerCase())) return false;
-    if (f.size_category_keyword && !c.size_category?.toLowerCase().includes(f.size_category_keyword.toLowerCase())) return false;
-    if (f.ownership_type_keyword && !c.ownership_type?.toLowerCase().includes(f.ownership_type_keyword.toLowerCase())) return false;
-    if (f.name_contains && !c.name?.toLowerCase().includes(f.name_contains.toLowerCase())) return false;
-    if (f.company_contains && !c.company?.toLowerCase().includes(f.company_contains.toLowerCase())) return false;
-    return true;
-  });
-}
+type LeaseFilters = {
+  status: string; // "active" | "expiring" | "expired" | ""
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 50;
 
 const PROP_TYPES = [
   { value: "industrial", label: "Industrial" },
@@ -376,6 +333,72 @@ function StatusBadge({
 }
 
 // ─── Filter bar ───────────────────────────────────────────────────────────────
+
+function TabSearchInput({
+  value,
+  placeholder,
+  searching,
+  onChange,
+  onSearch,
+  onClear,
+}: {
+  value: string;
+  placeholder: string;
+  searching: boolean;
+  onChange: (v: string) => void;
+  onSearch: (q: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSearch(value); }}
+      className="relative flex items-center shrink-0"
+    >
+      {searching ? (
+        <Loader2 className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground animate-spin" />
+      ) : (
+        <Sparkles className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground" />
+      )}
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Escape") { onChange(""); onClear(); } }}
+        placeholder={placeholder}
+        disabled={searching}
+        className={cn(
+          "pl-6 pr-6 py-1 text-xs border border-border rounded outline-none focus:ring-1 ring-ring bg-background w-56 placeholder:text-muted-foreground/60 disabled:opacity-60",
+          value && "border-primary"
+        )}
+      />
+      {value && !searching && (
+        <button
+          type="button"
+          onClick={() => { onChange(""); onClear(); }}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </form>
+  );
+}
+
+function SearchExplanation({ explanation, onClear }: { explanation: string; onClear: () => void }) {
+  return (
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      <span className="text-muted-foreground/40 shrink-0">·</span>
+      <span className="text-xs text-foreground truncate">{explanation}</span>
+      <button
+        onClick={onClear}
+        className="ml-auto shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <X className="size-3" />
+        Clear
+      </button>
+    </div>
+  );
+}
 
 function FilterSelect({
   label,
@@ -1088,28 +1111,273 @@ function FieldsPanel({ onChanged }: { onChanged?: () => void }) {
   );
 }
 
+// ─── Pagination bar ───────────────────────────────────────────────────────────
+
+function PaginationBar({
+  page,
+  total,
+  loading,
+  onPrev,
+  onNext,
+}: {
+  page: number;
+  total: number | null;
+  loading: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  if (total === null) return null;
+  const from = page * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE + PAGE_SIZE, total);
+  const hasPrev = page > 0;
+  const hasNext = to < total;
+
+  return (
+    <div className="shrink-0 border-t px-4 py-2 flex items-center justify-between gap-2 text-xs text-muted-foreground bg-background">
+      <span className="flex items-center gap-1.5">
+        {total === 0 ? "No results" : `${from}–${to} of ${total}`}
+        {loading && <Loader2 className="size-3 animate-spin" />}
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onPrev}
+          disabled={!hasPrev || loading}
+          className="flex items-center gap-0.5 px-2 py-1 rounded hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft className="size-3.5" /> Prev
+        </button>
+        <button
+          onClick={onNext}
+          disabled={!hasNext || loading}
+          className="flex items-center gap-0.5 px-2 py-1 rounded hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Next <ChevronRight className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main view ────────────────────────────────────────────────────────────────
 
-const EMPTY_PROP_FILTERS: PropFilters = { propType: "", ownership: "", sizeCat: "", geoCat: "" };
-const EMPTY_CON_FILTERS: ConFilters = { tier: "", status: "", sizeCat: "", geoCat: "", ownership: "", tag: "" };
+const EMPTY_PROP_FILTERS: PropFilters   = { propType: "", ownership: "", sizeCat: "", geoCat: "" };
+const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", sizeCat: "", geoCat: "", ownership: "", tag: "" };
+const EMPTY_LEASE_FILTERS: LeaseFilters = { status: "" };
 
 export default function CRMView() {
   const [tab, setTab] = useState<"properties" | "leases" | "contacts" | "fields">("properties");
+
+  // ── Data state ─────────────────────────────────────────────────────────────
   const [properties, setProperties] = useState<Property[]>([]);
   const [leases, setLeases] = useState<LeaseAbstract[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [customPropertyDefs, setCustomPropertyDefs] = useState<FieldDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // ── Pagination state ───────────────────────────────────────────────────────
+  const [propPage, setPropPage] = useState(0);
+  const [totalProps, setTotalProps] = useState<number | null>(null);
+  const [leasePage, setLeasePage] = useState(0);
+  const [totalLeases, setTotalLeases] = useState<number | null>(null);
+  const [conPage, setConPage] = useState(0);
+  const [totalCons, setTotalCons] = useState<number | null>(null);
+
+  // ── Loading state ──────────────────────────────────────────────────────────
+  const [propsLoading, setPropsLoading] = useState(true);
+  const [leasesLoading, setLeasesLoading] = useState(true);
+  const [contactsLoading, setContactsLoading] = useState(true);
+
+  // ── Filter options (full distinct-value scan, loaded once on mount) ────────
+  const [propFilterOpts, setPropFilterOpts] = useState<{ sizeCat: string[]; geoCat: string[] }>({
+    sizeCat: [],
+    geoCat: [],
+  });
+  const [conFilterOpts, setConFilterOpts] = useState<{
+    sizeCat: string[];
+    geoCat: string[];
+    ownership: string[];
+    tags: string[];
+  }>({ sizeCat: [], geoCat: [], ownership: [], tags: [] });
+
+  // ── Filter state ───────────────────────────────────────────────────────────
   const [propFilters, setPropFilters] = useState<PropFilters>(EMPTY_PROP_FILTERS);
   const [conFilters, setConFilters] = useState<ConFilters>(EMPTY_CON_FILTERS);
+  const [leaseFilters, setLeaseFilters] = useState<LeaseFilters>(EMPTY_LEASE_FILTERS);
 
-  // ── Search state ────────────────────────────────────────────────────────────
+  // Per-tab AI search draft text (what the user is currently typing)
+  const [propTabQuery, setPropTabQuery]   = useState("");
+  const [conTabQuery, setConTabQuery]     = useState("");
+  const [leaseTabQuery, setLeaseTabQuery] = useState("");
+
+  // ── Search state ───────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [activeSearch, setActiveSearch] = useState<SearchResult | null>(null);
   const searchMode = activeSearch !== null;
 
+  // ── Delete state ───────────────────────────────────────────────────────────
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // ── Load filter options once ───────────────────────────────────────────────
+  const loadFilterOpts = useCallback(async () => {
+    const supabase = createClient();
+    const [{ data: pData }, { data: cData }] = await Promise.all([
+      supabase.from("properties").select("size_category, geographic_category"),
+      supabase.from("contacts").select("size_category, geographic_category, ownership_type, action_tags"),
+    ]);
+    if (pData) {
+      setPropFilterOpts({
+        sizeCat: uniq(pData.map((r) => r.size_category)),
+        geoCat: uniq(pData.map((r) => r.geographic_category)),
+      });
+    }
+    if (cData) {
+      setConFilterOpts({
+        sizeCat: uniq(cData.map((r) => r.size_category)),
+        geoCat: uniq(cData.map((r) => r.geographic_category)),
+        ownership: uniq(cData.map((r) => r.ownership_type)),
+        tags: uniq(cData.flatMap((r) => (r.action_tags as string[] | null) ?? [])),
+      });
+    }
+  }, []);
+
+  useEffect(() => { loadFilterOpts(); }, [loadFilterOpts]);
+
+  // ── Load properties (server-filtered + paginated) ──────────────────────────
+  const loadProperties = useCallback(async () => {
+    setPropsLoading(true);
+    const supabase = createClient();
+    const from = propPage * PAGE_SIZE;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase
+      .from("properties")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (activeSearch?.properties) {
+      const f = activeSearch.properties;
+      if (f.property_type) q = q.eq("property_type", f.property_type);
+      if (f.ownership_type) q = q.eq("ownership_type", f.ownership_type);
+      if (f.size_sqft_min != null) q = q.gte("size_sqft", f.size_sqft_min);
+      if (f.size_sqft_max != null) q = q.lte("size_sqft", f.size_sqft_max);
+      if (f.last_sale_price_min != null) q = q.gte("last_sale_price", f.last_sale_price_min);
+      if (f.last_sale_price_max != null) q = q.lte("last_sale_price", f.last_sale_price_max);
+      if (f.geographic_keyword) {
+        const kw = f.geographic_keyword.replace(/[%_,]/g, "");
+        q = q.or(`address.ilike.%${kw}%,city.ilike.%${kw}%,geographic_category.ilike.%${kw}%`);
+      }
+      if (f.owner_name_contains) q = q.ilike("owner_name", `%${f.owner_name_contains}%`);
+      if (f.size_category_keyword) q = q.ilike("size_category", `%${f.size_category_keyword}%`);
+    } else {
+      if (propFilters.propType) q = q.eq("property_type", propFilters.propType);
+      if (propFilters.ownership) q = q.eq("ownership_type", propFilters.ownership);
+      if (propFilters.sizeCat) q = q.eq("size_category", propFilters.sizeCat);
+      if (propFilters.geoCat) q = q.eq("geographic_category", propFilters.geoCat);
+    }
+
+    const { data, count } = await q;
+    setProperties(data ?? []);
+    setTotalProps(count ?? 0);
+    setPropsLoading(false);
+  }, [propPage, propFilters, activeSearch]);
+
+  useEffect(() => { loadProperties(); }, [loadProperties]);
+
+  // ── Load contacts (server-filtered + paginated) ────────────────────────────
+  const loadContacts = useCallback(async () => {
+    setContactsLoading(true);
+    const supabase = createClient();
+    const from = conPage * PAGE_SIZE;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase
+      .from("contacts")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (activeSearch?.contacts) {
+      const f = activeSearch.contacts;
+      if (f.contact_tier != null) q = q.eq("contact_tier", f.contact_tier);
+      if (f.client_status) q = q.eq("client_status", f.client_status);
+      if (f.action_tags_includes) q = q.contains("action_tags", [f.action_tags_includes]);
+      if (f.not_contacted_in_days != null) {
+        const cutoff = new Date(Date.now() - f.not_contacted_in_days * 86_400_000).toISOString();
+        q = q.or(`last_contacted_at.is.null,last_contacted_at.lt.${cutoff}`);
+      }
+      if (f.last_contacted_within_days != null) {
+        const cutoff = new Date(Date.now() - f.last_contacted_within_days * 86_400_000).toISOString();
+        q = q.not("last_contacted_at", "is", null).gte("last_contacted_at", cutoff);
+      }
+      if (f.geographic_keyword) q = q.ilike("geographic_category", `%${f.geographic_keyword}%`);
+      if (f.size_category_keyword) q = q.ilike("size_category", `%${f.size_category_keyword}%`);
+      if (f.ownership_type_keyword) q = q.ilike("ownership_type", `%${f.ownership_type_keyword}%`);
+      if (f.name_contains) q = q.ilike("name", `%${f.name_contains}%`);
+      if (f.company_contains) q = q.ilike("company", `%${f.company_contains}%`);
+    } else {
+      if (conFilters.tier) q = q.eq("contact_tier", Number(conFilters.tier));
+      if (conFilters.status) q = q.eq("client_status", conFilters.status);
+      if (conFilters.sizeCat) q = q.eq("size_category", conFilters.sizeCat);
+      if (conFilters.geoCat) q = q.eq("geographic_category", conFilters.geoCat);
+      if (conFilters.ownership) q = q.eq("ownership_type", conFilters.ownership);
+      if (conFilters.tag) q = q.contains("action_tags", [conFilters.tag]);
+    }
+
+    const { data, count } = await q;
+    setContacts((data ?? []).map((x: Contact) => ({ ...x, action_tags: x.action_tags ?? [] })));
+    setTotalCons(count ?? 0);
+    setContactsLoading(false);
+  }, [conPage, conFilters, activeSearch]);
+
+  useEffect(() => { loadContacts(); }, [loadContacts]);
+
+  // ── Load leases (server-filtered + paginated) ─────────────────────────────
+  const loadLeases = useCallback(async () => {
+    setLeasesLoading(true);
+    const supabase = createClient();
+    const from = leasePage * PAGE_SIZE;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase
+      .from("lease_abstracts")
+      .select("id, source_document, execution_date, expiration_date, term, base_rate, created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    const now = new Date().toISOString();
+    const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString();
+
+    const applyLeaseStatus = (status: string) => {
+      if (status === "active")   return q.not("expiration_date", "is", null).gte("expiration_date", in90);
+      if (status === "expiring") return q.not("expiration_date", "is", null).gt("expiration_date", now).lt("expiration_date", in90);
+      if (status === "expired")  return q.not("expiration_date", "is", null).lt("expiration_date", now);
+      return q;
+    };
+
+    if (activeSearch?.leases) {
+      const f = activeSearch.leases as LeaseSearchFilters;
+      if (f.status) q = applyLeaseStatus(f.status);
+      if (f.expiring_within_days != null) {
+        const cutoff = new Date(Date.now() + f.expiring_within_days * 86_400_000).toISOString();
+        q = q.not("expiration_date", "is", null).gt("expiration_date", now).lt("expiration_date", cutoff);
+      }
+      if (f.base_rate_min != null) q = q.gte("base_rate", f.base_rate_min);
+      if (f.base_rate_max != null) q = q.lte("base_rate", f.base_rate_max);
+    } else {
+      if (leaseFilters.status) q = applyLeaseStatus(leaseFilters.status);
+    }
+
+    const { data, count } = await q;
+    setLeases((data ?? []) as LeaseAbstract[]);
+    setTotalLeases(count ?? 0);
+    setLeasesLoading(false);
+  }, [leasePage, leaseFilters, activeSearch]);
+
+  useEffect(() => { loadLeases(); }, [loadLeases]);
+
+  // ── Reload custom field definitions ───────────────────────────────────────
   const reloadCustomDefs = useCallback(async () => {
     const supabase = createClient();
     const { data } = await supabase
@@ -1120,22 +1388,9 @@ export default function CRMView() {
     setCustomPropertyDefs((data ?? []) as FieldDefinition[]);
   }, []);
 
-  useEffect(() => {
-    const supabase = createClient();
-    Promise.all([
-      supabase.from("properties").select("*").order("created_at", { ascending: false }),
-      supabase.from("lease_abstracts").select("id, source_document, execution_date, expiration_date, term, base_rate, created_at").order("created_at", { ascending: false }),
-      supabase.from("contacts").select("*").order("created_at", { ascending: false }),
-      supabase.from("field_definitions").select("*").eq("entity_type", "property").order("created_at", { ascending: true }),
-    ]).then(([{ data: p }, { data: l }, { data: c }, { data: fd }]) => {
-      setProperties(p ?? []);
-      setLeases((l ?? []) as LeaseAbstract[]);
-      setContacts((c ?? []).map((x) => ({ ...x, action_tags: x.action_tags ?? [] })));
-      setCustomPropertyDefs((fd ?? []) as FieldDefinition[]);
-      setLoading(false);
-    });
-  }, []);
+  useEffect(() => { reloadCustomDefs(); }, [reloadCustomDefs]);
 
+  // ── Optimistic inline edits ────────────────────────────────────────────────
   const saveProp = useCallback(async (id: string, field: string, value: unknown) => {
     setProperties((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
     const supabase = createClient();
@@ -1154,123 +1409,87 @@ export default function CRMView() {
       .eq("id", id);
   }, []);
 
-  // ── Delete handler ──────────────────────────────────────────────────────────
-
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
+  // ── Delete handler ─────────────────────────────────────────────────────────
   const handleDeleteConfirm = useCallback(async (id: string) => {
     setProperties((prev) => prev.filter((p) => p.id !== id));
+    setTotalProps((t) => (t !== null ? t - 1 : null));
     setDeletingId(null);
     const result = await deleteProperty(id);
     if (result.error) {
-      // Reload on failure so the row reappears
-      const supabase = createClient();
-      const { data } = await supabase.from("properties").select("*").order("created_at", { ascending: false });
-      setProperties(data ?? []);
+      await loadProperties();
     }
-  }, []);
+  }, [loadProperties]);
 
-  // ── Search handler ──────────────────────────────────────────────────────────
-
-  async function handleSearch(e: FormEvent) {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
+  // ── Search handler ─────────────────────────────────────────────────────────
+  async function runSearch(query: string) {
+    if (!query.trim()) return;
     setSearching(true);
     setSearchError(null);
-    const result = await interpretSearch(searchQuery);
+    const result = await interpretSearch(query);
     setSearching(false);
     if ("error" in result) {
       setSearchError(result.error);
       return;
     }
+    setPropPage(0);
+    setConPage(0);
+    setLeasePage(0);
     setActiveSearch(result);
-    // Auto-switch to the primary target tab (leases has no AI search target)
     if (result.target === "properties") setTab("properties");
     if (result.target === "contacts") setTab("contacts");
+    if (result.target === "leases") setTab("leases");
+  }
+
+  // Header form (cross-tab search kept for "both" queries)
+  async function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    await runSearch(searchQuery);
   }
 
   function clearSearch() {
     setActiveSearch(null);
     setSearchQuery("");
     setSearchError(null);
+    setPropPage(0);
+    setConPage(0);
+    setLeasePage(0);
+    setPropTabQuery("");
+    setConTabQuery("");
+    setLeaseTabQuery("");
   }
 
-  // ── Derived filter options (for browse mode) ──────────────────────────────
+  // ── Filter helpers (reset page on filter change) ───────────────────────────
+  function updatePropFilter<K extends keyof PropFilters>(key: K, value: PropFilters[K]) {
+    setPropFilters((f) => ({ ...f, [key]: value }));
+    setPropPage(0);
+  }
 
-  const propSizeCatOpts = useMemo(
-    () => uniq(properties.map((p) => p.size_category)).map((v) => ({ value: v, label: v })),
-    [properties]
-  );
-  const propGeoCatOpts = useMemo(
-    () => uniq(properties.map((p) => p.geographic_category)).map((v) => ({ value: v, label: v })),
-    [properties]
-  );
-  const conSizeCatOpts = useMemo(
-    () => uniq(contacts.map((c) => c.size_category)).map((v) => ({ value: v, label: v })),
-    [contacts]
-  );
-  const conGeoCatOpts = useMemo(
-    () => uniq(contacts.map((c) => c.geographic_category)).map((v) => ({ value: v, label: v })),
-    [contacts]
-  );
-  const conOwnershipOpts = useMemo(
-    () => uniq(contacts.map((c) => c.ownership_type)).map((v) => ({ value: v, label: v })),
-    [contacts]
-  );
-  const conTagOpts = useMemo(
-    () => uniq(contacts.flatMap((c) => c.action_tags ?? [])).map((v) => ({ value: v, label: v })),
-    [contacts]
-  );
+  function updateConFilter<K extends keyof ConFilters>(key: K, value: ConFilters[K]) {
+    setConFilters((f) => ({ ...f, [key]: value }));
+    setConPage(0);
+  }
 
-  // ── Filtered rows ─────────────────────────────────────────────────────────
+  function updateLeaseFilter<K extends keyof LeaseFilters>(key: K, value: LeaseFilters[K]) {
+    setLeaseFilters((f) => ({ ...f, [key]: value }));
+    setLeasePage(0);
+  }
 
-  const filteredProps = useMemo(() => {
-    if (searchMode) {
-      // Search mode: apply Claude's structured filters (JS predicates only)
-      if (!activeSearch?.properties) return properties;
-      return applyPropertySearch(properties, activeSearch.properties);
-    }
-    // Browse mode: apply dropdown filters
-    return properties.filter((p) => {
-      if (propFilters.propType && p.property_type !== propFilters.propType) return false;
-      if (propFilters.ownership && p.ownership_type !== propFilters.ownership) return false;
-      if (propFilters.sizeCat && p.size_category !== propFilters.sizeCat) return false;
-      if (propFilters.geoCat && p.geographic_category !== propFilters.geoCat) return false;
-      return true;
-    });
-  }, [properties, propFilters, searchMode, activeSearch]);
-
-  const filteredContacts = useMemo(() => {
-    if (searchMode) {
-      if (!activeSearch?.contacts) return contacts;
-      return applyContactSearch(contacts, activeSearch.contacts);
-    }
-    return contacts.filter((c) => {
-      if (conFilters.tier && c.contact_tier !== Number(conFilters.tier)) return false;
-      if (conFilters.status && c.client_status !== conFilters.status) return false;
-      if (conFilters.sizeCat && c.size_category !== conFilters.sizeCat) return false;
-      if (conFilters.geoCat && c.geographic_category !== conFilters.geoCat) return false;
-      if (conFilters.ownership && c.ownership_type !== conFilters.ownership) return false;
-      if (conFilters.tag && !(c.action_tags ?? []).includes(conFilters.tag)) return false;
-      return true;
-    });
-  }, [contacts, conFilters, searchMode, activeSearch]);
-
+  // ── Flags ──────────────────────────────────────────────────────────────────
   const propFiltersActive = !searchMode && Object.values(propFilters).some(Boolean);
   const conFiltersActive = !searchMode && Object.values(conFilters).some(Boolean);
+  const leaseFiltersActive = !searchMode && Object.values(leaseFilters).some(Boolean);
 
   // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Header */}
       <header className="shrink-0 border-b px-6 py-3 flex items-center gap-4">
         <h1 className="text-lg font-bold tracking-tight shrink-0">CRM</h1>
-        {!loading && (
+        {(totalProps !== null || totalLeases !== null || totalCons !== null) && (
           <span className="text-xs text-muted-foreground shrink-0">
-            {properties.length} {properties.length === 1 ? "property" : "properties"} ·{" "}
-            {leases.length} {leases.length === 1 ? "lease" : "leases"} ·{" "}
-            {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
+            {totalProps ?? "…"} {totalProps === 1 ? "property" : "properties"} ·{" "}
+            {totalLeases ?? "…"} {totalLeases === 1 ? "lease" : "leases"} ·{" "}
+            {totalCons ?? "…"} {totalCons === 1 ? "contact" : "contacts"}
           </span>
         )}
 
@@ -1334,6 +1553,20 @@ export default function CRMView() {
           >
             Export contacts ↓
           </a>
+          <Link
+            href="/properties/audit"
+            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground hover:text-destructive"
+          >
+            <ShieldAlert className="size-3.5" />
+            Data audit
+          </Link>
+          <Link
+            href="/properties/errors"
+            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground hover:text-destructive"
+          >
+            <AlertCircle className="size-3.5" />
+            Errors
+          </Link>
         </div>
       </header>
 
@@ -1350,11 +1583,8 @@ export default function CRMView() {
         >
           <Building2 className="size-3.5 inline mr-1.5 -mt-0.5" />
           Properties
-          {!loading && (
-            <span className="ml-1.5 text-xs text-muted-foreground">
-              ({filteredProps.length}
-              {(propFiltersActive || searchMode) && filteredProps.length !== properties.length && ` / ${properties.length}`})
-            </span>
+          {totalProps !== null && (
+            <span className="ml-1.5 text-xs text-muted-foreground">({totalProps})</span>
           )}
         </button>
 
@@ -1369,8 +1599,8 @@ export default function CRMView() {
         >
           <FileText className="size-3.5 inline mr-1.5 -mt-0.5" />
           Leases
-          {!loading && (
-            <span className="ml-1.5 text-xs text-muted-foreground">({leases.length})</span>
+          {totalLeases !== null && (
+            <span className="ml-1.5 text-xs text-muted-foreground">({totalLeases})</span>
           )}
         </button>
 
@@ -1385,11 +1615,8 @@ export default function CRMView() {
         >
           <Users className="size-3.5 inline mr-1.5 -mt-0.5" />
           Contacts
-          {!loading && (
-            <span className="ml-1.5 text-xs text-muted-foreground">
-              ({filteredContacts.length}
-              {(conFiltersActive || searchMode) && filteredContacts.length !== contacts.length && ` / ${contacts.length}`})
-            </span>
+          {totalCons !== null && (
+            <span className="ml-1.5 text-xs text-muted-foreground">({totalCons})</span>
           )}
         </button>
 
@@ -1410,161 +1637,253 @@ export default function CRMView() {
       {/* Filter / search context bar */}
       <div className="shrink-0 border-b px-6 py-2 flex items-center gap-3 flex-wrap bg-muted/10 min-h-11">
         {searchError && (
-          <p className="text-xs text-destructive">{searchError}</p>
+          <p className="text-xs text-destructive w-full">{searchError}</p>
         )}
 
         {tab === "fields" ? (
           <span className="text-xs text-muted-foreground">
             Define custom fields that appear on properties, leases, and contacts
           </span>
-        ) : searchMode ? (
-          /* AI search explanation banner */
-          <div className="flex items-center gap-2 flex-1">
-            <Sparkles className="size-3.5 text-primary shrink-0" />
-            <span className="text-xs text-foreground">{activeSearch!.explanation}</span>
-            <button
-              onClick={clearSearch}
-              className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            >
-              <X className="size-3" />
-              Clear search
-            </button>
-          </div>
         ) : tab === "leases" ? (
-          <span className="text-xs text-muted-foreground">
-            {leases.length} {leases.length === 1 ? "abstract" : "abstracts"}
-            {leases.filter((a) => leaseStatus(a.expiration_date) === "expiring").length > 0 && (
-              <span className="ml-2 text-amber-600 font-medium">
-                · {leases.filter((a) => leaseStatus(a.expiration_date) === "expiring").length} expiring soon
-              </span>
+          <>
+            <TabSearchInput
+              value={leaseTabQuery}
+              placeholder="e.g. leases expiring this quarter…"
+              searching={searching}
+              onChange={setLeaseTabQuery}
+              onSearch={runSearch}
+              onClear={clearSearch}
+            />
+            {searchMode ? (
+              <SearchExplanation explanation={activeSearch!.explanation} onClear={clearSearch} />
+            ) : (
+              <>
+                <FilterSelect
+                  label="Status"
+                  value={leaseFilters.status}
+                  options={[
+                    { value: "active",   label: "Active" },
+                    { value: "expiring", label: "Expiring soon" },
+                    { value: "expired",  label: "Expired" },
+                  ]}
+                  onChange={(v) => updateLeaseFilter("status", v)}
+                />
+                {leaseFiltersActive && (
+                  <button
+                    onClick={() => { setLeaseFilters(EMPTY_LEASE_FILTERS); setLeasePage(0); }}
+                    className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </>
             )}
-          </span>
+          </>
         ) : tab === "properties" ? (
           <>
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide mr-1">Filter</span>
-            <FilterSelect
-              label="Type"
-              value={propFilters.propType}
-              options={PROP_TYPES}
-              onChange={(v) => setPropFilters((f) => ({ ...f, propType: v }))}
+            <TabSearchInput
+              value={propTabQuery}
+              placeholder="e.g. industrial over 50k SF in Doral…"
+              searching={searching}
+              onChange={setPropTabQuery}
+              onSearch={runSearch}
+              onClear={clearSearch}
             />
-            <FilterSelect
-              label="Ownership"
-              value={propFilters.ownership}
-              options={OWNERSHIP_TYPES}
-              onChange={(v) => setPropFilters((f) => ({ ...f, ownership: v }))}
-            />
-            {propSizeCatOpts.length > 0 && (
-              <FilterSelect
-                label="Size cat"
-                value={propFilters.sizeCat}
-                options={propSizeCatOpts}
-                onChange={(v) => setPropFilters((f) => ({ ...f, sizeCat: v }))}
-              />
-            )}
-            {propGeoCatOpts.length > 0 && (
-              <FilterSelect
-                label="Geo cat"
-                value={propFilters.geoCat}
-                options={propGeoCatOpts}
-                onChange={(v) => setPropFilters((f) => ({ ...f, geoCat: v }))}
-              />
-            )}
-            {propFiltersActive && (
-              <button
-                onClick={() => setPropFilters(EMPTY_PROP_FILTERS)}
-                className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              >
-                Clear filters
-              </button>
+            {searchMode ? (
+              <SearchExplanation explanation={activeSearch!.explanation} onClear={clearSearch} />
+            ) : (
+              <>
+                <FilterSelect
+                  label="Type"
+                  value={propFilters.propType}
+                  options={PROP_TYPES}
+                  onChange={(v) => updatePropFilter("propType", v)}
+                />
+                <FilterSelect
+                  label="Ownership"
+                  value={propFilters.ownership}
+                  options={OWNERSHIP_TYPES}
+                  onChange={(v) => updatePropFilter("ownership", v)}
+                />
+                {propFilterOpts.sizeCat.length > 0 && (
+                  <FilterSelect
+                    label="Size cat"
+                    value={propFilters.sizeCat}
+                    options={propFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))}
+                    onChange={(v) => updatePropFilter("sizeCat", v)}
+                  />
+                )}
+                {propFilterOpts.geoCat.length > 0 && (
+                  <FilterSelect
+                    label="Geo cat"
+                    value={propFilters.geoCat}
+                    options={propFilterOpts.geoCat.map((v) => ({ value: v, label: v }))}
+                    onChange={(v) => updatePropFilter("geoCat", v)}
+                  />
+                )}
+                {propFiltersActive && (
+                  <button
+                    onClick={() => { setPropFilters(EMPTY_PROP_FILTERS); setPropPage(0); }}
+                    className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </>
             )}
           </>
         ) : (
           <>
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide mr-1">Filter</span>
-            <FilterSelect
-              label="Tier"
-              value={conFilters.tier}
-              options={[
-                { value: "1", label: "Tier 1" },
-                { value: "2", label: "Tier 2" },
-                { value: "3", label: "Tier 3" },
-              ]}
-              onChange={(v) => setConFilters((f) => ({ ...f, tier: v }))}
+            <TabSearchInput
+              value={conTabQuery}
+              placeholder="e.g. tier 1 prospects not contacted in 30 days…"
+              searching={searching}
+              onChange={setConTabQuery}
+              onSearch={runSearch}
+              onClear={clearSearch}
             />
-            <FilterSelect
-              label="Status"
-              value={conFilters.status}
-              options={CLIENT_STATUSES}
-              onChange={(v) => setConFilters((f) => ({ ...f, status: v }))}
-            />
-            {conTagOpts.length > 0 && (
-              <FilterSelect
-                label="Tag"
-                value={conFilters.tag}
-                options={conTagOpts}
-                onChange={(v) => setConFilters((f) => ({ ...f, tag: v }))}
-              />
-            )}
-            {conSizeCatOpts.length > 0 && (
-              <FilterSelect
-                label="Size cat"
-                value={conFilters.sizeCat}
-                options={conSizeCatOpts}
-                onChange={(v) => setConFilters((f) => ({ ...f, sizeCat: v }))}
-              />
-            )}
-            {conGeoCatOpts.length > 0 && (
-              <FilterSelect
-                label="Geo cat"
-                value={conFilters.geoCat}
-                options={conGeoCatOpts}
-                onChange={(v) => setConFilters((f) => ({ ...f, geoCat: v }))}
-              />
-            )}
-            {conOwnershipOpts.length > 0 && (
-              <FilterSelect
-                label="Ownership"
-                value={conFilters.ownership}
-                options={conOwnershipOpts}
-                onChange={(v) => setConFilters((f) => ({ ...f, ownership: v }))}
-              />
-            )}
-            {conFiltersActive && (
-              <button
-                onClick={() => setConFilters(EMPTY_CON_FILTERS)}
-                className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              >
-                Clear filters
-              </button>
+            {searchMode ? (
+              <SearchExplanation explanation={activeSearch!.explanation} onClear={clearSearch} />
+            ) : (
+              <>
+                <FilterSelect
+                  label="Tier"
+                  value={conFilters.tier}
+                  options={[
+                    { value: "1", label: "Tier 1" },
+                    { value: "2", label: "Tier 2" },
+                    { value: "3", label: "Tier 3" },
+                  ]}
+                  onChange={(v) => updateConFilter("tier", v)}
+                />
+                <FilterSelect
+                  label="Status"
+                  value={conFilters.status}
+                  options={CLIENT_STATUSES}
+                  onChange={(v) => updateConFilter("status", v)}
+                />
+                {conFilterOpts.tags.length > 0 && (
+                  <FilterSelect
+                    label="Tag"
+                    value={conFilters.tag}
+                    options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))}
+                    onChange={(v) => updateConFilter("tag", v)}
+                  />
+                )}
+                {conFilterOpts.sizeCat.length > 0 && (
+                  <FilterSelect
+                    label="Size cat"
+                    value={conFilters.sizeCat}
+                    options={conFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))}
+                    onChange={(v) => updateConFilter("sizeCat", v)}
+                  />
+                )}
+                {conFilterOpts.geoCat.length > 0 && (
+                  <FilterSelect
+                    label="Geo cat"
+                    value={conFilters.geoCat}
+                    options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))}
+                    onChange={(v) => updateConFilter("geoCat", v)}
+                  />
+                )}
+                {conFilterOpts.ownership.length > 0 && (
+                  <FilterSelect
+                    label="Ownership"
+                    value={conFilters.ownership}
+                    options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))}
+                    onChange={(v) => updateConFilter("ownership", v)}
+                  />
+                )}
+                {conFiltersActive && (
+                  <button
+                    onClick={() => { setConFilters(EMPTY_CON_FILTERS); setConPage(0); }}
+                    className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </>
             )}
           </>
         )}
       </div>
 
-      {/* Table area */}
-      <div className="flex-1 overflow-auto">
-        {tab === "fields" ? (
-          <FieldsPanel onChanged={reloadCustomDefs} />
-        ) : loading ? (
-          <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
-            <Loader2 className="size-5 animate-spin" />
-            <span className="text-sm">Loading…</span>
-          </div>
-        ) : tab === "properties" ? (
-          <PropertiesTable
-            rows={filteredProps}
-            customDefs={customPropertyDefs}
-            onSave={saveProp}
-            deletingId={deletingId}
-            onDeleteRequest={setDeletingId}
-            onDeleteConfirm={handleDeleteConfirm}
-            onDeleteCancel={() => setDeletingId(null)}
+      {/* Table area + pagination */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-auto">
+          {tab === "fields" ? (
+            <FieldsPanel onChanged={reloadCustomDefs} />
+          ) : tab === "properties" ? (
+            totalProps === null ? (
+              <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
+                <Loader2 className="size-5 animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            ) : (
+              <div className={cn(propsLoading && "opacity-60 pointer-events-none")}>
+                <PropertiesTable
+                  rows={properties}
+                  customDefs={customPropertyDefs}
+                  onSave={saveProp}
+                  deletingId={deletingId}
+                  onDeleteRequest={setDeletingId}
+                  onDeleteConfirm={handleDeleteConfirm}
+                  onDeleteCancel={() => setDeletingId(null)}
+                />
+              </div>
+            )
+          ) : tab === "leases" ? (
+            totalLeases === null ? (
+              <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
+                <Loader2 className="size-5 animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            ) : (
+              <div className={cn(leasesLoading && "opacity-60 pointer-events-none")}>
+                <LeasesTable rows={leases} />
+              </div>
+            )
+          ) : (
+            totalCons === null ? (
+              <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
+                <Loader2 className="size-5 animate-spin" />
+                <span className="text-sm">Loading…</span>
+              </div>
+            ) : (
+              <div className={cn(contactsLoading && "opacity-60 pointer-events-none")}>
+                <ContactsTable rows={contacts} onSave={saveContact} />
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Pagination — hidden for Fields tab */}
+        {tab === "properties" && (
+          <PaginationBar
+            page={propPage}
+            total={totalProps}
+            loading={propsLoading}
+            onPrev={() => setPropPage((p) => p - 1)}
+            onNext={() => setPropPage((p) => p + 1)}
           />
-        ) : tab === "leases" ? (
-          <LeasesTable rows={leases} />
-        ) : (
-          <ContactsTable rows={filteredContacts} onSave={saveContact} />
+        )}
+        {tab === "leases" && (
+          <PaginationBar
+            page={leasePage}
+            total={totalLeases}
+            loading={leasesLoading}
+            onPrev={() => setLeasePage((p) => p - 1)}
+            onNext={() => setLeasePage((p) => p + 1)}
+          />
+        )}
+        {tab === "contacts" && (
+          <PaginationBar
+            page={conPage}
+            total={totalCons}
+            loading={contactsLoading}
+            onPrev={() => setConPage((p) => p - 1)}
+            onNext={() => setConPage((p) => p + 1)}
+          />
         )}
       </div>
     </div>

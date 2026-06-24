@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Beacon
 
-## Getting Started
+AI-native CRM for commercial real estate brokers. Built on Next.js 16, Supabase, and Claude.
 
-First, run the development server:
+## Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 20+
+- A Supabase project
+- An Anthropic API key
+
+## Environment variables
+
+Create a `.env.local` file at the project root:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+DATABASE_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`DATABASE_URL` is only used by the migration scripts and never exposed to the browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run all migrations against your Supabase database:
 
-## Learn More
+```bash
+npm run migrate
+```
 
-To learn more about Next.js, take a look at the following resources:
+This runs four scripts in order — each is idempotent, so re-running is always safe:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Script | What it does |
+|---|---|
+| `migrate.ts` | Creates `properties`, `contacts`, `lease_abstracts` tables with RLS |
+| `migrate-contacts.ts` | Adds `size_category`, `geographic_category`, `ownership_type` to `contacts` |
+| `migrate-custom-fields.ts` | Creates `field_definitions` table; adds `custom_fields JSONB` to all three entity tables |
+| `setup-storage.ts` | Creates the `leases` storage bucket with RLS policies |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+If any script fails the run stops immediately and prints the exit code. Fix the error and re-run — scripts that already succeeded will simply no-op.
 
-## Deploy on Vercel
+## Development
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm install
+npm run migrate   # first time, or after pulling schema changes
+npm run dev
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000).
+
+## Adding a new migration
+
+1. Create `scripts/migrate-something.ts` following the same pattern (pg `Client`, idempotent SQL, `process.exit(1)` on error).
+2. Add it to the `SCRIPTS` array in `scripts/migrate-all.ts` in the correct dependency order.
+3. Run `npm run migrate`.
+
+## Other scripts
+
+```bash
+npm run build    # production build
+npm run start    # serve production build
+npm run lint     # ESLint
+```

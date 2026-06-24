@@ -9,6 +9,7 @@ import {
   type PipelineContent,
 } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
+import { logIngestionError } from "@/lib/ingestion-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,6 @@ async function fileToContent(file: File): Promise<{ content: PipelineContent; la
     name.endsWith(".xlsx") ||
     name.endsWith(".xls")
   ) {
-    // Dynamically import xlsx so it's only loaded when needed
     const XLSX = await import("xlsx");
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
@@ -60,7 +60,6 @@ async function fileToContent(file: File): Promise<{ content: PipelineContent; la
     };
   }
 
-  // CSV, plain text, or anything else — treat as UTF-8 text
   const text = buffer.toString("utf-8");
   const label = name.endsWith(".csv") ? "CSV" : "text file";
   return {
@@ -88,7 +87,6 @@ export async function ingestUpload(
   let sourceLabel: string;
 
   if (pastedText && pastedText.length >= 20) {
-    // Pasted text path
     pipelineContent = {
       type: "text",
       text: pastedText.slice(0, 30_000),
@@ -115,7 +113,14 @@ export async function ingestUpload(
   try {
     fields = await extractPropertyFields(pipelineContent, undefined, customExtractFields);
   } catch (e) {
-    return { error: `Extraction failed: ${e instanceof Error ? e.message : String(e)}` };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "ai_extract",
+      source_type: "upload",
+      source_ref: fileName,
+      error_message: msg,
+    });
+    return { error: `Extraction failed: ${msg}` };
   }
 
   if (!fields.address) {
@@ -139,6 +144,11 @@ export async function saveIngestedUpload(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  // Guard: refuse to save a record with no address (defense-in-depth)
+  if (!preview.address?.trim()) {
+    return { error: "Cannot save a property without an address." };
+  }
+
   try {
     const id = await savePipelineProperty(
       supabase,
@@ -149,6 +159,13 @@ export async function saveIngestedUpload(
     );
     return { id };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "db_save",
+      source_type: "upload",
+      source_ref: preview.fileName,
+      error_message: msg,
+    });
+    return { error: msg };
   }
 }

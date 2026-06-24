@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -69,7 +70,6 @@ function folio(sourceUrl: string | null) {
   if (!sourceUrl?.startsWith("mdpa:")) return null;
   return sourceUrl.replace("mdpa:", "");
 }
-
 function sourceLabel(source: string | null) {
   if (source === "tax_roll") return "Tax roll · MDPA";
   if (source === "url") return "Listing URL";
@@ -77,7 +77,6 @@ function sourceLabel(source: string | null) {
   if (source === "forward") return "Email forward";
   return source ?? "Unknown";
 }
-
 function listingUrl(source: string | null, sUrl: string | null) {
   if (source === "url" && sUrl && !sUrl.startsWith("mdpa:")) return sUrl;
   return null;
@@ -106,7 +105,6 @@ export default async function PropertyPage({
   if (error || !data) notFound();
   const p = data as Property;
 
-  // Fetch custom field definitions for display
   const { data: fdData } = await supabase
     .from("field_definitions")
     .select("*")
@@ -116,7 +114,10 @@ export default async function PropertyPage({
   const customValues = p.custom_fields ?? {};
 
   const folioNumber = folio(p.source_url);
-  const flaggedFields = new Set((p.confidence_flags ?? []).map((f) => f.field));
+
+  // flagMap: field name → reason string (covers both uncertain and not-found)
+  const flagMap = new Map((p.confidence_flags ?? []).map((f) => [f.field, f.reason]));
+
   const notFoundFlags = (p.confidence_flags ?? []).filter(
     (f) => f.reason === "not found in source record"
   );
@@ -124,6 +125,12 @@ export default async function PropertyPage({
     (f) => f.reason !== "not found in source record"
   );
   const bc = p.building_composition;
+
+  // Helper: look up flag reason for a building_composition sub-field,
+  // trying both "building_composition.key" and bare "key".
+  function bcFlagReason(key: string): string | undefined {
+    return flagMap.get(`building_composition.${key}`) ?? flagMap.get(key);
+  }
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-12 space-y-6">
@@ -167,25 +174,39 @@ export default async function PropertyPage({
         </div>
       </div>
 
-      {/* Source + folio verification strip (tax roll records only) */}
-      {folioNumber && (
+      {/* Source + folio verification strip */}
+      {folioNumber ? (
         <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
-          <span className="text-muted-foreground">Source:</span>
+          <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Source</span>
           <span className="font-medium">Miami-Dade Property Appraiser</span>
           <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground">Folio:</span>
-          <span className="font-mono text-foreground">{folioNumber}</span>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Folio</span>
+          <span className="font-mono text-foreground font-semibold">{folioNumber}</span>
           <a
-            href="https://www.miamidade.gov/Apps/PA/propertysearch/#/"
+            href={`https://www.miamidade.gov/Apps/PA/propertysearch/#/?strap=${folioNumber}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors ml-auto"
+            className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity ml-auto"
           >
-            Verify on MDPA
+            Verify on MDPA ↗
             <ExternalLink className="size-3" />
           </a>
         </div>
-      )}
+      ) : listingUrl(p.source, p.source_url) ? (
+        <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Source</span>
+          <span className="font-medium">{sourceLabel(p.source)}</span>
+          <a
+            href={listingUrl(p.source, p.source_url)!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity ml-auto font-mono break-all"
+          >
+            {listingUrl(p.source, p.source_url)}
+            <ExternalLink className="size-3 shrink-0" />
+          </a>
+        </div>
+      ) : null}
 
       {/* Uncertain / ambiguous fields — yellow */}
       {uncertainFlags.length > 0 && (
@@ -193,7 +214,7 @@ export default async function PropertyPage({
           <AlertTriangle className="size-4 text-yellow-600" />
           <AlertTitle className="text-yellow-700 dark:text-yellow-400">
             {uncertainFlags.length} field
-            {uncertainFlags.length > 1 ? "s" : ""} flagged uncertain — verify
+            {uncertainFlags.length > 1 ? "s" : ""} flagged uncertain — verify before use
           </AlertTitle>
           <AlertDescription>
             <ul className="mt-1.5 space-y-1">
@@ -214,11 +235,13 @@ export default async function PropertyPage({
           <Info className="size-4 text-muted-foreground" />
           <AlertTitle className="text-muted-foreground">
             {notFoundFlags.length} field
-            {notFoundFlags.length > 1 ? "s" : ""} not in source record
+            {notFoundFlags.length > 1 ? "s" : ""} not present in the source record
           </AlertTitle>
           <AlertDescription className="text-muted-foreground">
-            {notFoundFlags.map((f) => f.field).join(", ")} — not present in the MDPA
-            record for this parcel.
+            {notFoundFlags.map((f) => (
+              <span key={f.field} className="font-mono">{f.field}</span>
+            )).reduce<React.ReactNode[]>((acc, el, i) => i === 0 ? [el] : [...acc, ", ", el], [])}
+            {" "}— shown as <span className="italic">not in source</span> below.
           </AlertDescription>
         </Alert>
       )}
@@ -234,31 +257,31 @@ export default async function PropertyPage({
               icon={<User className="size-4" />}
               label="Owner"
               value={p.owner_name ?? "—"}
-              flagged={flaggedFields.has("owner_name")}
+              flagReason={flagMap.get("owner_name")}
             />
             <Field
               icon={<Building2 className="size-4" />}
               label="Ownership type"
               value={p.ownership_type ?? "—"}
-              flagged={flaggedFields.has("ownership_type")}
+              flagReason={flagMap.get("ownership_type")}
             />
             <Field
               icon={<Building2 className="size-4" />}
               label="Property type"
               value={p.property_type ?? "—"}
-              flagged={flaggedFields.has("property_type")}
+              flagReason={flagMap.get("property_type")}
             />
             <Field
               icon={<Ruler className="size-4" />}
               label="Building area"
               value={p.size_sqft != null ? `${fmt(p.size_sqft)} sqft` : "—"}
-              flagged={flaggedFields.has("size_sqft")}
+              flagReason={flagMap.get("size_sqft")}
             />
             <Field
               icon={<Calendar className="size-4" />}
               label="Last sale date"
               value={fmtDate(p.last_sale_date)}
-              flagged={flaggedFields.has("last_sale_date")}
+              flagReason={flagMap.get("last_sale_date")}
             />
             <Field
               icon={<DollarSign className="size-4" />}
@@ -272,7 +295,7 @@ export default async function PropertyPage({
                     })
                   : "—"
               }
-              flagged={flaggedFields.has("last_sale_price")}
+              flagReason={flagMap.get("last_sale_price")}
             />
           </dl>
         </CardContent>
@@ -293,7 +316,7 @@ export default async function PropertyPage({
                   <div key={f.id} className="space-y-0.5">
                     <dt className="text-xs text-muted-foreground">{f.field_name}</dt>
                     <dd className="text-sm font-medium">
-                      {val != null ? String(val) : "—"}
+                      {val != null ? String(val) : <span className="text-xs italic text-muted-foreground/40 font-normal">not in source</span>}
                     </dd>
                   </div>
                 );
@@ -311,17 +334,31 @@ export default async function PropertyPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <dl className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
-              <SmallField label="Year built" value={bc.year_built ? String(bc.year_built) : "—"} />
+              <SmallField
+                label="Year built"
+                value={bc.year_built ? String(bc.year_built) : "—"}
+                flagReason={bcFlagReason("year_built")}
+              />
               <SmallField
                 label="Lot size"
                 value={bc.lot_size_sqft != null ? `${fmt(bc.lot_size_sqft)} sqft` : "—"}
+                flagReason={bcFlagReason("lot_size_sqft")}
               />
-              <SmallField label="Stories" value={bc.stories != null ? String(bc.stories) : "—"} />
-              <SmallField label="Units" value={bc.units != null ? String(bc.units) : "—"} />
+              <SmallField
+                label="Stories"
+                value={bc.stories != null ? String(bc.stories) : "—"}
+                flagReason={bcFlagReason("stories")}
+              />
+              <SmallField
+                label="Units"
+                value={bc.units != null ? String(bc.units) : "—"}
+                flagReason={bcFlagReason("units")}
+              />
               {bc.assessed_value != null && (
                 <SmallField
                   label="Assessed value"
                   value={fmt(bc.assessed_value, { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                  flagReason={bcFlagReason("assessed_value")}
                 />
               )}
             </dl>
@@ -360,36 +397,68 @@ function Field({
   icon,
   label,
   value,
-  flagged,
+  flagReason,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  flagged?: boolean;
+  flagReason?: string;
 }) {
+  const isNotFound = flagReason === "not found in source record";
+  const isUncertain = !!flagReason && !isNotFound;
+
   return (
     <div className="space-y-1">
       <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {icon}
         {label}
       </dt>
-      <dd className="flex items-center gap-1.5 text-sm font-medium">
-        {value}
-        {flagged && (
-          <span title="Low confidence — verify this field">
-            <AlertTriangle className="size-3.5 text-yellow-500" />
-          </span>
+      <dd className={cn("text-sm font-medium flex items-center gap-1.5", isUncertain && "text-yellow-700 dark:text-yellow-300")}>
+        {isNotFound && value === "—" ? (
+          <span className="text-xs italic text-muted-foreground/40 font-normal">not in source</span>
+        ) : (
+          value
+        )}
+        {isUncertain && (
+          <AlertTriangle className="size-3.5 text-yellow-500 shrink-0" />
         )}
       </dd>
+      {isUncertain && (
+        <p className="text-xs text-yellow-600 dark:text-yellow-500 leading-snug">
+          {flagReason}
+        </p>
+      )}
     </div>
   );
 }
 
-function SmallField({ label, value }: { label: string; value: string }) {
+function SmallField({
+  label,
+  value,
+  flagReason,
+}: {
+  label: string;
+  value: string;
+  flagReason?: string;
+}) {
+  const isNotFound = flagReason === "not found in source record";
+  const isUncertain = !!flagReason && !isNotFound;
+
   return (
     <div className="space-y-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium">{value}</dd>
+      <dd className="text-sm font-medium flex items-center gap-1">
+        {isNotFound && value === "—" ? (
+          <span className="text-xs italic text-muted-foreground/40 font-normal">not in source</span>
+        ) : (
+          value
+        )}
+        {isUncertain && (
+          <span title={flagReason}>
+            <AlertTriangle className="size-3 text-yellow-500 shrink-0" />
+          </span>
+        )}
+      </dd>
     </div>
   );
 }

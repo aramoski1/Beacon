@@ -12,5 +12,5 @@ export default async function OutreachPage() {
 
   const initialContacts = await getDueContacts();
 
-  return <OutreachView initialContacts={initialContacts} />;
+  return <OutreachView initialContacts={initialContacts} userEmail={user?.email ?? null} />;
 }

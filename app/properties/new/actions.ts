@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { searchByAddressGIS, getPropertyDetail } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
+import { logIngestionError } from "@/lib/ingestion-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,8 +42,15 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
   try {
     parcels = await searchByAddressGIS(address);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "gis_fetch",
+      source_type: "address",
+      source_ref: address,
+      error_message: msg,
+    });
     return {
-      error: `Miami-Dade property search failed: ${e instanceof Error ? e.message : String(e)}`,
+      error: `Miami-Dade property search failed: ${msg}`,
     };
   }
 
@@ -79,8 +87,15 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
   try {
     detail = await getPropertyDetail(strap);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "mdpa_fetch",
+      source_type: "address",
+      source_ref: `${strap} (${siteAddress})`,
+      error_message: msg,
+    });
     return {
-      error: `MDPA detail fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+      error: `MDPA detail fetch failed: ${msg}`,
     };
   }
 
@@ -128,7 +143,14 @@ STRICT RULES — violation is not permitted:
       customExtractFields
     );
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "ai_extract",
+      source_type: "address",
+      source_ref: `${strap} (${siteAddress})`,
+      error_message: msg,
+    });
+    return { error: msg };
   }
 
   return {
@@ -153,6 +175,11 @@ export async function saveIngestedProperty(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  // MDPA path always has a canonical address from GIS; guard against corrupt calls
+  if (!preview.address?.trim()) {
+    return { error: "Cannot save a property without an address." };
+  }
+
   try {
     const id = await savePipelineProperty(
       supabase,
@@ -164,6 +191,13 @@ export async function saveIngestedProperty(
     );
     return { id };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "db_save",
+      source_type: "address",
+      source_ref: `mdpa:${preview.strap}`,
+      error_message: msg,
+    });
+    return { error: msg };
   }
 }

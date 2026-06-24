@@ -32,10 +32,18 @@ export type ContactSearchFilters = {
   company_contains?: string;
 };
 
+export type LeaseSearchFilters = {
+  status?: "active" | "expiring" | "expired"; // derived from expiration_date vs now
+  expiring_within_days?: number;              // expiration_date within N days from today
+  base_rate_min?: number;
+  base_rate_max?: number;
+};
+
 export type SearchResult = {
-  target: "properties" | "contacts" | "both";
+  target: "properties" | "contacts" | "leases" | "both";
   properties?: PropertySearchFilters;
   contacts?: ContactSearchFilters;
+  leases?: LeaseSearchFilters;
   explanation: string;
 };
 
@@ -47,7 +55,7 @@ const INTERPRET_TOOL: Anthropic.Tool = {
   name: "interpret_crm_search",
   description: `Interpret a natural-language search query for a real estate broker's CRM.
 
-The CRM has two tables:
+The CRM has three tables:
 
 PROPERTIES — commercial real estate records:
   property_type: industrial | office | retail | multifamily | land | residential | mixed-use | other
@@ -67,6 +75,13 @@ CONTACTS — people the broker manages:
   geographic_category, size_category, ownership_type: broker's categorization of the contact
   name, company: identity fields
 
+LEASE_ABSTRACTS — abstracted lease documents:
+  execution_date: when the lease was signed
+  expiration_date: when the lease expires
+  term: text description (e.g. "5 years")
+  base_rate: annual rent per sqft in dollars
+  Derived statuses: active = expiration > 90 days away; expiring = expiration within 90 days; expired = expiration in the past
+
 Rules for interpretation:
 - "owners" without qualifier → don't set ownership_type unless the type is clearly stated (e.g. "private owners" → ownership_type: private)
 - "haven't contacted in X days" / "not reached in X days" → not_contacted_in_days: X (includes never-contacted)
@@ -76,7 +91,13 @@ Rules for interpretation:
 - "prospects" → client_status: prospect
 - "over X sqft" → size_sqft_min: X; "under X sqft" → size_sqft_max: X
 - "over $X" / "more than $X million" → last_sale_price_min: X (convert M to full dollars)
-- Only set target: "both" when the query meaningfully spans both tables
+- "expiring leases" / "leases expiring soon" → target: leases, leases.status: expiring
+- "expired leases" → target: leases, leases.status: expired
+- "active leases" → target: leases, leases.status: active
+- "leases expiring in X days" → target: leases, leases.expiring_within_days: X
+- "leases over $X/sqft" → target: leases, leases.base_rate_min: X
+- Only set target: "both" when the query meaningfully spans multiple tables
+- Set target: "leases" when the query is about lease documents or expiration dates
 - Set target: "properties" when primarily about real estate records
 - Set target: "contacts" when primarily about people
 - Omit any filter that is not clearly implied — prefer fewer, more precise filters`,
@@ -87,7 +108,7 @@ Rules for interpretation:
     properties: {
       target: {
         type: "string",
-        enum: ["properties", "contacts", "both"],
+        enum: ["properties", "contacts", "leases", "both"],
         description: "Which table(s) the search primarily targets.",
       },
       properties: {
@@ -116,7 +137,7 @@ Rules for interpretation:
       },
       contacts: {
         type: "object",
-        description: "Filters for the contacts table. Omit entirely if target is 'properties'.",
+        description: "Filters for the contacts table. Omit entirely if target is 'properties' or 'leases'.",
         properties: {
           contact_tier: { type: "number", enum: [1, 2, 3] },
           client_status: {
@@ -139,6 +160,23 @@ Rules for interpretation:
           company_contains: { type: "string", description: "Substring matched against company." },
         },
       },
+      leases: {
+        type: "object",
+        description: "Filters for the lease_abstracts table. Omit entirely if target is 'properties' or 'contacts'.",
+        properties: {
+          status: {
+            type: "string",
+            enum: ["active", "expiring", "expired"],
+            description: "active = expiration > 90 days away; expiring = within 90 days; expired = past.",
+          },
+          expiring_within_days: {
+            type: "number",
+            description: "Leases whose expiration_date falls within N days from today.",
+          },
+          base_rate_min: { type: "number", description: "Minimum base rate in $/sqft/year." },
+          base_rate_max: { type: "number", description: "Maximum base rate in $/sqft/year." },
+        },
+      },
       explanation: {
         type: "string",
         description: "One sentence describing the search in broker-friendly terms, e.g. 'Industrial properties over 100k sqft near the airport where the owner hasn't been contacted in 90 days.'",
@@ -155,7 +193,12 @@ export async function deleteProperty(id: string): Promise<{ error?: string }> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
-  const { error } = await supabase.from("properties").delete().eq("id", id);
+  // owner_id filter is defense-in-depth; RLS already enforces this at the DB level
+  const { error } = await supabase
+    .from("properties")
+    .delete()
+    .eq("id", id)
+    .eq("owner_id", user.id);
   if (error) return { error: error.message };
   return {};
 }

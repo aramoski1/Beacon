@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, Zap } from "lucide-react";
+import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generateDrafts, logOutreach, type DueContact, type EmailDraft } from "./actions";
 
@@ -33,8 +33,10 @@ function tierLabel(tier: number | null) {
 
 export default function OutreachView({
   initialContacts,
+  userEmail,
 }: {
   initialContacts: DueContact[];
+  userEmail: string | null;
 }) {
   const [contacts, setContacts] = useState<DueContact[]>(initialContacts);
   const [step, setStep] = useState<"select" | "review">("select");
@@ -48,6 +50,12 @@ export default function OutreachView({
   // Draft edits
   const [editedSubjects, setEditedSubjects] = useState<Record<string, string>>({});
   const [editedBodies, setEditedBodies] = useState<Record<string, string>>({});
+
+  // ── Safety gates ───────────────────────────────────────────────────────────
+  // testMode: replaces all mailto recipients with userEmail; disables "Mark as sent"
+  const [testMode, setTestMode] = useState(false);
+  // confirmingMarkAll: shows a "you're about to log N contacts" panel before bulk-log
+  const [confirmingMarkAll, setConfirmingMarkAll] = useState(false);
 
   // Load broker context from localStorage
   useEffect(() => {
@@ -94,7 +102,6 @@ export default function OutreachView({
     const generatedDrafts = result.drafts ?? [];
     setDrafts(generatedDrafts);
 
-    // Initialize edited state from drafts
     const subjects: Record<string, string> = {};
     const bodies: Record<string, string> = {};
     for (const d of generatedDrafts) {
@@ -104,8 +111,12 @@ export default function OutreachView({
     setEditedSubjects(subjects);
     setEditedBodies(bodies);
     setSentIds(new Set());
+    setConfirmingMarkAll(false);
+    setTestMode(false);
   }
 
+  // Logs outreach in the DB — does NOT send email.
+  // Real sending happens when the broker clicks "Open in email ↗" in their mail client.
   async function handleMarkSent(contactId: string) {
     const subject = editedSubjects[contactId] ?? "";
     const body = editedBodies[contactId] ?? "";
@@ -115,7 +126,6 @@ export default function OutreachView({
       return;
     }
     setSentIds((prev) => new Set([...prev, contactId]));
-    // Update the contact's last_contacted_at in parent contacts state
     setContacts((prev) =>
       prev.map((c) =>
         c.id === contactId
@@ -125,7 +135,9 @@ export default function OutreachView({
     );
   }
 
-  async function handleMarkAllSent() {
+  // Requires confirmation before running. Called after the confirmation panel is accepted.
+  async function handleMarkAllSentConfirmed() {
+    setConfirmingMarkAll(false);
     for (const draft of drafts) {
       if (!sentIds.has(draft.contactId)) {
         await handleMarkSent(draft.contactId);
@@ -133,12 +145,14 @@ export default function OutreachView({
     }
   }
 
+  // Drafts that haven't been marked sent yet
+  const pendingDrafts = drafts.filter((d) => !sentIds.has(d.contactId));
+
   // ── Select view ───────────────────────────────────────────────────────────
 
   if (step === "select") {
     return (
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
-        {/* Header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Outreach</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -146,7 +160,6 @@ export default function OutreachView({
           </p>
         </div>
 
-        {/* Broker context */}
         <div className="space-y-1.5">
           <label className="text-sm font-medium">About you</label>
           <textarea
@@ -177,7 +190,6 @@ export default function OutreachView({
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Select all overdue */}
             {overdueContacts.length > 0 && (
               <button
                 onClick={selectAllOverdue}
@@ -187,7 +199,6 @@ export default function OutreachView({
               </button>
             )}
 
-            {/* Overdue section */}
             {overdueContacts.length > 0 && (
               <ContactSection
                 title="Overdue"
@@ -198,7 +209,6 @@ export default function OutreachView({
               />
             )}
 
-            {/* Due this week section */}
             {dueSoonContacts.length > 0 && (
               <ContactSection
                 title="Due this week"
@@ -226,7 +236,6 @@ export default function OutreachView({
             </button>
           </div>
         )}
-        {/* Spacer for sticky bar */}
         {selected.size > 0 && <div className="h-20" />}
       </div>
     );
@@ -237,15 +246,66 @@ export default function OutreachView({
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => { setStep("select"); setError(null); setConfirmingMarkAll(false); }}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            ← Back
+          </button>
+          <h1 className="text-2xl font-bold tracking-tight">Review drafts</h1>
+        </div>
+
+        {/* Test mode toggle */}
         <button
-          onClick={() => { setStep("select"); setError(null); }}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => { setTestMode((v) => !v); setConfirmingMarkAll(false); }}
+          className={cn(
+            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors",
+            testMode
+              ? "bg-amber-100 border-amber-400 text-amber-800 hover:bg-amber-200"
+              : "border-border text-muted-foreground hover:bg-muted/50"
+          )}
+          title={testMode
+            ? "Test mode on — mailto links point to your address. Click to exit."
+            : "Enable test mode — sends to you instead of contacts"}
         >
-          ← Back
+          <FlaskConical className="size-3.5" />
+          {testMode ? "Test mode ON" : "Test mode"}
         </button>
-        <h1 className="text-2xl font-bold tracking-tight">Review drafts</h1>
       </div>
+
+      {/* How this works — always visible on review step */}
+      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground space-y-1">
+        <p className="font-medium text-foreground">How sending works</p>
+        <p>
+          Clicking <span className="font-medium text-foreground">Open in email ↗</span> opens
+          a draft in your mail client — <span className="font-medium">you</span> click Send there.
+          Nothing is sent automatically.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Mark as sent</span> only logs the
+          outreach in Beacon (updates last-contacted date). Do it after you've actually sent.
+        </p>
+      </div>
+
+      {/* Test mode banner */}
+      {testMode && (
+        <div className="rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex items-start gap-2">
+          <FlaskConical className="size-4 text-amber-700 shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-800 dark:text-amber-300 space-y-0.5">
+            <p className="font-semibold">Test mode is on</p>
+            <p>
+              All <span className="font-medium">Open in email</span> links will address{" "}
+              <span className="font-medium">{userEmail ?? "your account email"}</span> instead
+              of the real contact. Subjects will be prefixed with{" "}
+              <span className="font-mono">[TEST]</span>.{" "}
+              <span className="font-medium">Mark as sent is disabled</span> — exit test mode
+              to log real outreach.
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -260,14 +320,58 @@ export default function OutreachView({
         </div>
       ) : (
         <>
-          {/* Mark all unsent */}
-          {drafts.some((d) => !sentIds.has(d.contactId)) && (
-            <button
-              onClick={handleMarkAllSent}
-              className="text-xs text-primary hover:underline underline-offset-2"
-            >
-              Mark all unsent as sent
-            </button>
+          {/* Confirmation panel — shown instead of the mark-all button */}
+          {confirmingMarkAll ? (
+            <div className="rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="size-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    About to log outreach for {pendingDrafts.length}{" "}
+                    {pendingDrafts.length === 1 ? "contact" : "contacts"}
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    This marks them as contacted today and resets their cadence timer. Only do
+                    this after you've actually sent the emails.
+                  </p>
+                </div>
+              </div>
+              <ul className="text-xs space-y-1 pl-6">
+                {pendingDrafts.map((d) => {
+                  const c = contacts.find((x) => x.id === d.contactId);
+                  return (
+                    <li key={d.contactId} className="text-muted-foreground">
+                      <span className="font-medium text-foreground">{c?.name ?? "Unknown"}</span>
+                      {c?.email ? ` — ${c.email}` : " — no email on file"}
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={handleMarkAllSentConfirmed}
+                  className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
+                >
+                  Yes, mark all {pendingDrafts.length} as sent
+                </button>
+                <button
+                  onClick={() => setConfirmingMarkAll(false)}
+                  className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors text-muted-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Mark-all button — triggers confirmation, never sends directly */
+            pendingDrafts.length > 1 && !testMode && (
+              <button
+                onClick={() => setConfirmingMarkAll(true)}
+                className="text-xs text-primary hover:underline underline-offset-2"
+              >
+                Mark all {pendingDrafts.length} unsent as sent…
+              </button>
+            )
           )}
 
           <div className="space-y-6">
@@ -276,10 +380,14 @@ export default function OutreachView({
               const isSent = sentIds.has(draft.contactId);
               const subject = editedSubjects[draft.contactId] ?? draft.subject;
               const body = editedBodies[draft.contactId] ?? draft.body;
-              const email = contact?.email ?? null;
+              const realEmail = contact?.email ?? null;
 
-              const mailtoHref = email
-                ? `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+              // In test mode: redirect to broker's own address, prefix subject
+              const toEmail = testMode ? (userEmail ?? null) : realEmail;
+              const toSubject = testMode ? `[TEST] ${subject}` : subject;
+
+              const mailtoHref = toEmail
+                ? `mailto:${toEmail}?subject=${encodeURIComponent(toSubject)}&body=${encodeURIComponent(body)}`
                 : null;
 
               return (
@@ -296,8 +404,18 @@ export default function OutreachView({
                       <p className="font-medium text-sm">
                         {contact?.name ?? "Unknown"}
                       </p>
-                      {email && (
-                        <p className="text-xs text-muted-foreground">{email}</p>
+                      {realEmail && (
+                        <p className="text-xs text-muted-foreground">
+                          {testMode ? (
+                            <>
+                              <span className="line-through opacity-50">{realEmail}</span>
+                              {" → "}
+                              <span className="text-amber-700 font-medium">{userEmail ?? "your email"}</span>
+                              {" "}
+                              <span className="text-amber-600">(test)</span>
+                            </>
+                          ) : realEmail}
+                        </p>
                       )}
                     </div>
                     {isSent && (
@@ -351,9 +469,14 @@ export default function OutreachView({
                     {mailtoHref ? (
                       <a
                         href={mailtoHref}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
+                        className={cn(
+                          "inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border transition-colors",
+                          testMode
+                            ? "border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                            : "border-border hover:bg-muted/50"
+                        )}
                       >
-                        Open in email ↗
+                        {testMode ? "Open test email ↗" : "Open in email ↗"}
                       </a>
                     ) : (
                       <button
@@ -366,7 +489,9 @@ export default function OutreachView({
                     {!isSent && (
                       <button
                         onClick={() => handleMarkSent(draft.contactId)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        disabled={testMode}
+                        title={testMode ? "Exit test mode to log real outreach" : undefined}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Mark as sent
                       </button>

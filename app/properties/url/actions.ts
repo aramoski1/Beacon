@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
+import { logIngestionError } from "@/lib/ingestion-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +73,15 @@ export async function ingestUrl(formData: FormData): Promise<UrlIngestResult> {
     pageText = await fetchListingText(url.toString());
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Only log unexpected failures — blocked sites are a normal user experience
+    if (!msg.includes("blocked") && !msg.includes("403") && !msg.includes("401")) {
+      await logIngestionError(supabase, user.id, {
+        stage: "jina_fetch",
+        source_type: "url",
+        source_ref: url.toString(),
+        error_message: msg,
+      });
+    }
     if (msg.includes("abort") || msg.includes("timeout")) {
       return { error: "fetch_failed", detail: "The page took too long to load." };
     }
@@ -102,7 +112,14 @@ export async function ingestUrl(formData: FormData): Promise<UrlIngestResult> {
     }
     return { preview: { ...fields, source_url: url.toString() } };
   } catch (e) {
-    return { error: `AI extraction failed: ${e instanceof Error ? e.message : String(e)}` };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "ai_extract",
+      source_type: "url",
+      source_ref: url.toString(),
+      error_message: msg,
+    });
+    return { error: `AI extraction failed: ${msg}` };
   }
 }
 
@@ -144,9 +161,14 @@ export async function ingestPastedContent(
     }
     return { preview: { ...fields, source_url: sourceUrl || "manual" } };
   } catch (e) {
-    return {
-      error: `AI extraction failed: ${e instanceof Error ? e.message : String(e)}`,
-    };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "ai_extract",
+      source_type: "url",
+      source_ref: sourceUrl || "(pasted text)",
+      error_message: msg,
+    });
+    return { error: `AI extraction failed: ${msg}` };
   }
 }
 
@@ -161,10 +183,22 @@ export async function saveIngestedUrl(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  // Guard: refuse to save a record with no address (defense-in-depth)
+  if (!preview.address?.trim()) {
+    return { error: "Cannot save a property without an address." };
+  }
+
   try {
     const id = await savePipelineProperty(supabase, user.id, preview, "url", preview.source_url);
     return { id };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    await logIngestionError(supabase, user.id, {
+      stage: "db_save",
+      source_type: "url",
+      source_ref: preview.source_url,
+      error_message: msg,
+    });
+    return { error: msg };
   }
 }

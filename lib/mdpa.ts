@@ -26,7 +26,7 @@ export type GISParcel = {
 
 // Converts a 13-digit GIS folio to the dashed strap format used by MDPA detail.
 // "0141370650001" → "01-4137-065-0001"
-function folioToStrap(folio: string): string {
+export function folioToStrap(folio: string): string {
   const f = folio.padStart(13, "0");
   return `${f.slice(0, 2)}-${f.slice(2, 6)}-${f.slice(6, 9)}-${f.slice(9, 13)}`;
 }
@@ -47,7 +47,7 @@ const TYPES = new Set([
 
 // Parses a broker-typed address into the components used for GIS search.
 // Returns null if a house number cannot be extracted.
-function parseAddressForGIS(
+export function parseAddressForGIS(
   raw: string
 ): { houseNum: number; streetKeyword: string } | null {
   // Strip city / state / zip tail
