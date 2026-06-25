@@ -2,11 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { searchByAddressGIS, getPropertyDetail } from "@/lib/mdpa";
+import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { searchAndExtractSunbiz, type SunbizResult, type SunbizPerson } from "@/lib/sunbiz";
+import { storedOwnerContactsFromSunbiz, mdpaIndividualOwnerContact } from "@/lib/owner-contacts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -90,27 +91,6 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
 
   const strap         = formData.get("strap")         as string;
   const siteAddress   = formData.get("siteAddress")   as string;
-
-  // Extract owner mailing address directly from raw MDPA JSON — no AI involved.
-  // Fields: OwnerInfos[0].MailingAddress1/2, City, State, ZipCode
-  function extractOwnerMailing(raw: unknown): string | null {
-    const ownerInfo = (raw as { OwnerInfos?: Array<{
-      MailingAddress1?: string;
-      MailingAddress2?: string;
-      City?: string;
-      State?: string;
-      ZipCode?: string;
-    }> })?.OwnerInfos?.[0];
-    if (!ownerInfo) return null;
-    const parts: string[] = [];
-    if (ownerInfo.MailingAddress1?.trim()) parts.push(ownerInfo.MailingAddress1.trim());
-    if (ownerInfo.MailingAddress2?.trim()) parts.push(ownerInfo.MailingAddress2.trim());
-    const cityState = ownerInfo.City?.trim() && ownerInfo.State?.trim()
-      ? `${ownerInfo.City.trim()}, ${ownerInfo.State.trim()}${ownerInfo.ZipCode?.trim() ? " " + ownerInfo.ZipCode.trim() : ""}`
-      : null;
-    if (cityState) parts.push(cityState);
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
 
   let detail: unknown;
   try {
@@ -228,7 +208,7 @@ STRICT RULES — violation is not permitted:
 
 export async function saveIngestedProperty(
   preview: PropertyPreview,
-  sunbizPersonsToCreate?: SunbizPerson[]
+  selectedSunbizPersons?: SunbizPerson[]
 ): Promise<{ id: string } | { error: string }> {
   const supabase = await createClient();
   const {
@@ -240,6 +220,10 @@ export async function saveIngestedProperty(
   if (!preview.address?.trim()) {
     return { error: "Cannot save a property without an address." };
   }
+
+  const ownerContacts = selectedSunbizPersons?.length
+    ? storedOwnerContactsFromSunbiz(selectedSunbizPersons)
+    : mdpaIndividualOwnerContact(preview.owner_name, preview.owner_mailing_address);
 
   let id: string;
   try {
@@ -253,6 +237,7 @@ export async function saveIngestedProperty(
         address: preview.address,
         city: preview.city,
         owner_mailing_address: preview.owner_mailing_address ?? null,
+        owner_contacts: ownerContacts,
       }
     );
   } catch (e) {
@@ -264,26 +249,6 @@ export async function saveIngestedProperty(
       error_message: msg,
     });
     return { error: msg };
-  }
-
-  // Create Sunbiz contacts linked to the new property — best-effort, non-fatal.
-  if (sunbizPersonsToCreate?.length) {
-    for (const person of sunbizPersonsToCreate) {
-      try {
-        await supabase.from("contacts").insert({
-          owner_id: user.id,
-          name: person.name,
-          role: person.title || null,
-          mailing_address: person.address ?? null,
-          linked_properties: [id],
-          action_tags: ["sunbiz", "unverified"],
-          outreach_history: [],
-          custom_fields: {},
-        });
-      } catch {
-        // Individual contact failure is silently ignored; property is already saved.
-      }
-    }
   }
 
   return { id };

@@ -130,3 +130,50 @@ export async function getPropertyDetail(strap: string): Promise<unknown> {
   if (!res.ok) throw new Error(`MDPA folio lookup failed: HTTP ${res.status}`);
   return res.json();
 }
+
+/** Owner mailing address from MDPA folio JSON (root MailingAddress, with OwnerInfos fallback). */
+export function extractOwnerMailing(raw: unknown): string | null {
+  const d = raw as {
+    MailingAddress?: {
+      Address1?: string;
+      Address2?: string;
+      Address3?: string;
+      City?: string;
+      State?: string;
+      ZipCode?: string;
+    };
+    OwnerInfos?: Array<{
+      MailingAddress1?: string;
+      MailingAddress2?: string;
+      City?: string;
+      State?: string;
+      ZipCode?: string;
+    }>;
+  };
+
+  const root = d?.MailingAddress;
+  if (root) {
+    const parts: string[] = [];
+    for (const line of [root.Address1, root.Address2, root.Address3]) {
+      if (line?.trim()) parts.push(line.trim());
+    }
+    const cityState =
+      root.City?.trim() && root.State?.trim()
+        ? `${root.City.trim()}, ${root.State.trim()}${root.ZipCode?.trim() ? " " + root.ZipCode.trim() : ""}`
+        : null;
+    if (cityState) parts.push(cityState);
+    if (parts.length > 0) return parts.join(", ");
+  }
+
+  const ownerInfo = d?.OwnerInfos?.[0];
+  if (!ownerInfo) return null;
+  const parts: string[] = [];
+  if (ownerInfo.MailingAddress1?.trim()) parts.push(ownerInfo.MailingAddress1.trim());
+  if (ownerInfo.MailingAddress2?.trim()) parts.push(ownerInfo.MailingAddress2.trim());
+  const cityState =
+    ownerInfo.City?.trim() && ownerInfo.State?.trim()
+      ? `${ownerInfo.City.trim()}, ${ownerInfo.State.trim()}${ownerInfo.ZipCode?.trim() ? " " + ownerInfo.ZipCode.trim() : ""}`
+      : null;
+  if (cityState) parts.push(cityState);
+  return parts.length > 0 ? parts.join(", ") : null;
+}

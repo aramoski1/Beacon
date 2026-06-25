@@ -12,6 +12,7 @@ import { createFieldDefinition, deleteFieldDefinition } from "@/app/settings/fie
 import { fieldSlug, type FieldDefinition, type EntityType, type FieldType } from "@/lib/custom-fields";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { resolvePropertyOwnerContacts, type StoredOwnerContact } from "@/lib/owner-contacts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,10 @@ type Property = {
   city: string | null;
   owner_name: string | null;
   ownership_type: string | null;
+  owner_contact_name: string | null;
+  owner_contact_address: string | null;
+  owner_contacts: StoredOwnerContact[] | null;
+  owner_mailing_address: string | null;
   size_sqft: number | null;
   land_sqft: number | null;
   asset_description: string | null;
@@ -797,6 +802,18 @@ function PropertiesTable({
             const activity = cs
               .filter(c => c.last_activity_date)
               .sort((a, b) => new Date(b.last_activity_date!).getTime() - new Date(a.last_activity_date!).getTime())[0];
+            const ownerContacts = resolvePropertyOwnerContacts(
+              p.owner_contacts,
+              p.owner_name,
+              p.owner_mailing_address,
+              { owner_contact_name: p.owner_contact_name, owner_contact_address: p.owner_contact_address },
+            );
+            function updateOwnerContact(index: number, field: "name" | "address", value: string | null) {
+              const next = ownerContacts.map((oc, i) =>
+                i === index ? { ...oc, [field]: value ?? (field === "name" ? "" : null) } : oc
+              );
+              onSave(p.id, "owner_contacts", next.filter((oc) => oc.name.trim()));
+            }
             return (
               <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
                 {/* Prospect # */}
@@ -891,34 +908,56 @@ function PropertiesTable({
                   />
                 </td>
 
-                {/* Owner Contact */}
+                {/* Owner Contact — stored on property, independent of CRM contacts */}
                 <td className={cn(tdCls, "min-w-[100px]", col("contact"))}>
-                  {cs.length > 0
-                    ? cs.map((c) => (
+                  {ownerContacts.length > 0
+                    ? ownerContacts.map((oc, i) => (
                         <EditableText
-                          key={c.id}
-                          value={c.name}
+                          key={i}
+                          value={oc.name}
                           placeholder="—"
                           displayClassName="truncate block font-medium"
-                          onSave={(v) => onSaveContact(c.id, "name", v)}
+                          onSave={(v) => updateOwnerContact(i, "name", v)}
                         />
                       ))
-                    : <span className="text-muted-foreground/30 italic">—</span>}
+                    : (
+                      <EditableText
+                        value={null}
+                        placeholder="—"
+                        displayClassName="truncate block font-medium"
+                        onSave={(v) =>
+                          onSave(
+                            p.id,
+                            "owner_contacts",
+                            v?.trim()
+                              ? [{ name: v.trim(), title: "", address: null }]
+                              : []
+                          )
+                        }
+                      />
+                    )}
                 </td>
 
-                {/* Owner Address */}
+                {/* Owner Address — stored on property */}
                 <td className={cn(tdCls, "min-w-[120px]", col("addr2"))}>
-                  {cs.length > 0
-                    ? cs.map((c) => (
+                  {ownerContacts.length > 0
+                    ? ownerContacts.map((oc, i) => (
                         <EditableText
-                          key={c.id}
-                          value={c.mailing_address}
+                          key={i}
+                          value={oc.address}
                           placeholder="—"
                           displayClassName="truncate block text-muted-foreground"
-                          onSave={(v) => onSaveContact(c.id, "mailing_address", v)}
+                          onSave={(v) => updateOwnerContact(i, "address", v)}
                         />
                       ))
-                    : <span className="text-muted-foreground/30 italic">—</span>}
+                    : (
+                      <EditableText
+                        value={p.owner_mailing_address}
+                        placeholder="—"
+                        displayClassName="truncate block text-muted-foreground"
+                        onSave={(v) => onSave(p.id, "owner_mailing_address", v)}
+                      />
+                    )}
                 </td>
 
                 {/* Owner Email */}
@@ -1972,8 +2011,11 @@ export default function CRMView() {
     if (result.error) {
       setDeleteError(result.error);
       await loadContacts();
+    } else {
+      // Contact may have been the source of owner name/address display — refresh properties.
+      await loadProperties();
     }
-  }, [loadContacts]);
+  }, [loadContacts, loadProperties]);
 
   const handleDeleteLeaseConfirm = useCallback(async (id: string) => {
     setLeases((prev) => prev.filter((a) => a.id !== id));

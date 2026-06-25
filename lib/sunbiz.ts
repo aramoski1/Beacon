@@ -11,6 +11,15 @@ import { randomBytes } from "crypto";
 import { join } from "path";
 import { tmpdir } from "os";
 import { unlink } from "fs/promises";
+import type { SunbizMatch, SunbizPerson, SunbizResult, SunbizLookup } from "./sunbiz-types";
+import {
+  storedOwnerContactsFromSunbiz,
+  parseStoredOwnerContacts,
+  type StoredOwnerContact,
+} from "./owner-contacts";
+
+export type { SunbizMatch, SunbizPerson, SunbizResult, SunbizLookup, StoredOwnerContact };
+export { storedOwnerContactsFromSunbiz, parseStoredOwnerContacts };
 
 const execFileAsync = promisify(execFile);
 
@@ -34,36 +43,6 @@ function htmlToText(html: string): string {
     .replace(/&#\d+;/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-}
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface SunbizMatch {
-  entity_name: string;
-  document_number: string;
-  status: string;
-  detail_path: string; // full URL path+query for the SearchResultDetail page
-}
-
-export interface SunbizPerson {
-  name: string;
-  title: string;
-  address: string | null;
-}
-
-export interface SunbizResult {
-  entity_name: string;
-  document_number: string;
-  status: string;
-  principal_address: string | null;
-  mailing_address: string | null;
-  persons: SunbizPerson[];
-  source_url: string;
-}
-
-export interface SunbizLookup {
-  result: SunbizResult | null;
-  matches_found: number;
 }
 
 // ─── Search URL construction ──────────────────────────────────────────────────

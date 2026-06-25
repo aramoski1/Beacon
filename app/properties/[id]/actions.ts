@@ -1,10 +1,16 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { searchAndExtractSunbiz, type SunbizResult, type SunbizPerson } from "@/lib/sunbiz";
+import { searchAndExtractSunbiz, type SunbizPerson, type SunbizResult } from "@/lib/sunbiz";
+import {
+  storedOwnerContactsFromSunbiz,
+  mdpaIndividualOwnerContact,
+  resolvePropertyOwnerContacts,
+  type StoredOwnerContact,
+} from "@/lib/owner-contacts";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFileContent } from "@/lib/costar";
-import { searchByAddressGIS, getPropertyDetail } from "@/lib/mdpa";
+import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
 
 export async function createOwnerContact(
@@ -90,23 +96,22 @@ export async function lookupSunbiz(
   }
 }
 
-// ─── Create contacts from Sunbiz persons ─────────────────────────────────────
+// ─── Save Sunbiz authorized person onto the property row ─────────────────────
 
-export type SunbizCreateAction =
+export type SunbizSaveAction =
   | { error: string }
-  | { created: number; ids: string[] };
+  | { ok: true };
 
-export async function createSunbizContacts(
+export async function saveSunbizOwnerContacts(
   propertyId: string,
-  persons: SunbizPerson[]
-): Promise<SunbizCreateAction> {
+  persons: SunbizPerson[],
+): Promise<SunbizSaveAction> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Verify property ownership (defense-in-depth)
   const { data: prop } = await supabase
     .from("properties")
     .select("id")
@@ -115,27 +120,61 @@ export async function createSunbizContacts(
     .single();
   if (!prop) return { error: "Property not found." };
 
-  const ids: string[] = [];
-  for (const person of persons) {
-    const { data, error } = await supabase
-      .from("contacts")
-      .insert({
-        owner_id: user.id,
-        name: person.name.trim(),
-        role: person.title.trim() || null,
-        mailing_address: person.address ?? null,
-        linked_properties: [propertyId],
-        action_tags: ["sunbiz", "unverified"],
-        outreach_history: [],
-        custom_fields: {},
-      })
-      .select("id")
-      .single();
+  const owner_contacts = storedOwnerContactsFromSunbiz(persons);
+  const { error } = await supabase
+    .from("properties")
+    .update({ owner_contacts })
+    .eq("id", propertyId)
+    .eq("owner_id", user.id);
 
-    if (!error && data) ids.push(data.id);
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+// ─── Promote one Sunbiz owner on the property row into a CRM contact ─────────
+
+export async function createContactFromSunbizOwner(
+  propertyId: string,
+  personIndex: number,
+): Promise<{ id?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: prop, error: propErr } = await supabase
+    .from("properties")
+    .select("owner_contacts, owner_name, owner_mailing_address")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+
+  if (propErr || !prop) return { error: "Property not found." };
+
+  const contacts = resolvePropertyOwnerContacts(prop.owner_contacts, prop.owner_name, prop.owner_mailing_address);
+  const person = contacts[personIndex];
+  if (!person?.name?.trim()) {
+    return { error: "No Sunbiz owner at that index. Run a Sunbiz lookup first." };
   }
 
-  return { created: ids.length, ids };
+  const { data, error } = await supabase
+    .from("contacts")
+    .insert({
+      owner_id: user.id,
+      name: person.name.trim(),
+      role: person.title || null,
+      mailing_address: person.address ?? null,
+      linked_properties: [propertyId],
+      action_tags: ["sunbiz", "unverified"],
+      outreach_history: [],
+      custom_fields: {},
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message };
+  return { id: data.id };
 }
 
 // ─── CoStar file upload enrichment ───────────────────────────────────────────
@@ -349,30 +388,6 @@ export async function previewCountyEnhancement(
     return { error: `MDPA detail fetch failed: ${msg}` };
   }
 
-  function extractOwnerMailing(raw: unknown): string | null {
-    const ownerInfo = (
-      raw as {
-        OwnerInfos?: Array<{
-          MailingAddress1?: string;
-          MailingAddress2?: string;
-          City?: string;
-          State?: string;
-          ZipCode?: string;
-        }>;
-      }
-    )?.OwnerInfos?.[0];
-    if (!ownerInfo) return null;
-    const parts: string[] = [];
-    if (ownerInfo.MailingAddress1?.trim()) parts.push(ownerInfo.MailingAddress1.trim());
-    if (ownerInfo.MailingAddress2?.trim()) parts.push(ownerInfo.MailingAddress2.trim());
-    const cityState =
-      ownerInfo.City?.trim() && ownerInfo.State?.trim()
-        ? `${ownerInfo.City.trim()}, ${ownerInfo.State.trim()}${ownerInfo.ZipCode?.trim() ? " " + ownerInfo.ZipCode.trim() : ""}`
-        : null;
-    if (cityState) parts.push(cityState);
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
-
   const hint = `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
 Field locations in this record:
 - owner_name: OwnerInfos[0].Name (primary owner; ignore Owner2/Owner3)
@@ -474,13 +489,13 @@ STRICT RULES — violation is not permitted:
   return { preview: { strap, siteAddress, changes, unchanged, mdpaData, sunbiz_result, sunbiz_error } };
 }
 
-// Step 3: Broker confirmed — merge county data and create selected Sunbiz contacts
+// Step 3: Broker confirmed — merge county data and save selected Sunbiz owner fields
 export async function applyCountyEnhancement(
   propertyId: string,
   strap: string,
   mdpaData: MdpaEnhancementData,
-  sunbizPersons: SunbizPerson[]
-): Promise<{ ok: true; sunbiz_contacts_created: number } | { error: string }> {
+  sunbizPersons?: SunbizPerson[] | null,
+): Promise<{ ok: true; owner_contacts_saved: number } | { error: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
@@ -525,21 +540,19 @@ export async function applyCountyEnhancement(
 
   if (error) return { error: error.message };
 
-  // Create the broker-selected Sunbiz contacts
-  let sunbiz_contacts_created = 0;
-  for (const person of sunbizPersons) {
-    const { error: cErr } = await supabase.from("contacts").insert({
-      owner_id:          user.id,
-      name:              person.name.trim(),
-      role:              person.title.trim() || null,
-      mailing_address:   person.address ?? null,
-      linked_properties: [propertyId],
-      action_tags:       ["sunbiz", "unverified"],
-      outreach_history:  [],
-      custom_fields:     {},
-    });
-    if (!cErr) sunbiz_contacts_created++;
+  let owner_contacts_saved = 0;
+  const owner_contacts = sunbizPersons?.length
+    ? storedOwnerContactsFromSunbiz(sunbizPersons)
+    : mdpaIndividualOwnerContact(mdpaData.owner_name, mdpaData.owner_mailing_address);
+  if (owner_contacts.length > 0) {
+    const { error: sunbizErr } = await supabase
+      .from("properties")
+      .update({ owner_contacts })
+      .eq("id", propertyId)
+      .eq("owner_id", user.id);
+    if (sunbizErr) return { error: sunbizErr.message };
+    owner_contacts_saved = owner_contacts.length;
   }
 
-  return { ok: true, sunbiz_contacts_created };
+  return { ok: true, owner_contacts_saved };
 }

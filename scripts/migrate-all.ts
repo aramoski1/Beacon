@@ -52,6 +52,14 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-follow-ups.ts",
     description: "Follow-ups — follow_ups table with RLS (tasks/reminders with due dates)",
   },
+  {
+    file: "migrate-owner-contact-fields.ts",
+    description: "Properties — owner_contact_name and owner_contact_address (Sunbiz on property row)",
+  },
+  {
+    file: "migrate-owner-contacts-jsonb.ts",
+    description: "Properties — owner_contacts JSONB array (multiple Sunbiz persons per property)",
+  },
 ];
 
 const hr = "─".repeat(60);

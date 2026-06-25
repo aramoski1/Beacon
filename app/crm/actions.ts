@@ -2,6 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { parseStoredOwnerContacts, type StoredOwnerContact } from "@/lib/owner-contacts";
 
 // ─── Filter shapes ────────────────────────────────────────────────────────────
 // These are the ONLY operations Claude is allowed to express.
@@ -209,6 +210,43 @@ export async function deleteContact(id: string): Promise<{ error?: string }> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  // Preserve owner name/address on linked properties before removing the contact row.
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("name, role, mailing_address, linked_properties")
+    .eq("id", id)
+    .eq("owner_id", user.id)
+    .single();
+
+  if (contact?.name?.trim() && contact.linked_properties?.length) {
+    const entry: StoredOwnerContact = {
+      name: contact.name.trim(),
+      title: contact.role?.trim() || "",
+      address: contact.mailing_address?.trim() || null,
+    };
+    for (const propId of contact.linked_properties as string[]) {
+      const { data: prop } = await supabase
+        .from("properties")
+        .select("owner_contacts")
+        .eq("id", propId)
+        .eq("owner_id", user.id)
+        .single();
+      if (!prop) continue;
+      const existing = parseStoredOwnerContacts(prop.owner_contacts);
+      const dup = existing.some(
+        (e) => e.name.toLowerCase() === entry.name.toLowerCase()
+      );
+      if (!dup) {
+        await supabase
+          .from("properties")
+          .update({ owner_contacts: [...existing, entry] })
+          .eq("id", propId)
+          .eq("owner_id", user.id);
+      }
+    }
+  }
+
   const { error } = await supabase
     .from("contacts")
     .delete()

@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createContact } from "@/app/contacts/new/actions";
-import { createOwnerContact } from "./actions";
+import { createOwnerContact, createContactFromSunbizOwner } from "./actions";
+import type { StoredOwnerContact } from "@/lib/owner-contacts";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
@@ -29,6 +30,7 @@ export type LinkedContact = {
   role: string | null;
   contact_tier: number | null;
   next_action_due: string | null;
+  action_tags?: string[] | null;
 };
 
 type ContactPhase =
@@ -243,13 +245,18 @@ export function PropertyContactsSection({
   initialContacts,
   ownerName,
   ownerMailingAddress,
+  ownerContacts = [],
   isMdpa,
+  isEntityOwner = false,
 }: {
   propertyId: string;
   initialContacts: LinkedContact[];
   ownerName?: string | null;
   ownerMailingAddress?: string | null;
+  ownerContacts?: StoredOwnerContact[];
   isMdpa?: boolean;
+  /** When false (individual MDPA owner), show MDPA promote only — not Sunbiz boxes. */
+  isEntityOwner?: boolean;
 }) {
   const [contacts, setContacts] = useState<LinkedContact[]>(initialContacts);
   const [showForm, setShowForm] = useState(false);
@@ -263,6 +270,17 @@ export function PropertyContactsSection({
   const [creatingOwner, setCreatingOwner] = useState(false);
   const [ownerCreated, setOwnerCreated] = useState(false);
   const [ownerError, setOwnerError] = useState<string | null>(null);
+  const [creatingSunbizIdx, setCreatingSunbizIdx] = useState<number | null>(null);
+  const [promotedSunbiz, setPromotedSunbiz] = useState<Set<number>>(new Set());
+  const [sunbizError, setSunbizError] = useState<string | null>(null);
+
+  function isSunbizPromoted(index: number, oc: StoredOwnerContact) {
+    return promotedSunbiz.has(index) || contacts.some(
+      (c) =>
+        c.action_tags?.includes("sunbiz") &&
+        c.name?.trim().toLowerCase() === oc.name.trim().toLowerCase()
+    );
+  }
 
   useEffect(() => {
     const saved = localStorage.getItem("beacon_broker_context");
@@ -293,6 +311,26 @@ export function PropertyContactsSection({
       },
     ]);
     setOwnerCreated(true);
+  }
+
+  async function handleSunbizContactCreate(personIndex: number) {
+    setCreatingSunbizIdx(personIndex);
+    setSunbizError(null);
+    const oc = ownerContacts[personIndex];
+    const result = await createContactFromSunbizOwner(propertyId, personIndex);
+    setCreatingSunbizIdx(null);
+    if (result.error) { setSunbizError(result.error); return; }
+    setContacts((prev) => [
+      ...prev,
+      {
+        id: result.id!,
+        name: oc.name,
+        email: null, phone: null, mailing_address: oc.address,
+        company: null, role: oc.title || null, contact_tier: null, next_action_due: null,
+        action_tags: ["sunbiz", "unverified"],
+      },
+    ]);
+    setPromotedSunbiz((prev) => new Set(prev).add(personIndex));
   }
 
   async function handleStartOutreach(c: LinkedContact) {
@@ -365,8 +403,8 @@ export function PropertyContactsSection({
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {/* One-click owner contact — MDPA records */}
-        {isMdpa && ownerName && !ownerCreated && (
+        {/* One-click owner contact — individual MDPA owners only (entities use Sunbiz) */}
+        {isMdpa && ownerName && !isEntityOwner && !ownerCreated && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
             <div className="min-w-0">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Owner from MDPA record</p>
@@ -387,9 +425,46 @@ export function PropertyContactsSection({
             </button>
           </div>
         )}
-        {isMdpa && ownerName && ownerCreated && (
+        {isMdpa && ownerName && !isEntityOwner && ownerCreated && (
           <p className="text-xs text-muted-foreground italic">
             Owner contact created — tagged <span className="font-mono">mdpa_mailing</span> and <span className="font-mono">unverified</span>.
+          </p>
+        )}
+
+        {/* Optional promote each Sunbiz owner on the property row to a CRM contact */}
+        {isEntityOwner && ownerContacts.map((oc, i) => {
+          if (isSunbizPromoted(i, oc)) return null;
+          return (
+            <div key={i} className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Owner from Sunbiz{ownerContacts.length > 1 ? ` (${i + 1})` : ""}
+                </p>
+                <p className="text-sm font-medium mt-0.5 truncate">{oc.name}</p>
+                {(oc.title || oc.address) && (
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {[oc.title, oc.address].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => handleSunbizContactCreate(i)}
+                disabled={creatingSunbizIdx === i}
+                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                {creatingSunbizIdx === i
+                  ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
+                  : <><UserPlus className="size-3.5" />Create contact from this owner</>}
+              </button>
+            </div>
+          );
+        })}
+        {sunbizError && (
+          <p className="text-xs text-destructive">{sunbizError}</p>
+        )}
+        {isEntityOwner && ownerContacts.length > 0 && ownerContacts.every((oc, i) => isSunbizPromoted(i, oc)) && (
+          <p className="text-xs text-muted-foreground italic">
+            All Sunbiz owners promoted to contacts — tagged <span className="font-mono">sunbiz</span> and <span className="font-mono">unverified</span>.
           </p>
         )}
 

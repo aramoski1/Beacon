@@ -18,7 +18,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { SunbizPerson } from "@/lib/sunbiz";
 import {
   initiateCountyEnhancement,
   previewCountyEnhancement,
@@ -36,7 +35,7 @@ type Phase =
   | { tag: "loading_preview"; strap: string; siteAddress: string }
   | { tag: "previewing"; preview: EnhancementPreview }
   | { tag: "saving" }
-  | { tag: "done"; changesCount: number; sunbizCreated: number };
+  | { tag: "done"; changesCount: number; ownerContactsSaved: number };
 
 // ─── Shared inner component ───────────────────────────────────────────────────
 // Exported so the CRM dialog can reuse it without re-implementing the flow.
@@ -60,7 +59,6 @@ export function CountyEnhanceContent({
       setPhase({ tag: "error", message: res.error });
       return;
     }
-    // Auto-select all found Sunbiz persons by default
     const persons = res.preview.sunbiz_result?.persons ?? [];
     setSelectedPersons(new Set(persons.map((_, i) => i)));
     setPhase({ tag: "previewing", preview: res.preview });
@@ -102,19 +100,20 @@ export function CountyEnhanceContent({
 
   function handleApply(preview: EnhancementPreview) {
     const persons = preview.sunbiz_result?.persons ?? [];
-    const toCreate: SunbizPerson[] = [...selectedPersons]
+    const sunbizPersons = [...selectedPersons]
       .sort((a, b) => a - b)
-      .map((i) => persons[i]);
+      .map((i) => persons[i])
+      .filter(Boolean);
 
     setPhase({ tag: "saving" });
     startTransition(async () => {
-      const res = await applyCountyEnhancement(propertyId, preview.strap, preview.mdpaData, toCreate);
+      const res = await applyCountyEnhancement(propertyId, preview.strap, preview.mdpaData, sunbizPersons);
       if ("error" in res) {
         setPhase({ tag: "error", message: res.error });
         return;
       }
       const count = preview.changes.length;
-      setPhase({ tag: "done", changesCount: count, sunbizCreated: res.sunbiz_contacts_created });
+      setPhase({ tag: "done", changesCount: count, ownerContactsSaved: res.owner_contacts_saved });
       onDone?.(count);
       router.refresh();
     });
@@ -287,7 +286,7 @@ export function CountyEnhanceContent({
               </a>
             </div>
             <p className="text-xs text-muted-foreground">
-              Select contacts to create — all tagged <span className="font-mono">sunbiz</span> and <span className="font-mono">unverified</span>
+              Select persons to save on the property row — no CRM contacts created until you promote them
             </p>
             <div className="space-y-1.5">
               {sunbizPersons.map((person, i) => (
@@ -295,7 +294,7 @@ export function CountyEnhanceContent({
                   key={i}
                   className={cn(
                     "flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
-                    selectedPersons.has(i) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30"
+                    selectedPersons.has(i) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30",
                   )}
                 >
                   <button
@@ -341,7 +340,7 @@ export function CountyEnhanceContent({
               ? "Nothing to apply"
               : [
                   preview.changes.length > 0 && `Apply ${preview.changes.length} change${preview.changes.length !== 1 ? "s" : ""}`,
-                  selectedPersons.size > 0 && `create ${selectedPersons.size} contact${selectedPersons.size !== 1 ? "s" : ""}`,
+                  selectedPersons.size > 0 && `save ${selectedPersons.size} Sunbiz owner${selectedPersons.size !== 1 ? "s" : ""}`,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -365,10 +364,9 @@ export function CountyEnhanceContent({
               : `${phase.changesCount} field${phase.changesCount !== 1 ? "s" : ""} updated with authoritative Miami-Dade county data.`}
           </span>
         </div>
-        {phase.sunbizCreated > 0 && (
+        {phase.ownerContactsSaved > 0 && (
           <p className="text-xs text-muted-foreground pl-6">
-            {phase.sunbizCreated} Sunbiz contact{phase.sunbizCreated !== 1 ? "s" : ""} created — tagged{" "}
-            <span className="font-mono">sunbiz</span> and <span className="font-mono">unverified</span>.
+            {phase.ownerContactsSaved} Sunbiz {phase.ownerContactsSaved === 1 ? "person" : "persons"} saved on the property row.
           </p>
         )}
         <p className="text-xs text-muted-foreground pl-6">Refreshing page…</p>

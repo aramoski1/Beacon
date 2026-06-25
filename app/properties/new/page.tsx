@@ -29,7 +29,7 @@ import {
   type PropertyPreview,
   type IngestResult,
 } from "./actions";
-import type { SunbizPerson } from "@/lib/sunbiz";
+import type { SunbizPerson } from "@/lib/sunbiz-types";
 import { createClient } from "@/lib/supabase/client";
 import { fetchFieldDefs, fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 
@@ -83,7 +83,7 @@ function PropertyPreviewCard({
   saving,
 }: {
   preview: PropertyPreview;
-  onSave: (merged: PropertyPreview, sunbizPersons: SunbizPerson[]) => void;
+  onSave: (merged: PropertyPreview, selectedSunbizPersons: SunbizPerson[]) => void;
   onDiscard: () => void;
   saving: boolean;
 }) {
@@ -123,7 +123,7 @@ function PropertyPreviewCard({
   }
 
   function toggleSunbizPerson(i: number) {
-    setSelectedSunbizPersons(prev => {
+    setSelectedSunbizPersons((prev) => {
       const next = new Set(prev);
       if (next.has(i)) next.delete(i);
       else next.add(i);
@@ -317,9 +317,7 @@ function PropertyPreviewCard({
                 </span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Save as contacts tagged{" "}
-                <span className="font-mono">sunbiz</span> +{" "}
-                <span className="font-mono">unverified</span>. Uncheck any you don&apos;t want.
+                Select persons to save on the property row in CRM. No contact records are created until you promote them from the property page.
               </p>
               <div className="space-y-1.5">
                 {preview.sunbiz_result.persons.map((person, i) => (
@@ -499,10 +497,10 @@ export default function NewPropertyPage() {
   }
 
   // Step 2 confirmed — save (preview card passes merged custom fields + selected Sunbiz persons)
-  function handleSave(mergedPreview: PropertyPreview, sunbizPersons: SunbizPerson[]) {
+  function handleSave(mergedPreview: PropertyPreview, selectedSunbizPersons: SunbizPerson[]) {
     setError(null);
     startTransition(async () => {
-      const result = await saveIngestedProperty(mergedPreview, sunbizPersons);
+      const result = await saveIngestedProperty(mergedPreview, selectedSunbizPersons);
       if ("error" in result) {
         setError(result.error);
       } else {

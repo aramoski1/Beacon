@@ -7,6 +7,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertProperty } from "./property-ingest";
 import { buildCustomFieldsSchema, type FieldDefinition } from "./custom-fields";
+import type { StoredOwnerContact } from "./owner-contacts";
 
 // ─── Unified tool ─────────────────────────────────────────────────────────────
 // One definition used by every ingestion path. Source-specific extraction hints
@@ -215,6 +216,7 @@ export async function savePipelineProperty(
     city?: string | null;
     submarket?: string | null;
     owner_mailing_address?: string | null;
+    owner_contacts?: StoredOwnerContact[];
   }
 ): Promise<string> {
   const bc = fields.building_composition;
@@ -233,6 +235,7 @@ export async function savePipelineProperty(
     land_sqft:             (bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null) ?? null,
     asset_description:     (bc?.dor_description as string | null | undefined) ?? null,
     owner_mailing_address: overrides?.owner_mailing_address ?? null,
+    owner_contacts:        overrides?.owner_contacts ?? [],
     source,
     source_url:            sourceUrl ?? null,
     ingested_at:           new Date().toISOString(),

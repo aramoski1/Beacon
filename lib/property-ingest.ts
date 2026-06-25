@@ -1,5 +1,7 @@
 // Shared dedup + upsert logic used by every property ingestion path.
 
+import type { StoredOwnerContact } from "./owner-contacts";
+
 // ─── Address normalisation ────────────────────────────────────────────────────
 
 // Strips suite/unit/city/state/zip so "200 S BISCAYNE BLVD STE 100, Miami FL"
@@ -70,6 +72,7 @@ export type PropertyPayload = {
   land_sqft?: number | null;
   asset_description?: string | null;
   owner_mailing_address?: string | null;
+  owner_contacts?: StoredOwnerContact[];
   source: string;
   source_url: string | null;
   ingested_at: string;

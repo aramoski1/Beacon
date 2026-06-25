@@ -25,6 +25,7 @@ import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actio
 import { SunbizSection } from "./sunbiz-section";
 import { CoStarSection } from "./costar-section";
 import { EnhanceSection } from "./enhance-section";
+import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ type Property = {
   asset_description: string | null;
   prospect_number: number | null;
   owner_mailing_address: string | null;
+  owner_contact_name: string | null;
+  owner_contact_address: string | null;
+  owner_contacts: StoredOwnerContact[] | null;
   property_type: string | null;
   last_sale_date: string | null;
   last_sale_price: number | null;
@@ -78,8 +82,7 @@ function fmtDate(iso: string | null) {
 }
 // Returns true when an owner name looks like a Florida-registered corporate entity
 function isEntityName(name: string | null): boolean {
-  if (!name) return false;
-  return /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(name);
+  return isEntityOwnerName(name);
 }
 
 function folio(sourceUrl: string | null) {
@@ -129,7 +132,7 @@ export default async function PropertyPage({
       .order("created_at", { ascending: true }),
     supabase
       .from("contacts")
-      .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due")
+      .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due, action_tags")
       .contains("linked_properties", [id])
       .order("created_at", { ascending: true }),
     fetchActivitiesByProperty(id),
@@ -137,6 +140,13 @@ export default async function PropertyPage({
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = p.custom_fields ?? {};
   const linkedContacts = (linkedContactsData ?? []) as LinkedContact[];
+  const storedOwnerContacts = parseStoredOwnerContacts(p.owner_contacts);
+  const displayOwnerContacts = resolvePropertyOwnerContacts(
+    p.owner_contacts,
+    p.owner_name,
+    p.owner_mailing_address,
+    { owner_contact_name: p.owner_contact_name, owner_contact_address: p.owner_contact_address },
+  );
   const activityContacts: ActivityContact[] = linkedContacts.map((c) => ({
     id: c.id,
     name: c.name,
@@ -308,6 +318,18 @@ export default async function PropertyPage({
               value={p.owner_name ?? "—"}
               flagReason={flagMap.get("owner_name")}
             />
+            {displayOwnerContacts.length > 0 && displayOwnerContacts.map((oc, i) => (
+              <Field
+                key={i}
+                icon={<User className="size-4" />}
+                label={
+                  storedOwnerContacts.length > 0
+                    ? (displayOwnerContacts.length > 1 ? `Owner contact ${i + 1} (Sunbiz)` : "Owner contact (Sunbiz)")
+                    : (displayOwnerContacts.length > 1 ? `Owner contact ${i + 1}` : "Owner contact")
+                }
+                value={[oc.name, oc.title, oc.address].filter(Boolean).join(" · ")}
+              />
+            ))}
             <Field
               icon={<Building2 className="size-4" />}
               label="Ownership type"
@@ -393,12 +415,17 @@ export default async function PropertyPage({
         initialContacts={linkedContacts}
         ownerName={p.owner_name}
         ownerMailingAddress={p.owner_mailing_address}
+        ownerContacts={storedOwnerContacts}
         isMdpa={!!folioNumber}
+        isEntityOwner={isEntityName(p.owner_name)}
       />
 
-      {/* Sunbiz public records lookup — shown only for entity-named owners */}
       {isEntityName(p.owner_name) && p.owner_name && (
-        <SunbizSection propertyId={id} ownerName={p.owner_name} />
+        <SunbizSection
+          propertyId={id}
+          ownerName={p.owner_name}
+          initialOwnerContacts={p.owner_contacts}
+        />
       )}
 
       {/* CoStar owner enrichment via file upload */}

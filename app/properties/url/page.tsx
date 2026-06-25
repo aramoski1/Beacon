@@ -332,7 +332,7 @@ export default function UrlIngestPage() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  If the site blocks automated access, use the Paste text tab instead.
+                  Some sites (CommercialCafe, LoopNet, etc.) may take up to a minute. If blocked, use Paste text instead.
                 </p>
               </div>
 
@@ -344,7 +344,7 @@ export default function UrlIngestPage() {
 
               <Button type="submit" disabled={isPending} className="w-full">
                 {isPending ? (
-                  <><Loader2 className="animate-spin" />Fetching &amp; extracting…</>
+                  <><Loader2 className="animate-spin" />Fetching page (may take up to a minute)…</>
                 ) : (
                   <><Link2 />Import from URL</>
                 )}
