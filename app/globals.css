@@ -128,3 +128,15 @@
     @apply font-sans;
   }
 }
+
+/* CRM table row actions — reveal on row hover (plain CSS; avoids Tailwind group variant issues) */
+.crm-row:hover .crm-row-action {
+  opacity: 1;
+}
+.crm-row-action {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.crm-row:hover .crm-row-action-cell {
+  background-color: color-mix(in oklch, var(--muted) 20%, var(--background));
+}

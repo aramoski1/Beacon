@@ -24,6 +24,7 @@ import { PropertyActivitySection, type ActivityContact } from "./activity-sectio
 import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
 import { SunbizSection } from "./sunbiz-section";
 import { CoStarSection } from "./costar-section";
+import { EnhanceSection } from "./enhance-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -241,6 +242,11 @@ export default async function PropertyPage({
           </a>
         </div>
       ) : null}
+
+      {/* County data enhancement — only for URL/upload/forward sources without an existing folio */}
+      {p.source !== "tax_roll" && !folioNumber && (
+        <EnhanceSection propertyId={id} />
+      )}
 
       {/* Uncertain / ambiguous fields — yellow */}
       {uncertainFlags.length > 0 && (

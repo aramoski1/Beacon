@@ -5,7 +5,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
+import { EnhanceDialog } from "./enhance-dialog";
 import { interpretSearch, deleteProperty, deleteContact, deleteLease, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { createFieldDefinition, deleteFieldDefinition } from "@/app/settings/fields/actions";
 import { fieldSlug, type FieldDefinition, type EntityType, type FieldType } from "@/lib/custom-fields";
@@ -499,6 +500,48 @@ function RH({ col, onStart }: { col: string; onStart: (col: string, e: React.Mou
 
 type CellPopup = { text: string; x: number; y: number } | null;
 
+function DeleteCell({
+  id,
+  label,
+  deletingId,
+  onDeleteRequest,
+  onDeleteConfirm,
+  onDeleteCancel,
+}: {
+  id: string;
+  label: string;
+  deletingId: string | null;
+  onDeleteRequest: (id: string) => void;
+  onDeleteConfirm: (id: string) => void;
+  onDeleteCancel: () => void;
+}) {
+  const isDeleting = deletingId === id;
+  return (
+    <td className={cn(tdCls, "crm-row-action-cell w-10 text-right pr-2 whitespace-nowrap sticky right-0 bg-background")}>
+      {isDeleting ? (
+        <span className="inline-flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
+          <button type="button" onClick={() => onDeleteConfirm(id)} className="font-medium hover:underline">
+            Delete
+          </button>
+          <span className="text-muted-foreground">·</span>
+          <button type="button" onClick={onDeleteCancel} className="text-muted-foreground hover:text-foreground" title="Cancel">
+            <X className="size-3" />
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onDeleteRequest(id)}
+          className="crm-row-action text-muted-foreground hover:text-destructive"
+          title={`Delete ${label}`}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      )}
+    </td>
+  );
+}
+
 function Popup({ popup, onClose }: { popup: CellPopup; onClose: () => void }) {
   if (!popup) return null;
   const x = Math.min(popup.x + 8, (typeof window !== "undefined" ? window.innerWidth : 800) - 340);
@@ -582,6 +625,7 @@ function PropertiesTable({
               <th key={f.id} className={thCls} style={colStyle(`cf_${f.id}`)}>{f.field_name}<RH col={`cf_${f.id}`} onStart={startResize} /></th>
             ))}
             <th className={cn(thCls, "w-8")} />
+            <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
         </thead>
         <tbody>
@@ -591,7 +635,7 @@ function PropertiesTable({
               .filter(c => c.last_activity_date)
               .sort((a, b) => new Date(b.last_activity_date!).getTime() - new Date(a.last_activity_date!).getTime())[0];
             return (
-              <tr key={p.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
+              <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
                 {/* Prospect # */}
                 <td className={cn(tdR, "w-12 font-mono")}>
                   <EditableText
@@ -794,26 +838,27 @@ function PropertiesTable({
                   );
                 })}
 
-                {/* Delete */}
-                <td className={cn(tdCls, "w-8 text-right pr-2")}>
-                  {deletingId === p.id ? (
-                    <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
-                      <button onClick={() => onDeleteConfirm(p.id)} className="font-medium hover:underline">Delete</button>
-                      <span className="text-muted-foreground">·</span>
-                      <button onClick={onDeleteCancel} className="text-muted-foreground hover:text-foreground">
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => onDeleteRequest(p.id)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                      title="Delete property"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  )}
-                </td>
+                {/* Enhance with county data */}
+                {p.source !== "tax_roll" && !p.source_url?.startsWith("mdpa:") && (
+                  <td className={cn(tdCls, "w-8 text-center")}>
+                    <EnhanceDialog
+                      propertyId={p.id}
+                      propertyAddress={p.address}
+                    />
+                  </td>
+                )}
+                {(p.source === "tax_roll" || p.source_url?.startsWith("mdpa:")) && (
+                  <td className={cn(tdCls, "w-8")} />
+                )}
+
+                <DeleteCell
+                  id={p.id}
+                  label="property"
+                  deletingId={deletingId}
+                  onDeleteRequest={onDeleteRequest}
+                  onDeleteConfirm={onDeleteConfirm}
+                  onDeleteCancel={onDeleteCancel}
+                />
               </tr>
             );
           })}
@@ -873,12 +918,12 @@ function ContactsTable({
             <th className={thCls} style={cColStyle("geocat")}>Geo cat<RH col="geocat" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("ownership")}>Ownership<RH col="ownership" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
-            <th className={thCls} />
+            <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
         </thead>
         <tbody>
           {rows.map((c) => (
-            <tr key={c.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5")}>
+            <tr key={c.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5")}>
               <td className={tdCls}>
                 <div>
                   <Link href={`/contacts/${c.id}`} className="font-medium hover:underline underline-offset-2">
@@ -927,25 +972,14 @@ function ContactsTable({
                   {fmtDate(c.last_contacted_at) ?? "—"}
                 </span>
               </td>
-              <td className={cn(tdCls, "w-8 text-right pr-2")}>
-                {deletingId === c.id ? (
-                  <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
-                    <button onClick={() => onDeleteConfirm(c.id)} className="font-medium hover:underline">Delete</button>
-                    <span className="text-muted-foreground">·</span>
-                    <button onClick={onDeleteCancel}>
-                      <X className="size-3 text-muted-foreground hover:text-foreground" />
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => onDeleteRequest(c.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                    title="Delete contact"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                )}
-              </td>
+              <DeleteCell
+                id={c.id}
+                label="contact"
+                deletingId={deletingId}
+                onDeleteRequest={onDeleteRequest}
+                onDeleteConfirm={onDeleteConfirm}
+                onDeleteCancel={onDeleteCancel}
+              />
             </tr>
           ))}
         </tbody>
@@ -1020,14 +1054,14 @@ function LeasesTable({
             <th className={thCls} style={lColStyle("term")}>Term<RH col="term" onStart={lStartResize} /></th>
             <th className={thCls} style={lColStyle("rate")}>Base rate<RH col="rate" onStart={lStartResize} /></th>
             <th className={thCls} style={lColStyle("added")}>Added<RH col="added" onStart={lStartResize} /></th>
-            <th className={thCls} />
+            <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
         </thead>
         <tbody>
           {rows.map((a) => {
             const status = leaseStatus(a.expiration_date);
             return (
-              <tr key={a.id} className={cn("group hover:bg-muted/20 transition-colors", deletingId === a.id && "bg-destructive/5")}>
+              <tr key={a.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === a.id && "bg-destructive/5")}>
                 <td className={tdCls}>
                   <Link
                     href={`/abstracts/${a.id}`}
@@ -1070,25 +1104,14 @@ function LeasesTable({
                     {fmtDate(a.created_at) ?? "—"}
                   </span>
                 </td>
-                <td className={cn(tdCls, "w-8 text-right pr-2")}>
-                  {deletingId === a.id ? (
-                    <span className="flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
-                      <button onClick={() => onDeleteConfirm(a.id)} className="font-medium hover:underline">Delete</button>
-                      <span className="text-muted-foreground">·</span>
-                      <button onClick={onDeleteCancel}>
-                        <X className="size-3 text-muted-foreground hover:text-foreground" />
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => onDeleteRequest(a.id)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                      title="Delete lease"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  )}
-                </td>
+                <DeleteCell
+                  id={a.id}
+                  label="lease"
+                  deletingId={deletingId}
+                  onDeleteRequest={onDeleteRequest}
+                  onDeleteConfirm={onDeleteConfirm}
+                  onDeleteCancel={onDeleteCancel}
+                />
               </tr>
             );
           })}
@@ -1477,6 +1500,7 @@ export default function CRMView() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [deletingLeaseId, setDeletingLeaseId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // ── Load filter options once ───────────────────────────────────────────────
   const loadFilterOpts = useCallback(async () => {
@@ -1742,34 +1766,37 @@ export default function CRMView() {
     setProperties((prev) => prev.filter((p) => p.id !== id));
     setTotalProps((t) => (t !== null ? t - 1 : null));
     setDeletingId(null);
+    setDeleteError(null);
     const result = await deleteProperty(id);
     if (result.error) {
+      setDeleteError(result.error);
       await loadProperties();
     }
   }, [loadProperties]);
 
   const handleDeleteContactConfirm = useCallback(async (id: string) => {
     setContacts((prev) => prev.filter((c) => c.id !== id));
+    setTotalCons((t) => (t !== null ? t - 1 : null));
     setDeletingContactId(null);
+    setDeleteError(null);
     const result = await deleteContact(id);
     if (result.error) {
-      // Reload contacts on failure to restore removed row
-      const supabase = createClient();
-      const { data } = await supabase.from("contacts").select("*").order("created_at", { ascending: false });
-      if (data) setContacts(data as Contact[]);
+      setDeleteError(result.error);
+      await loadContacts();
     }
-  }, []);
+  }, [loadContacts]);
 
   const handleDeleteLeaseConfirm = useCallback(async (id: string) => {
     setLeases((prev) => prev.filter((a) => a.id !== id));
+    setTotalLeases((t) => (t !== null ? t - 1 : null));
     setDeletingLeaseId(null);
+    setDeleteError(null);
     const result = await deleteLease(id);
     if (result.error) {
-      const supabase = createClient();
-      const { data } = await supabase.from("lease_abstracts").select("*").order("created_at", { ascending: false });
-      if (data) setLeases(data as LeaseAbstract[]);
+      setDeleteError(result.error);
+      await loadLeases();
     }
-  }, []);
+  }, [loadLeases]);
 
   // ── Search handler ─────────────────────────────────────────────────────────
   async function runSearch(query: string) {
@@ -1920,6 +1947,21 @@ export default function CRMView() {
           </Link>
         </div>
       </header>
+
+      {deleteError && (
+        <div className="shrink-0 mx-6 mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive flex items-center gap-2">
+          <AlertCircle className="size-4 shrink-0" />
+          Delete failed: {deleteError}
+          <button
+            type="button"
+            onClick={() => setDeleteError(null)}
+            className="ml-auto text-muted-foreground hover:text-foreground"
+            title="Dismiss"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="shrink-0 border-b px-6 flex gap-0">
