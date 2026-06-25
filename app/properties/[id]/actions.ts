@@ -49,7 +49,8 @@ export type SunbizLookupAction =
   | { result: SunbizResult | null; matches_found: number };
 
 export async function lookupSunbiz(
-  propertyId: string
+  propertyId: string,
+  searchTermOverride?: string
 ): Promise<SunbizLookupAction> {
   const supabase = await createClient();
   const {
@@ -64,19 +65,23 @@ export async function lookupSunbiz(
     .eq("owner_id", user.id)
     .single();
 
-  if (!prop?.owner_name?.trim()) {
-    return { error: "Property has no owner name to search." };
+  if (!prop) return { error: "Property not found." };
+
+  // Use the caller-provided override (e.g. corrected Sunbiz name) or fall back to DB owner_name
+  const nameToSearch = searchTermOverride?.trim() || prop.owner_name?.trim();
+  if (!nameToSearch) {
+    return { error: "No entity name to search. Enter the name as it appears on Sunbiz." };
   }
 
   try {
-    const lookup = await searchAndExtractSunbiz(prop.owner_name.trim());
+    const lookup = await searchAndExtractSunbiz(nameToSearch);
     return lookup;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logIngestionError(supabase, user.id, {
       stage: "sunbiz_search",
       source_type: "address",
-      source_ref: prop.owner_name,
+      source_ref: nameToSearch,
       error_message: msg,
     });
     return { error: `Sunbiz lookup failed: ${msg}` };

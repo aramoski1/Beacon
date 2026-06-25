@@ -7,6 +7,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { randomBytes } from "crypto";
+import { join } from "path";
+import { tmpdir } from "os";
+import { unlink } from "fs/promises";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,26 +91,61 @@ function buildSearchUrl(entityName: string): string {
 // Sunbiz is behind Cloudflare's TLS fingerprint check: Node.js (OpenSSL) gets
 // a 403 challenge page, while curl (Schannel on Windows) passes through cleanly.
 
-export async function fetchSunbizHtml(url: string): Promise<string> {
-  const { stdout } = await execFileAsync(
-    "curl",
-    [
-      "-s",                 // silent — no progress bar
-      "-L",                 // follow redirects
-      "-f",                 // fail on HTTP >= 400 (throws non-zero exit code)
-      "--max-time", "20",
-      "--compressed",       // accept gzip/brotli and decompress
-      "-A",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "-H", "Accept-Language: en-US,en;q=0.5",
-      url,
-    ],
-    { maxBuffer: 10 * 1024 * 1024 }
-  );
+// cookieJar is a temp file path shared across requests in the same scrape session.
+// Cloudflare sets cf_clearance on the search page; the detail page requires it.
+// We never use -f: instead we inspect the body so a 4xx doesn't hard-crash us.
+// --retry 2 handles transient network/timeout errors automatically.
+export async function fetchSunbizHtml(
+  url: string,
+  cookieJar?: string,
+  referer?: string,
+): Promise<string> {
+  const args: string[] = [
+    "-s",                   // silent
+    "-L",                   // follow redirects
+    "--max-time", "30",     // 30 s per attempt
+    "--retry", "2",         // auto-retry on connection/timeout errors (not 4xx)
+    "--retry-delay", "2",
+    "--compressed",         // accept gzip/brotli
+    "-A",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "-H", "Accept-Language: en-US,en;q=0.5",
+    "-H", "Upgrade-Insecure-Requests: 1",
+    "-H", "Sec-Fetch-Dest: document",
+    "-H", "Sec-Fetch-Mode: navigate",
+    "-H", `Sec-Fetch-Site: ${referer ? "same-origin" : "none"}`,
+  ];
+  if (referer) {
+    args.push("-H", `Referer: ${referer}`);
+  }
+  if (cookieJar) {
+    args.push("-c", cookieJar, "-b", cookieJar);
+  }
+  args.push(url);
 
-  if (!stdout?.trim()) {
-    throw new Error(`Sunbiz returned empty response for ${url}`);
+  // execFileAsync throws when curl exits non-zero (timeout, DNS, SSL, etc.).
+  // Catch it so we can inspect any partial stdout before re-throwing.
+  let stdout: string;
+  try {
+    const result = await execFileAsync("curl", args, { maxBuffer: 10 * 1024 * 1024 });
+    stdout = result.stdout;
+  } catch (e: unknown) {
+    const err = e as { code?: number; stderr?: string; stdout?: string };
+    // If curl gathered a response before failing, use it
+    if (err.stdout?.trim()) {
+      stdout = err.stdout;
+    } else {
+      const code = err.code ?? "?";
+      const detail = err.stderr?.trim() || "no stderr";
+      throw new Error(`curl exited ${code}: ${detail}`);
+    }
+  }
+
+  const body = stdout?.trim() ?? "";
+  if (!body) throw new Error(`Sunbiz returned empty response for ${url}`);
+  if (body.includes("Just a moment") && body.includes("cf-")) {
+    throw new Error("Sunbiz is blocking automated access (Cloudflare challenge). Try again in a moment.");
   }
   return stdout;
 }
@@ -255,9 +294,14 @@ async function claudeExtract(pageText: string): Promise<ExtractOutput> {
 export async function searchAndExtractSunbiz(
   entityName: string
 ): Promise<SunbizLookup> {
+  // Share a cookie jar so Cloudflare's cf_clearance set on the search page
+  // is sent along with the detail-page request (separate curl process).
+  const jar = join(tmpdir(), `sunbiz-${randomBytes(6).toString("hex")}.txt`);
+
+  try {
   // 1. Search — directly GET-able path-based URL (discovered June 2026)
   const searchUrl = buildSearchUrl(entityName);
-  const searchHtml = await fetchSunbizHtml(searchUrl);
+  const searchHtml = await fetchSunbizHtml(searchUrl, jar);
   const matches = parseSearchResults(searchHtml);
   const best = pickBestMatch(matches, entityName);
 
@@ -265,11 +309,12 @@ export async function searchAndExtractSunbiz(
     return { result: null, matches_found: 0 };
   }
 
-  // 2. Fetch the detail page
+  // 2. Fetch the detail page with cookie jar + Referer so it looks like a
+  //    natural browser navigation from the search results page.
   const detailUrl = best.detail_path.startsWith("http")
     ? best.detail_path
     : `${SUNBIZ_BASE}${best.detail_path}`;
-  const detailHtml = await fetchSunbizHtml(detailUrl);
+  const detailHtml = await fetchSunbizHtml(detailUrl, jar, searchUrl);
   const detailText = htmlToText(detailHtml);
 
   // 3. Claude extracts structured persons/addresses from plain text
@@ -293,4 +338,7 @@ export async function searchAndExtractSunbiz(
     },
     matches_found: matches.length,
   };
+  } finally {
+    unlink(jar).catch(() => {});
+  }
 }

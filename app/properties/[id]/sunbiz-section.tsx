@@ -43,7 +43,6 @@ export function SunbizSection({
   ownerName: string;
 }) {
   const [phase, setPhase] = useState<Phase>({ tag: "idle" });
-  // selected persons by index (into result.persons)
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
   async function handleLookup() {

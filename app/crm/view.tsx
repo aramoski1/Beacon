@@ -34,6 +34,7 @@ type Property = {
 };
 
 type LinkedContactInfo = {
+  id: string;
   name: string | null;
   email: string | null;
   mailing_address: string | null;
@@ -211,7 +212,7 @@ function EditableText({
     <span
       onClick={() => { setDraft(value ?? ""); setEditing(true); }}
       className={cn("cursor-text rounded px-1 py-0.5 -mx-1 hover:bg-muted/60 text-sm", displayClassName)}
-      title="Click to edit"
+      title={String(shown ?? "")}
     >
       {shown ?? <span className="text-muted-foreground">{placeholder}</span>}
     </span>
@@ -452,14 +453,76 @@ function FilterSelect({
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
-const thCls = "px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap";
+const thCls = "px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative";
 const tdCls = "px-3 py-2 align-middle border-b border-border/50";
+
+// ─── Column resize ────────────────────────────────────────────────────────────
+
+function useColResize() {
+  const [widths, setWidths] = useState<Record<string, number>>({});
+
+  function startResize(col: string, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).closest("th")!;
+    const startW = th.getBoundingClientRect().width;
+    const startX = e.clientX;
+    function move(ev: MouseEvent) {
+      setWidths(w => ({ ...w, [col]: Math.max(40, startW + ev.clientX - startX) }));
+    }
+    function up() {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    }
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+
+  function cs(col: string): React.CSSProperties {
+    const w = widths[col];
+    return w ? { width: w, minWidth: w, maxWidth: w } : {};
+  }
+
+  return { startResize, cs };
+}
+
+function RH({ col, onStart }: { col: string; onStart: (col: string, e: React.MouseEvent) => void }) {
+  return (
+    <span
+      className="absolute right-0 inset-y-0 w-1 cursor-col-resize select-none hover:bg-primary/40 active:bg-primary/60 z-10"
+      onMouseDown={(e) => onStart(col, e)}
+    />
+  );
+}
+
+// ─── Full-text click popup ────────────────────────────────────────────────────
+
+type CellPopup = { text: string; x: number; y: number } | null;
+
+function Popup({ popup, onClose }: { popup: CellPopup; onClose: () => void }) {
+  if (!popup) return null;
+  const x = Math.min(popup.x + 8, (typeof window !== "undefined" ? window.innerWidth : 800) - 340);
+  const y = popup.y + 8;
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        className="fixed z-50 bg-popover border rounded-md shadow-lg px-3 py-2.5 text-sm max-w-xs break-words whitespace-pre-wrap"
+        style={{ left: x, top: y }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {popup.text}
+      </div>
+    </>
+  );
+}
 
 function PropertiesTable({
   rows,
   propContacts,
   customDefs,
   onSave,
+  onSaveContact,
   deletingId,
   onDeleteRequest,
   onDeleteConfirm,
@@ -469,6 +532,7 @@ function PropertiesTable({
   propContacts: Map<string, LinkedContactInfo[]>;
   customDefs: FieldDefinition[];
   onSave: (id: string, field: string, value: unknown) => void;
+  onSaveContact: (contactId: string, field: string, value: unknown) => void;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
@@ -488,27 +552,34 @@ function PropertiesTable({
 
   const thR = cn(thCls, "text-right");
   const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
+  const { startResize, cs: colStyle } = useColResize();
+  const [popup, setPopup] = useState<CellPopup>(null);
+  function showPopup(text: string, e: React.MouseEvent) {
+    if (!text) return;
+    setPopup({ text, x: e.clientX, y: e.clientY });
+  }
 
   return (
     <div className="overflow-x-auto">
+      <Popup popup={popup} onClose={() => setPopup(null)} />
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={cn(thR, "w-12")}>Prospect #</th>
-            <th className={thCls}>Ownership Entity</th>
-            <th className={thCls}>Property Address</th>
-            <th className={thR}>Building SF</th>
-            <th className={thR}>Land SF</th>
-            <th className={thCls}>Asset Description</th>
-            <th className={thCls}>Owner Contact</th>
-            <th className={thCls}>Owner Address</th>
-            <th className={thCls}>Owner Email</th>
-            <th className={thCls}>Activity Date/Type</th>
-            <th className={thCls}>Notes</th>
-            <th className={thCls}>Last Sale Date</th>
-            <th className={thR}>Last Sale Value</th>
+            <th className={cn(thR, "w-12")} style={colStyle("prospect")}>Prospect #<RH col="prospect" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("address")}>Property Address<RH col="address" onStart={startResize} /></th>
+            <th className={thR} style={colStyle("bsf")}>Building SF<RH col="bsf" onStart={startResize} /></th>
+            <th className={thR} style={colStyle("lsf")}>Land SF<RH col="lsf" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("asset")}>Asset Description<RH col="asset" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("contact")}>Owner Contact<RH col="contact" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("addr2")}>Owner Address<RH col="addr2" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("email")}>Owner Email<RH col="email" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("activity")}>Activity Date/Type<RH col="activity" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("notes")}>Notes<RH col="notes" onStart={startResize} /></th>
+            <th className={thCls} style={colStyle("saledate")}>Last Sale Date<RH col="saledate" onStart={startResize} /></th>
+            <th className={thR} style={colStyle("saleval")}>Last Sale Value<RH col="saleval" onStart={startResize} /></th>
             {customDefs.map((f) => (
-              <th key={f.id} className={thCls}>{f.field_name}</th>
+              <th key={f.id} className={thCls} style={colStyle(`cf_${f.id}`)}>{f.field_name}<RH col={`cf_${f.id}`} onStart={startResize} /></th>
             ))}
             <th className={cn(thCls, "w-8")} />
           </tr>
@@ -540,7 +611,7 @@ function PropertiesTable({
                   <EditableText
                     value={p.owner_name}
                     placeholder="—"
-                    displayClassName="truncate max-w-[140px] block"
+                    displayClassName="truncate block"
                     onSave={(v) => onSave(p.id, "owner_name", v)}
                   />
                 </td>
@@ -559,7 +630,7 @@ function PropertiesTable({
                       <EditableText
                         value={p.address}
                         placeholder="No address"
-                        displayClassName="font-medium truncate max-w-[180px] block"
+                        displayClassName="font-medium truncate block"
                         onSave={(v) => onSave(p.id, "address", v)}
                       />
                       <EditableText
@@ -605,54 +676,75 @@ function PropertiesTable({
                   <EditableText
                     value={p.asset_description}
                     placeholder="—"
-                    displayClassName="truncate max-w-[150px] block text-muted-foreground"
+                    displayClassName="truncate block text-muted-foreground"
                     onSave={(v) => onSave(p.id, "asset_description", v)}
                   />
                 </td>
 
                 {/* Owner Contact */}
                 <td className={cn(tdCls, "min-w-[100px]")}>
-                  {cs.some(c => c.name)
-                    ? cs.map((c, i) => c.name
-                        ? <span key={i} className="truncate max-w-[120px] block font-medium">{c.name}</span>
-                        : null)
+                  {cs.length > 0
+                    ? cs.map((c) => (
+                        <EditableText
+                          key={c.id}
+                          value={c.name}
+                          placeholder="—"
+                          displayClassName="truncate block font-medium"
+                          onSave={(v) => onSaveContact(c.id, "name", v)}
+                        />
+                      ))
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Owner Address */}
                 <td className={cn(tdCls, "min-w-[120px]")}>
-                  {cs.some(c => c.mailing_address)
-                    ? cs.map((c, i) => c.mailing_address
-                        ? <span key={i} className="truncate max-w-[150px] block text-muted-foreground">{c.mailing_address}</span>
-                        : null)
+                  {cs.length > 0
+                    ? cs.map((c) => (
+                        <EditableText
+                          key={c.id}
+                          value={c.mailing_address}
+                          placeholder="—"
+                          displayClassName="truncate block text-muted-foreground"
+                          onSave={(v) => onSaveContact(c.id, "mailing_address", v)}
+                        />
+                      ))
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Owner Email */}
                 <td className={cn(tdCls, "min-w-[130px]")}>
-                  {cs.some(c => c.email)
-                    ? cs.map((c, i) => c.email
-                        ? <a key={i} href={`mailto:${c.email}`} className="truncate max-w-[160px] block text-primary hover:underline underline-offset-2">{c.email}</a>
-                        : null)
+                  {cs.length > 0
+                    ? cs.map((c) => (
+                        <EditableText
+                          key={c.id}
+                          value={c.email}
+                          placeholder="—"
+                          displayClassName="truncate block text-primary"
+                          onSave={(v) => onSaveContact(c.id, "email", v)}
+                        />
+                      ))
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Activity Date/Type — most recent across all linked contacts */}
                 <td className={cn(tdCls, "min-w-[110px] whitespace-nowrap")}>
-                  {activity?.last_activity_date ? (
-                    <span className="text-muted-foreground">
-                      {fmtDate(activity.last_activity_date)}
-                      {activity.last_activity_type && (
-                        <span className="ml-1 text-muted-foreground/60 capitalize">· {activity.last_activity_type}</span>
-                      )}
-                    </span>
-                  ) : <span className="text-muted-foreground/30 italic">—</span>}
+                  {activity?.last_activity_date ? (() => {
+                    const actText = [fmtDate(activity.last_activity_date), activity.last_activity_type].filter(Boolean).join(" · ");
+                    return (
+                      <span className="text-muted-foreground cursor-pointer hover:text-foreground" onClick={(e) => showPopup(actText, e)}>
+                        {fmtDate(activity.last_activity_date)}
+                        {activity.last_activity_type && (
+                          <span className="ml-1 text-muted-foreground/60 capitalize">· {activity.last_activity_type}</span>
+                        )}
+                      </span>
+                    );
+                  })() : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Notes */}
                 <td className={cn(tdCls, "min-w-[120px] max-w-[200px]")}>
                   {activity?.last_activity_notes
-                    ? <span className="line-clamp-2 text-muted-foreground">{activity.last_activity_notes}</span>
+                    ? <span className="line-clamp-2 text-muted-foreground cursor-pointer hover:text-foreground" onClick={(e) => showPopup(activity.last_activity_notes!, e)}>{activity.last_activity_notes}</span>
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
@@ -758,20 +850,29 @@ function ContactsTable({
     );
   }
 
+  const { startResize: cStartResize, cs: cColStyle } = useColResize();
+  const [cPopup, setCPopup] = useState<CellPopup>(null);
+  function cShowPopup(text: string, e: React.MouseEvent) {
+    if (!text) return;
+    setCPopup({ text, x: e.clientX, y: e.clientY });
+  }
+
   return (
+    <>
     <div className="overflow-x-auto">
+      <Popup popup={cPopup} onClose={() => setCPopup(null)} />
       <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={thCls}>Name</th>
-            <th className={thCls}>Company</th>
-            <th className={thCls}>Tier</th>
-            <th className={thCls}>Status</th>
-            <th className={thCls}>Tags</th>
-            <th className={thCls}>Size cat</th>
-            <th className={thCls}>Geo cat</th>
-            <th className={thCls}>Ownership</th>
-            <th className={thCls}>Last contact</th>
+            <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("tier")}>Tier<RH col="tier" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("status")}>Status<RH col="status" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("tags")}>Tags<RH col="tags" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("sizecat")}>Size cat<RH col="sizecat" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("geocat")}>Geo cat<RH col="geocat" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("ownership")}>Ownership<RH col="ownership" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
             <th className={thCls} />
           </tr>
         </thead>
@@ -784,12 +885,12 @@ function ContactsTable({
                     {c.name ?? <span className="text-muted-foreground italic">No name</span>}
                   </Link>
                   {c.email && (
-                    <div className="text-xs text-muted-foreground truncate max-w-44">{c.email}</div>
+                    <div title={c.email} onClick={(e) => cShowPopup(c.email!, e)} className="text-xs text-muted-foreground truncate cursor-pointer hover:text-foreground">{c.email}</div>
                   )}
                 </div>
               </td>
               <td className={tdCls}>
-                <span className="text-muted-foreground max-w-36 block truncate">{c.company ?? "—"}</span>
+                <span title={c.company ?? ""} onClick={(e) => { if (c.company) cShowPopup(c.company, e); }} className="text-muted-foreground block truncate cursor-pointer hover:text-foreground">{c.company ?? "—"}</span>
               </td>
               <td className={cn(tdCls, "min-w-24")}>
                 <TierBadge tier={c.contact_tier} onSave={(v) => onSave(c.id, "contact_tier", v)} />
@@ -850,6 +951,7 @@ function ContactsTable({
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -904,18 +1006,20 @@ function LeasesTable({
     );
   }
 
+  const { startResize: lStartResize, cs: lColStyle } = useColResize();
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={thCls}>Document</th>
-            <th className={thCls}>Status</th>
-            <th className={thCls}>Execution</th>
-            <th className={thCls}>Expiration</th>
-            <th className={thCls}>Term</th>
-            <th className={thCls}>Base rate</th>
-            <th className={thCls}>Added</th>
+            <th className={thCls} style={lColStyle("doc")}>Document<RH col="doc" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("status")}>Status<RH col="status" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("exec")}>Execution<RH col="exec" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("exp")}>Expiration<RH col="exp" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("term")}>Term<RH col="term" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("rate")}>Base rate<RH col="rate" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("added")}>Added<RH col="added" onStart={lStartResize} /></th>
             <th className={thCls} />
           </tr>
         </thead>
@@ -1486,6 +1590,7 @@ export default function CRMView() {
           if (!idSet.has(propId)) continue;
           const a = activityMap.get(c.id);
           const info: LinkedContactInfo = {
+            id: c.id,
             name: c.name,
             email: c.email,
             mailing_address: c.mailing_address,
@@ -2072,6 +2177,7 @@ export default function CRMView() {
                   propContacts={propContacts}
                   customDefs={customPropertyDefs}
                   onSave={saveProp}
+                  onSaveContact={saveContact}
                   deletingId={deletingId}
                   onDeleteRequest={setDeletingId}
                   onDeleteConfirm={handleDeleteConfirm}
