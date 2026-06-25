@@ -512,9 +512,9 @@ export default function NewPropertyPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Look up a property</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Look up a property</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Miami-Dade County only. Beacon identifies the parcel by folio number, fetches
           the public tax record, and structures it — no guessing.

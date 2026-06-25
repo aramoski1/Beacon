@@ -140,3 +140,14 @@
 .crm-row:hover .crm-row-action-cell {
   background-color: color-mix(in oklch, var(--muted) 20%, var(--background));
 }
+
+/* Dashboard — calm neutral surface, no gradients */
+.dashboard-page {
+  background: var(--background);
+}
+
+.dashboard-hero {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.4);
+}

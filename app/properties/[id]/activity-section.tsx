@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createActivity, type Activity, type ActivityType } from "@/app/activities/actions";
+import { FollowUpNudge } from "@/components/follow-up-nudge";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,16 +28,17 @@ const TYPE_CLS: Record<ActivityType, string> = {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+    month: "long", day: "numeric", year: "numeric",
   });
 }
 
 export type ActivityContact = {
   id: string;
   name: string | null;
+  contact_tier?: number | null;
 };
+
+type Phase = "idle" | "logging" | "nudging";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -50,13 +52,13 @@ export function PropertyActivitySection({
   initialActivities: Activity[];
 }) {
   const [activities, setActivities] = useState<Activity[]>(initialActivities);
-  const [showForm, setShowForm] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [nudgeContactId, setNudgeContactId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const hasContacts = linkedContacts.length > 0;
 
-  // Default to current local date/time for the datetime-local input
   const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
     .toISOString()
     .slice(0, 16);
@@ -71,12 +73,8 @@ export function PropertyActivitySection({
     const notes = (fd.get("notes") as string)?.trim() || null;
     const form = e.currentTarget;
 
-    if (!contact_id) {
-      setError("Select a contact.");
-      return;
-    }
+    if (!contact_id) { setError("Select a contact."); return; }
 
-    // Convert local datetime-local value to UTC ISO string in the browser
     const activity_date = rawDate
       ? new Date(rawDate).toISOString()
       : new Date().toISOString();
@@ -89,10 +87,7 @@ export function PropertyActivitySection({
         activity_date,
         notes,
       });
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
+      if (result.error) { setError(result.error); return; }
       setActivities((prev) => [
         {
           id: result.id!,
@@ -105,10 +100,14 @@ export function PropertyActivitySection({
         },
         ...prev,
       ]);
-      setShowForm(false);
       form.reset();
+      setNudgeContactId(contact_id);
+      setPhase("nudging");
     });
   }
+
+  const nudgeContact = linkedContacts.find((c) => c.id === nudgeContactId);
+  const nudgeCadence = ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[nudgeContact?.contact_tier ?? 0] ?? 14;
 
   return (
     <Card>
@@ -122,12 +121,12 @@ export function PropertyActivitySection({
             </span>
           )}
         </CardTitle>
-        {hasContacts && (
+        {hasContacts && phase !== "nudging" && (
           <button
-            onClick={() => { setShowForm((v) => !v); setError(null); }}
+            onClick={() => { setPhase(phase === "logging" ? "idle" : "logging"); setError(null); }}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            {showForm ? (
+            {phase === "logging" ? (
               <><X className="size-3.5" />Cancel</>
             ) : (
               <><Plus className="size-3.5" />Log activity</>
@@ -144,7 +143,7 @@ export function PropertyActivitySection({
         )}
 
         {/* Log form */}
-        {showForm && hasContacts && (
+        {phase === "logging" && hasContacts && (
           <form
             onSubmit={handleSubmit}
             className="rounded-lg border p-4 space-y-3 bg-muted/10"
@@ -221,7 +220,7 @@ export function PropertyActivitySection({
                 variant="ghost"
                 size="sm"
                 disabled={isPending}
-                onClick={() => { setShowForm(false); setError(null); }}
+                onClick={() => { setPhase("idle"); setError(null); }}
               >
                 Cancel
               </Button>
@@ -229,8 +228,18 @@ export function PropertyActivitySection({
           </form>
         )}
 
+        {/* Follow-up nudge */}
+        {phase === "nudging" && nudgeContactId && (
+          <FollowUpNudge
+            contactId={nudgeContactId}
+            propertyId={propertyId}
+            suggestedDays={nudgeCadence}
+            onDone={() => { setPhase("idle"); setNudgeContactId(null); }}
+          />
+        )}
+
         {/* Timeline */}
-        {activities.length === 0 && hasContacts && !showForm && (
+        {activities.length === 0 && hasContacts && phase === "idle" && (
           <p className="text-sm text-muted-foreground">No activities logged yet.</p>
         )}
         {activities.length > 0 && (

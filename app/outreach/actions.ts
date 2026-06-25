@@ -109,11 +109,16 @@ export async function getDueContacts(): Promise<DueContact[]> {
   return dueContacts;
 }
 
+// ─── Template types ───────────────────────────────────────────────────────────
+
+export type OutreachTemplate = "intro" | "check-in" | "market-update" | "listing-alert";
+
 // ─── generateDrafts ───────────────────────────────────────────────────────────
 
 export async function generateDrafts(
   contactIds: string[],
-  brokerContext: string
+  brokerContext: string,
+  template: OutreachTemplate = "check-in"
 ): Promise<{ drafts?: EmailDraft[]; error?: string }> {
   const supabase = await createClient();
   const {
@@ -124,7 +129,7 @@ export async function generateDrafts(
   if (contactIds.length === 0) return { error: "No contacts selected." };
   if (contactIds.length > 10) return { error: "Maximum 10 contacts at once." };
 
-  // Fetch the selected contacts with their resolved properties
+  // Fetch the selected contacts
   const { data: contacts } = await supabase
     .from("contacts")
     .select(
@@ -132,38 +137,74 @@ export async function generateDrafts(
     )
     .in("id", contactIds);
 
-  if (!contacts || contacts.length === 0)
-    return { error: "Contacts not found." };
+  if (!contacts || contacts.length === 0) return { error: "Contacts not found." };
 
-  // Fetch linked properties
-  const allPropIds = [
-    ...new Set(contacts.flatMap((c) => c.linked_properties ?? [])),
-  ];
-  let propMap = new Map<string, { address: string | null; city: string | null; property_type: string | null; size_sqft: number | null }>();
+  // Fetch linked properties with richer detail
+  const allPropIds = [...new Set(contacts.flatMap((c) => c.linked_properties ?? []))];
+  let propMap = new Map<string, {
+    address: string | null;
+    city: string | null;
+    property_type: string | null;
+    size_sqft: number | null;
+    last_sale_date: string | null;
+    asset_description: string | null;
+  }>();
   if (allPropIds.length > 0) {
     const { data: props } = await supabase
       .from("properties")
-      .select("id, address, city, property_type, size_sqft")
+      .select("id, address, city, property_type, size_sqft, last_sale_date, asset_description")
       .in("id", allPropIds);
     propMap = new Map((props ?? []).map((p) => [p.id, p]));
   }
 
+  // Fetch recent activities per contact (up to 4 each)
+  const { data: activityRows } = await supabase
+    .from("activities")
+    .select("contact_id, activity_type, activity_date, notes")
+    .in("contact_id", contactIds)
+    .eq("owner_id", user.id)
+    .order("activity_date", { ascending: false })
+    .limit(60);
+
+  const activityMap = new Map<string, Array<{ activity_type: string; activity_date: string; notes: string | null }>>();
+  for (const a of (activityRows ?? [])) {
+    const existing = activityMap.get(a.contact_id) ?? [];
+    if (existing.length < 4) {
+      existing.push({ activity_type: a.activity_type, activity_date: a.activity_date, notes: a.notes });
+      activityMap.set(a.contact_id, existing);
+    }
+  }
+
+  const TEMPLATE_INSTRUCTIONS: Record<OutreachTemplate, string> = {
+    "intro":
+      "This is a FIRST CONTACT — introduce yourself briefly, mention your specialty relevant to their property or portfolio, end with a low-friction ask. Do NOT imply you already know them.",
+    "check-in":
+      "Write a warm check-in. Reference any recent activity notes or specific property details naturally. Ask if anything has changed on their end.",
+    "market-update":
+      "Share a brief, concrete market insight tied to their property type, asset description, size, or location. Invite a conversation about how it affects their portfolio.",
+    "listing-alert":
+      "Flag a relevant opportunity or market movement tied to their ownership type or portfolio. Frame it as something they should know about and invite them to discuss.",
+  };
+
   const contactSummaries = contacts.map((c) => {
     const props = (c.linked_properties ?? [])
       .map((pid: string) => propMap.get(pid))
-      .filter(Boolean) as Array<{ address: string | null; city: string | null; property_type: string | null; size_sqft: number | null }>;
+      .filter(Boolean) as Array<{
+        address: string | null; city: string | null; property_type: string | null;
+        size_sqft: number | null; last_sale_date: string | null; asset_description: string | null;
+      }>;
+
+    const activities = activityMap.get(c.id) ?? [];
 
     const tierTone =
       c.contact_tier === 1
-        ? "warm and direct (Tier 1 — highest priority)"
+        ? "warm and direct (Tier 1 — highest priority relationship)"
         : c.contact_tier === 2
-        ? "professional (Tier 2 — warm prospect)"
-        : "brief check-in (Tier 3 — periodic)";
+        ? "professional and engaged (Tier 2 — warm prospect)"
+        : "brief and light (Tier 3 — periodic outreach)";
 
     const daysSince = c.last_contacted_at
-      ? Math.floor(
-          (Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000
-        )
+      ? Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000)
       : null;
 
     return {
@@ -179,6 +220,13 @@ export async function generateDrafts(
         city: p.city,
         type: p.property_type,
         sqft: p.size_sqft,
+        last_sale_date: p.last_sale_date,
+        asset_description: p.asset_description,
+      })),
+      recent_activities: activities.map((a) => ({
+        type: a.activity_type,
+        date: new Date(a.activity_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        notes: a.notes,
       })),
     };
   });
@@ -222,12 +270,16 @@ export async function generateDrafts(
 
 Broker context: ${brokerContext || "A commercial real estate broker."}
 
-For each contact below, write a 3-5 sentence outreach email:
-- Reference specific property details where available
-- Match the tone to the tier (indicated in tier_tone)
-- Do NOT start with "I hope this email finds you well" or similar filler phrases
-- End with a low-friction ask (e.g., "Would you be open to a quick call?" or "Worth connecting?")
-- Keep it concise and specific to their situation
+Template type: ${template.replace(/-/g, " ")}
+Template instruction: ${TEMPLATE_INSTRUCTIONS[template]}
+
+Rules for all emails:
+- 3-5 sentences. Concise, specific, human.
+- Do NOT start with "I hope this email finds you well" or generic filler.
+- Reference specific property addresses, asset descriptions, or activity notes where available — make it clear this is not a mass email.
+- Match tone to the tier (indicated in tier_tone).
+- If recent_activities exist, weave them in naturally (e.g., "Following up on our call in March…").
+- End with a low-friction ask (e.g., "Worth a quick call?" or "Happy to share more details.").
 
 Contacts:
 ${JSON.stringify(contactSummaries, null, 2)}`,

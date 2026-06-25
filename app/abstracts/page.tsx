@@ -59,7 +59,7 @@ export default async function AbstractsListPage() {
 
   if (error) {
     return (
-      <div className="max-w-3xl mx-auto px-6 py-10">
+      <div className="max-w-3xl mx-auto px-6 py-8">
         <p className="text-sm text-destructive">
           Could not load abstracts: {error.message}
         </p>
@@ -70,11 +70,11 @@ export default async function AbstractsListPage() {
   const rows = (abstracts ?? []) as LeaseAbstract[];
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Lease Abstracts</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Lease abstracts</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {rows.length} saved {rows.length === 1 ? "abstract" : "abstracts"}
           </p>

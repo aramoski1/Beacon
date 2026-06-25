@@ -35,10 +35,14 @@ async function fetchListingText(url: string): Promise<string> {
     const res = await fetch(jinaUrl, { signal: controller.signal, headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = (await res.text()).trim().slice(0, 30_000);
+    const lower = text.toLowerCase();
     if (
       text.length < 200 ||
-      text.toLowerCase().includes("access denied") ||
-      text.toLowerCase().includes("blocked")
+      lower.includes("access denied") ||
+      lower.includes("blocked") ||
+      text.includes("Ray ID:") || // Cloudflare bot-challenge page
+      lower.includes("security verification") ||
+      lower.includes("just a moment") // Cloudflare "Just a moment..." interstitial
     ) {
       throw new Error("blocked");
     }

@@ -129,7 +129,7 @@ export default async function PropertyPage({
       .order("created_at", { ascending: true }),
     supabase
       .from("contacts")
-      .select("id, name, email, phone, mailing_address, company, role, contact_tier")
+      .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due")
       .contains("linked_properties", [id])
       .order("created_at", { ascending: true }),
     fetchActivitiesByProperty(id),
@@ -140,6 +140,7 @@ export default async function PropertyPage({
   const activityContacts: ActivityContact[] = linkedContacts.map((c) => ({
     id: c.id,
     name: c.name,
+    contact_tier: c.contact_tier,
   }));
 
   const folioNumber = folio(p.source_url);
@@ -162,11 +163,19 @@ export default async function PropertyPage({
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-12 space-y-6">
+    <main className="mx-auto max-w-3xl px-6 py-8 space-y-6">
+      {/* Back link */}
+      <Link
+        href="/crm"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        ← CRM
+      </Link>
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <h1 className="text-xl font-semibold tracking-tight">
             {p.address ?? "Unknown address"}
           </h1>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1 flex-wrap">

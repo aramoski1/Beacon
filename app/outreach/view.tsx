@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { generateDrafts, logOutreach, type DueContact, type EmailDraft } from "./actions";
+import { generateDrafts, logOutreach, type DueContact, type EmailDraft, type OutreachTemplate } from "./actions";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,15 @@ function tierLabel(tier: number | null) {
   return "—";
 }
 
+// ─── Template definitions ─────────────────────────────────────────────────────
+
+const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] = [
+  { id: "intro",          label: "Intro",          description: "First-touch introduction — present yourself and your focus area." },
+  { id: "check-in",       label: "Check-in",       description: "Warm follow-up referencing your history and their specific property." },
+  { id: "market-update",  label: "Market update",  description: "Share a concrete insight tied to their property type or geography." },
+  { id: "listing-alert",  label: "Listing alert",  description: "Flag a relevant opportunity or transaction trend for their portfolio." },
+];
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OutreachView({
@@ -51,6 +60,8 @@ export default function OutreachView({
   const [editedSubjects, setEditedSubjects] = useState<Record<string, string>>({});
   const [editedBodies, setEditedBodies] = useState<Record<string, string>>({});
 
+  const [template, setTemplate] = useState<OutreachTemplate>("check-in");
+
   // ── Safety gates ───────────────────────────────────────────────────────────
   // testMode: replaces all mailto recipients with userEmail; disables "Mark as sent"
   const [testMode, setTestMode] = useState(false);
@@ -69,7 +80,9 @@ export default function OutreachView({
   }
 
   const overdueContacts = contacts.filter((c) => c.daysOverdue > 0);
-  const dueSoonContacts = contacts.filter((c) => c.daysOverdue <= 0);
+  const tier1Contacts   = contacts.filter((c) => c.contact_tier === 1);
+  const tier2Contacts   = contacts.filter((c) => c.contact_tier === 2);
+  const tier3Contacts   = contacts.filter((c) => c.contact_tier === 3 || c.contact_tier === null);
 
   function toggleContact(id: string) {
     setSelected((prev) => {
@@ -90,7 +103,7 @@ export default function OutreachView({
     setError(null);
     setStep("review");
 
-    const result = await generateDrafts([...selected], brokerContext);
+    const result = await generateDrafts([...selected], brokerContext, template);
     setGenerating(false);
 
     if (result.error) {
@@ -152,11 +165,11 @@ export default function OutreachView({
 
   if (step === "select") {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+      <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Outreach</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Outreach</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {overdueContacts.length} overdue · {dueSoonContacts.length} due this week
+            {overdueContacts.length > 0 ? `${overdueContacts.length} overdue · ` : ""}{contacts.length} total due
           </p>
         </div>
 
@@ -171,6 +184,29 @@ export default function OutreachView({
           />
           <p className="text-xs text-muted-foreground">
             Claude will use this to personalize each draft.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Email type</label>
+          <div className="flex flex-wrap gap-2">
+            {TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTemplate(t.id)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm border transition-colors",
+                  template === t.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {TEMPLATES.find((t) => t.id === template)?.description}
           </p>
         </div>
 
@@ -199,23 +235,33 @@ export default function OutreachView({
               </button>
             )}
 
-            {overdueContacts.length > 0 && (
+            {tier1Contacts.length > 0 && (
               <ContactSection
-                title="Overdue"
-                contacts={overdueContacts}
+                title="Tier 1 — Priority"
+                contacts={tier1Contacts}
                 selected={selected}
                 onToggle={toggleContact}
-                accent="border-l-destructive/50"
+                accent="border-l-orange-400"
               />
             )}
 
-            {dueSoonContacts.length > 0 && (
+            {tier2Contacts.length > 0 && (
               <ContactSection
-                title="Due this week"
-                contacts={dueSoonContacts}
+                title="Tier 2"
+                contacts={tier2Contacts}
                 selected={selected}
                 onToggle={toggleContact}
-                accent="border-l-amber-400/50"
+                accent="border-l-blue-400/60"
+              />
+            )}
+
+            {tier3Contacts.length > 0 && (
+              <ContactSection
+                title="Tier 3"
+                contacts={tier3Contacts}
+                selected={selected}
+                onToggle={toggleContact}
+                accent="border-l-border"
               />
             )}
           </div>
@@ -244,7 +290,7 @@ export default function OutreachView({
   // ── Review view ───────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -254,7 +300,7 @@ export default function OutreachView({
           >
             ← Back
           </button>
-          <h1 className="text-2xl font-bold tracking-tight">Review drafts</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Review drafts</h1>
         </div>
 
         {/* Test mode toggle */}

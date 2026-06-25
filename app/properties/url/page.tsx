@@ -274,9 +274,9 @@ export default function UrlIngestPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Add property from URL</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Add property from URL</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Paste a listing URL — LoopNet, Crexi, broker sites, Zillow, etc.
         </p>

@@ -252,9 +252,9 @@ export default function NewAbstractPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Lease Abstraction</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Lease abstraction</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Upload a lease PDF and Beacon will extract the key fields automatically.
         </p>

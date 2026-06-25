@@ -93,11 +93,16 @@ export default async function AbstractPage({
   );
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-12 space-y-6">
+    <main className="mx-auto max-w-3xl px-6 py-8 space-y-6">
+      {/* Back link */}
+      <a href="/abstracts" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        ← Lease abstracts
+      </a>
+
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Lease Abstract</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Lease abstract</h1>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
             <FileText className="size-3.5" />
             {sourceFileName(abstract.source_document)}

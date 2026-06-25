@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createActivity, type Activity, type ActivityType } from "@/app/activities/actions";
+import { FollowUpNudge } from "@/components/follow-up-nudge";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,30 +28,33 @@ const TYPE_CLS: Record<ActivityType, string> = {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+    month: "long", day: "numeric", year: "numeric",
   });
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+type Phase = "idle" | "logging" | "nudging";
+
 export function ContactActivitySection({
   contactId,
+  contactTier,
   initialActivities,
 }: {
   contactId: string;
+  contactTier?: number | null;
   initialActivities: Activity[];
 }) {
   const [activities, setActivities] = useState<Activity[]>(initialActivities);
-  const [showForm, setShowForm] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Default to current local date/time for the datetime-local input
   const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
     .toISOString()
     .slice(0, 16);
+
+  const cadenceDays = ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[contactTier ?? 0] ?? 14;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -61,7 +65,6 @@ export function ContactActivitySection({
     const notes = (fd.get("notes") as string)?.trim() || null;
     const form = e.currentTarget;
 
-    // Convert local datetime-local value to UTC ISO string in the browser
     const activity_date = rawDate
       ? new Date(rawDate).toISOString()
       : new Date().toISOString();
@@ -89,8 +92,8 @@ export function ContactActivitySection({
         },
         ...prev,
       ]);
-      setShowForm(false);
       form.reset();
+      setPhase("nudging");
     });
   }
 
@@ -106,21 +109,23 @@ export function ContactActivitySection({
             </span>
           )}
         </CardTitle>
-        <button
-          onClick={() => { setShowForm((v) => !v); setError(null); }}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {showForm ? (
-            <><X className="size-3.5" />Cancel</>
-          ) : (
-            <><Plus className="size-3.5" />Log activity</>
-          )}
-        </button>
+        {phase !== "nudging" && (
+          <button
+            onClick={() => { setPhase(phase === "logging" ? "idle" : "logging"); setError(null); }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {phase === "logging" ? (
+              <><X className="size-3.5" />Cancel</>
+            ) : (
+              <><Plus className="size-3.5" />Log activity</>
+            )}
+          </button>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-4">
         {/* Log form */}
-        {showForm && (
+        {phase === "logging" && (
           <form
             onSubmit={handleSubmit}
             className="rounded-lg border p-4 space-y-3 bg-muted/10"
@@ -182,7 +187,7 @@ export function ContactActivitySection({
                 variant="ghost"
                 size="sm"
                 disabled={isPending}
-                onClick={() => { setShowForm(false); setError(null); }}
+                onClick={() => { setPhase("idle"); setError(null); }}
               >
                 Cancel
               </Button>
@@ -190,8 +195,17 @@ export function ContactActivitySection({
           </form>
         )}
 
+        {/* Follow-up nudge */}
+        {phase === "nudging" && (
+          <FollowUpNudge
+            contactId={contactId}
+            suggestedDays={cadenceDays}
+            onDone={() => setPhase("idle")}
+          />
+        )}
+
         {/* Timeline */}
-        {activities.length === 0 && !showForm && (
+        {activities.length === 0 && phase === "idle" && (
           <p className="text-sm text-muted-foreground">No activities logged yet.</p>
         )}
         {activities.length > 0 && (

@@ -44,6 +44,14 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-activities.ts",
     description: "Activities — activities table with RLS (contact + property touch-point log)",
   },
+  {
+    file: "migrate-contact-type.ts",
+    description: "Contacts — contact_type column (owner / tenant / other)",
+  },
+  {
+    file: "migrate-follow-ups.ts",
+    description: "Follow-ups — follow_ups table with RLS (tasks/reminders with due dates)",
+  },
 ];
 
 const hr = "─".repeat(60);

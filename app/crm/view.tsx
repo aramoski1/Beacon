@@ -5,11 +5,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin, SlidersHorizontal, Check } from "lucide-react";
 import { EnhanceDialog } from "./enhance-dialog";
 import { interpretSearch, deleteProperty, deleteContact, deleteLease, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { createFieldDefinition, deleteFieldDefinition } from "@/app/settings/fields/actions";
 import { fieldSlug, type FieldDefinition, type EntityType, type FieldType } from "@/lib/custom-fields";
+import { SourceChip } from "@/components/source-chip";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,7 @@ type Contact = {
   size_category: string | null;
   geographic_category: string | null;
   ownership_type: string | null;
+  contact_type: string | null;
   last_contacted_at: string | null;
 };
 
@@ -79,6 +82,7 @@ type PropFilters = {
 type ConFilters = {
   tier: string;
   status: string;
+  contactType: string;
   sizeCat: string;
   geoCat: string;
   ownership: string;
@@ -115,6 +119,28 @@ const CLIENT_STATUSES = [
   { value: "prospect", label: "Prospect" },
   { value: "active client", label: "Active client" },
   { value: "past client", label: "Past client" },
+];
+
+const CONTACT_TYPES = [
+  { value: "owner", label: "Owner" },
+  { value: "tenant", label: "Tenant" },
+  { value: "other", label: "Other" },
+];
+
+const PROP_COL_DEFS: { id: string; label: string; alwaysOn?: boolean }[] = [
+  { id: "prospect", label: "Prospect #" },
+  { id: "owner",    label: "Ownership Entity" },
+  { id: "address",  label: "Property Address", alwaysOn: true },
+  { id: "bsf",      label: "Building SF" },
+  { id: "lsf",      label: "Land SF" },
+  { id: "asset",    label: "Asset Description" },
+  { id: "contact",  label: "Owner Contact" },
+  { id: "addr2",    label: "Owner Address" },
+  { id: "email",    label: "Owner Email" },
+  { id: "activity", label: "Activity Date/Type" },
+  { id: "notes",    label: "Notes" },
+  { id: "saledate", label: "Last Sale Date" },
+  { id: "saleval",  label: "Last Sale Value" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -351,6 +377,38 @@ function StatusBadge({
   );
 }
 
+function contactTypeCls(t: string | null) {
+  if (t === "owner") return "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-400";
+  if (t === "tenant") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400";
+  if (t === "other") return "bg-muted text-muted-foreground";
+  return "border border-dashed border-muted-foreground/40 text-muted-foreground";
+}
+
+function ContactTypeBadge({
+  contactType,
+  onSave,
+}: {
+  contactType: string | null;
+  onSave: (v: string | null) => void;
+}) {
+  return (
+    <select
+      value={contactType ?? ""}
+      onChange={(e) => onSave(e.target.value || null)}
+      className={cn(
+        "rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border-0 outline-none appearance-none capitalize",
+        contactTypeCls(contactType),
+      )}
+      title="Set contact type"
+    >
+      <option value="">—</option>
+      {CONTACT_TYPES.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
 // ─── Filter bar ───────────────────────────────────────────────────────────────
 
 function TabSearchInput({
@@ -449,6 +507,108 @@ function FilterSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+// ─── Column visibility ────────────────────────────────────────────────────────
+
+function useColVis(storageKey: string) {
+  const [vis, setVis] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const s = localStorage.getItem(storageKey);
+      return s ? (JSON.parse(s) as Record<string, boolean>) : {};
+    } catch { return {}; }
+  });
+  function isVis(id: string) { return vis[id] ?? true; }
+  function toggle(id: string, alwaysOn?: boolean) {
+    if (alwaysOn) return;
+    setVis((prev) => {
+      const next = { ...prev, [id]: !(prev[id] ?? true) };
+      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+  return { isVis, toggle };
+}
+
+function ColVisPopover({
+  isVis,
+  toggle,
+}: {
+  isVis: (id: string) => boolean;
+  toggle: (id: string, alwaysOn?: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  const hiddenCount = PROP_COL_DEFS.filter(({ id, alwaysOn }) => !alwaysOn && !isVis(id)).length;
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border transition-colors",
+          open || hiddenCount > 0
+            ? "border-primary/40 bg-primary/5 text-primary"
+            : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/50"
+        )}
+      >
+        <SlidersHorizontal className="size-3" />
+        Columns
+        {hiddenCount > 0 && (
+          <span className="ml-0.5 tabular-nums text-[10px] font-bold bg-primary text-primary-foreground rounded-full px-1 min-w-[1rem] text-center leading-4">
+            {hiddenCount}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-popover border rounded-lg shadow-lg py-1.5">
+          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 select-none">
+            Show / hide columns
+          </p>
+          {PROP_COL_DEFS.map(({ id, label, alwaysOn }) => {
+            const visible = isVis(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                disabled={alwaysOn}
+                onClick={() => toggle(id, alwaysOn)}
+                className={cn(
+                  "flex items-center gap-2.5 w-full px-3 py-1.5 text-left transition-colors",
+                  alwaysOn ? "opacity-40 cursor-default" : "hover:bg-muted/50 cursor-pointer",
+                )}
+              >
+                <span className={cn(
+                  "size-3.5 rounded-sm border flex items-center justify-center shrink-0 transition-colors",
+                  visible ? "bg-primary border-primary" : "border-border"
+                )}>
+                  {visible && <Check className="size-2.5 text-primary-foreground" />}
+                </span>
+                <span className={cn("text-xs", visible ? "text-foreground" : "text-muted-foreground/60")}>
+                  {label}
+                </span>
+                {alwaysOn && (
+                  <span className="ml-auto text-[10px] text-muted-foreground/40">always</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -564,6 +724,7 @@ function PropertiesTable({
   rows,
   propContacts,
   customDefs,
+  colVis,
   onSave,
   onSaveContact,
   deletingId,
@@ -574,6 +735,7 @@ function PropertiesTable({
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo[]>;
   customDefs: FieldDefinition[];
+  colVis: ReturnType<typeof useColVis>;
   onSave: (id: string, field: string, value: unknown) => void;
   onSaveContact: (contactId: string, field: string, value: unknown) => void;
   deletingId: string | null;
@@ -596,6 +758,7 @@ function PropertiesTable({
   const thR = cn(thCls, "text-right");
   const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
   const { startResize, cs: colStyle } = useColResize();
+  function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
   const [popup, setPopup] = useState<CellPopup>(null);
   function showPopup(text: string, e: React.MouseEvent) {
     if (!text) return;
@@ -608,19 +771,19 @@ function PropertiesTable({
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={cn(thR, "w-12")} style={colStyle("prospect")}>Prospect #<RH col="prospect" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
+            <th className={cn(thR, "w-12", col("prospect"))} style={colStyle("prospect")}>Prospect #<RH col="prospect" onStart={startResize} /></th>
+            <th className={cn(thCls, col("owner"))} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
             <th className={thCls} style={colStyle("address")}>Property Address<RH col="address" onStart={startResize} /></th>
-            <th className={thR} style={colStyle("bsf")}>Building SF<RH col="bsf" onStart={startResize} /></th>
-            <th className={thR} style={colStyle("lsf")}>Land SF<RH col="lsf" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("asset")}>Asset Description<RH col="asset" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("contact")}>Owner Contact<RH col="contact" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("addr2")}>Owner Address<RH col="addr2" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("email")}>Owner Email<RH col="email" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("activity")}>Activity Date/Type<RH col="activity" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("notes")}>Notes<RH col="notes" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("saledate")}>Last Sale Date<RH col="saledate" onStart={startResize} /></th>
-            <th className={thR} style={colStyle("saleval")}>Last Sale Value<RH col="saleval" onStart={startResize} /></th>
+            <th className={cn(thR, col("bsf"))} style={colStyle("bsf")}>Building SF<RH col="bsf" onStart={startResize} /></th>
+            <th className={cn(thR, col("lsf"))} style={colStyle("lsf")}>Land SF<RH col="lsf" onStart={startResize} /></th>
+            <th className={cn(thCls, col("asset"))} style={colStyle("asset")}>Asset Description<RH col="asset" onStart={startResize} /></th>
+            <th className={cn(thCls, col("contact"))} style={colStyle("contact")}>Owner Contact<RH col="contact" onStart={startResize} /></th>
+            <th className={cn(thCls, col("addr2"))} style={colStyle("addr2")}>Owner Address<RH col="addr2" onStart={startResize} /></th>
+            <th className={cn(thCls, col("email"))} style={colStyle("email")}>Owner Email<RH col="email" onStart={startResize} /></th>
+            <th className={cn(thCls, col("activity"))} style={colStyle("activity")}>Activity Date/Type<RH col="activity" onStart={startResize} /></th>
+            <th className={cn(thCls, col("notes"))} style={colStyle("notes")}>Notes<RH col="notes" onStart={startResize} /></th>
+            <th className={cn(thCls, col("saledate"))} style={colStyle("saledate")}>Last Sale Date<RH col="saledate" onStart={startResize} /></th>
+            <th className={cn(thR, col("saleval"))} style={colStyle("saleval")}>Last Sale Value<RH col="saleval" onStart={startResize} /></th>
             {customDefs.map((f) => (
               <th key={f.id} className={thCls} style={colStyle(`cf_${f.id}`)}>{f.field_name}<RH col={`cf_${f.id}`} onStart={startResize} /></th>
             ))}
@@ -637,7 +800,7 @@ function PropertiesTable({
             return (
               <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
                 {/* Prospect # */}
-                <td className={cn(tdR, "w-12 font-mono")}>
+                <td className={cn(tdR, "w-12 font-mono", col("prospect"))}>
                   <EditableText
                     value={p.prospect_number != null ? String(p.prospect_number) : null}
                     displayValue={p.prospect_number != null ? `#${p.prospect_number}` : null}
@@ -651,7 +814,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Ownership Entity */}
-                <td className={cn(tdCls, "min-w-[120px]")}>
+                <td className={cn(tdCls, "min-w-[120px]", col("owner"))}>
                   <EditableText
                     value={p.owner_name}
                     placeholder="—"
@@ -683,12 +846,15 @@ function PropertiesTable({
                         displayClassName="text-muted-foreground"
                         onSave={(v) => onSave(p.id, "city", v)}
                       />
+                      {(p.source || p.source_url) && (
+                        <SourceChip source={p.source} sourceUrl={p.source_url} className="mt-1" />
+                      )}
                     </div>
                   </div>
                 </td>
 
                 {/* Building SF */}
-                <td className={cn(tdR, "w-20")}>
+                <td className={cn(tdR, "w-20", col("bsf"))}>
                   <EditableText
                     value={p.size_sqft != null ? String(p.size_sqft) : null}
                     displayValue={p.size_sqft != null ? p.size_sqft.toLocaleString() : null}
@@ -702,7 +868,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Land SF */}
-                <td className={cn(tdR, "w-20")}>
+                <td className={cn(tdR, "w-20", col("lsf"))}>
                   <EditableText
                     value={p.land_sqft != null ? String(p.land_sqft) : null}
                     displayValue={p.land_sqft != null ? p.land_sqft.toLocaleString() : null}
@@ -716,7 +882,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Asset Description */}
-                <td className={cn(tdCls, "min-w-[120px]")}>
+                <td className={cn(tdCls, "min-w-[120px]", col("asset"))}>
                   <EditableText
                     value={p.asset_description}
                     placeholder="—"
@@ -726,7 +892,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Owner Contact */}
-                <td className={cn(tdCls, "min-w-[100px]")}>
+                <td className={cn(tdCls, "min-w-[100px]", col("contact"))}>
                   {cs.length > 0
                     ? cs.map((c) => (
                         <EditableText
@@ -741,7 +907,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Owner Address */}
-                <td className={cn(tdCls, "min-w-[120px]")}>
+                <td className={cn(tdCls, "min-w-[120px]", col("addr2"))}>
                   {cs.length > 0
                     ? cs.map((c) => (
                         <EditableText
@@ -756,7 +922,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Owner Email */}
-                <td className={cn(tdCls, "min-w-[130px]")}>
+                <td className={cn(tdCls, "min-w-[130px]", col("email"))}>
                   {cs.length > 0
                     ? cs.map((c) => (
                         <EditableText
@@ -771,7 +937,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Activity Date/Type — most recent across all linked contacts */}
-                <td className={cn(tdCls, "min-w-[110px] whitespace-nowrap")}>
+                <td className={cn(tdCls, "min-w-[110px] whitespace-nowrap", col("activity"))}>
                   {activity?.last_activity_date ? (() => {
                     const actText = [fmtDate(activity.last_activity_date), activity.last_activity_type].filter(Boolean).join(" · ");
                     return (
@@ -786,14 +952,14 @@ function PropertiesTable({
                 </td>
 
                 {/* Notes */}
-                <td className={cn(tdCls, "min-w-[120px] max-w-[200px]")}>
+                <td className={cn(tdCls, "min-w-[120px] max-w-[200px]", col("notes"))}>
                   {activity?.last_activity_notes
                     ? <span className="line-clamp-2 text-muted-foreground cursor-pointer hover:text-foreground" onClick={(e) => showPopup(activity.last_activity_notes!, e)}>{activity.last_activity_notes}</span>
                     : <span className="text-muted-foreground/30 italic">—</span>}
                 </td>
 
                 {/* Last Sale Date */}
-                <td className={cn(tdCls, "whitespace-nowrap w-24")}>
+                <td className={cn(tdCls, "whitespace-nowrap w-24", col("saledate"))}>
                   <EditableText
                     value={p.last_sale_date ? p.last_sale_date.slice(0, 10) : null}
                     displayValue={fmtDate(p.last_sale_date)}
@@ -804,7 +970,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Last Sale Value */}
-                <td className={cn(tdR, "w-24")}>
+                <td className={cn(tdR, "w-24", col("saleval"))}>
                   <EditableText
                     value={p.last_sale_price != null ? String(p.last_sale_price) : null}
                     displayValue={p.last_sale_price != null ? fmt(p.last_sale_price) : null}
@@ -911,6 +1077,7 @@ function ContactsTable({
           <tr>
             <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("type")}>Type<RH col="type" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("tier")}>Tier<RH col="tier" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("status")}>Status<RH col="status" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("tags")}>Tags<RH col="tags" onStart={cStartResize} /></th>
@@ -936,6 +1103,9 @@ function ContactsTable({
               </td>
               <td className={tdCls}>
                 <span title={c.company ?? ""} onClick={(e) => { if (c.company) cShowPopup(c.company, e); }} className="text-muted-foreground block truncate cursor-pointer hover:text-foreground">{c.company ?? "—"}</span>
+              </td>
+              <td className={cn(tdCls, "min-w-24")}>
+                <ContactTypeBadge contactType={c.contact_type} onSave={(v) => onSave(c.id, "contact_type", v)} />
               </td>
               <td className={cn(tdCls, "min-w-24")}>
                 <TierBadge tier={c.contact_tier} onSave={(v) => onSave(c.id, "contact_tier", v)} />
@@ -1441,11 +1611,12 @@ function PaginationBar({
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 const EMPTY_PROP_FILTERS: PropFilters   = { propType: "", ownership: "", sizeCat: "", geoCat: "" };
-const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", sizeCat: "", geoCat: "", ownership: "", tag: "" };
+const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", contactType: "", sizeCat: "", geoCat: "", ownership: "", tag: "" };
 const EMPTY_LEASE_FILTERS: LeaseFilters = { status: "" };
 
 export default function CRMView() {
   const [tab, setTab] = useState<"properties" | "leases" | "contacts" | "fields">("properties");
+  const propColVis = useColVis("beacon_crm_col_visibility");
 
   // ── Data state ─────────────────────────────────────────────────────────────
   const [properties, setProperties] = useState<Property[]>([]);
@@ -1473,11 +1644,12 @@ export default function CRMView() {
     geoCat: [],
   });
   const [conFilterOpts, setConFilterOpts] = useState<{
+    contactTypes: string[];
     sizeCat: string[];
     geoCat: string[];
     ownership: string[];
     tags: string[];
-  }>({ sizeCat: [], geoCat: [], ownership: [], tags: [] });
+  }>({ contactTypes: [], sizeCat: [], geoCat: [], ownership: [], tags: [] });
 
   // ── Filter state ───────────────────────────────────────────────────────────
   const [propFilters, setPropFilters] = useState<PropFilters>(EMPTY_PROP_FILTERS);
@@ -1496,6 +1668,21 @@ export default function CRMView() {
   const [activeSearch, setActiveSearch] = useState<SearchResult | null>(null);
   const searchMode = activeSearch !== null;
 
+  // Restore AI search forwarded from dashboard
+  useEffect(() => {
+    const raw = sessionStorage.getItem("beacon_crm_search");
+    if (!raw) return;
+    sessionStorage.removeItem("beacon_crm_search");
+    try {
+      const { query, result } = JSON.parse(raw) as { query: string; result: SearchResult };
+      setSearchQuery(query);
+      setActiveSearch(result);
+      if (result.target === "properties") setTab("properties");
+      if (result.target === "contacts") setTab("contacts");
+      if (result.target === "leases") setTab("leases");
+    } catch { /* ignore malformed payload */ }
+  }, []);
+
   // ── Delete state ───────────────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -1507,7 +1694,7 @@ export default function CRMView() {
     const supabase = createClient();
     const [{ data: pData }, { data: cData }] = await Promise.all([
       supabase.from("properties").select("size_category, geographic_category"),
-      supabase.from("contacts").select("size_category, geographic_category, ownership_type, action_tags"),
+      supabase.from("contacts").select("contact_type, size_category, geographic_category, ownership_type, action_tags"),
     ]);
     if (pData) {
       setPropFilterOpts({
@@ -1517,6 +1704,7 @@ export default function CRMView() {
     }
     if (cData) {
       setConFilterOpts({
+        contactTypes: uniq(cData.map((r) => r.contact_type)),
         sizeCat: uniq(cData.map((r) => r.size_category)),
         geoCat: uniq(cData.map((r) => r.geographic_category)),
         ownership: uniq(cData.map((r) => r.ownership_type)),
@@ -1671,6 +1859,7 @@ export default function CRMView() {
     } else {
       if (conFilters.tier) q = q.eq("contact_tier", Number(conFilters.tier));
       if (conFilters.status) q = q.eq("client_status", conFilters.status);
+      if (conFilters.contactType) q = q.eq("contact_type", conFilters.contactType);
       if (conFilters.sizeCat) q = q.eq("size_category", conFilters.sizeCat);
       if (conFilters.geoCat) q = q.eq("geographic_category", conFilters.geoCat);
       if (conFilters.ownership) q = q.eq("ownership_type", conFilters.ownership);
@@ -1862,7 +2051,7 @@ export default function CRMView() {
     <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Header */}
       <header className="shrink-0 border-b px-6 py-3 flex items-center gap-4">
-        <h1 className="text-lg font-bold tracking-tight shrink-0">CRM</h1>
+        <h1 className="text-lg font-semibold tracking-tight shrink-0">CRM</h1>
         {(totalProps !== null || totalLeases !== null || totalCons !== null) && (
           <span className="text-xs text-muted-foreground shrink-0">
             {totalProps ?? "…"} {totalProps === 1 ? "property" : "properties"} ·{" "}
@@ -2114,16 +2303,19 @@ export default function CRMView() {
                     onChange={(v) => updatePropFilter("geoCat", v)}
                   />
                 )}
-                {propFiltersActive && (
-                  <button
-                    onClick={() => { setPropFilters(EMPTY_PROP_FILTERS); setPropPage(0); }}
-                    className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                  >
-                    Clear filters
-                  </button>
-                )}
               </>
             )}
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              {propFiltersActive && !searchMode && (
+                <button
+                  onClick={() => { setPropFilters(EMPTY_PROP_FILTERS); setPropPage(0); }}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Clear filters
+                </button>
+              )}
+              <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} />
+            </div>
           </>
         ) : (
           <>
@@ -2154,6 +2346,12 @@ export default function CRMView() {
                   value={conFilters.status}
                   options={CLIENT_STATUSES}
                   onChange={(v) => updateConFilter("status", v)}
+                />
+                <FilterSelect
+                  label="Type"
+                  value={conFilters.contactType}
+                  options={CONTACT_TYPES}
+                  onChange={(v) => updateConFilter("contactType", v)}
                 />
                 {conFilterOpts.tags.length > 0 && (
                   <FilterSelect
@@ -2208,16 +2406,14 @@ export default function CRMView() {
             <FieldsPanel onChanged={reloadCustomDefs} />
           ) : tab === "properties" ? (
             totalProps === null ? (
-              <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
-                <Loader2 className="size-5 animate-spin" />
-                <span className="text-sm">Loading…</span>
-              </div>
+              <TableSkeleton rows={10} cols={8} />
             ) : (
               <div className={cn(propsLoading && "opacity-60 pointer-events-none")}>
                 <PropertiesTable
                   rows={properties}
                   propContacts={propContacts}
                   customDefs={customPropertyDefs}
+                  colVis={propColVis}
                   onSave={saveProp}
                   onSaveContact={saveContact}
                   deletingId={deletingId}
@@ -2229,10 +2425,7 @@ export default function CRMView() {
             )
           ) : tab === "leases" ? (
             totalLeases === null ? (
-              <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
-                <Loader2 className="size-5 animate-spin" />
-                <span className="text-sm">Loading…</span>
-              </div>
+              <TableSkeleton rows={10} cols={5} />
             ) : (
               <div className={cn(leasesLoading && "opacity-60 pointer-events-none")}>
                 <LeasesTable
@@ -2246,10 +2439,7 @@ export default function CRMView() {
             )
           ) : (
             totalCons === null ? (
-              <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
-                <Loader2 className="size-5 animate-spin" />
-                <span className="text-sm">Loading…</span>
-              </div>
+              <TableSkeleton rows={10} cols={7} />
             ) : (
               <div className={cn(contactsLoading && "opacity-60 pointer-events-none")}>
                 <ContactsTable

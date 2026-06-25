@@ -319,21 +319,16 @@ export default function AuditView() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 space-y-8">
+    <div className="mx-auto max-w-3xl px-6 py-8 space-y-8">
       {/* Header */}
       <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Link
-            href="/crm"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            ← CRM
-          </Link>
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <ShieldAlert className="size-6 text-destructive" />
-          Data audit
-        </h1>
+        <Link
+          href="/crm"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
+        >
+          ← CRM
+        </Link>
+        <h1 className="text-xl font-semibold tracking-tight">Data audit</h1>
         <p className="mt-1.5 text-sm text-muted-foreground max-w-prose">
           Properties flagged for review based on three bad-data patterns left by
           the old broken address endpoint. Review each record and delete if it

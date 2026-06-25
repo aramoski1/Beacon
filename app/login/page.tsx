@@ -4,6 +4,7 @@ import { useState, useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BeaconBrand } from "@/components/beacon-logo";
 import { signIn, signUp } from "./actions";
 
 export default function LoginPage() {
@@ -18,7 +19,9 @@ export default function LoginPage() {
       <div className="w-full max-w-sm space-y-6">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight">Beacon</h1>
+          <div className="flex justify-center mb-2">
+            <BeaconBrand logoClassName="size-9" className="gap-3 [&>span]:text-xl" />
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             {isSignIn ? "Sign in to your account" : "Create a new account"}
           </p>

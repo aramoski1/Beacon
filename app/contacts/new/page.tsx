@@ -36,9 +36,9 @@ export default function NewContactPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Add contact</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Add contact</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Add a new contact to your CRM.
         </p>

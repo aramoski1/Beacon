@@ -359,9 +359,9 @@ export default function UploadPropertyPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Upload a property</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Upload a property</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Any file format — PDF, spreadsheet, image, CSV — or paste property details directly.
           Claude extracts the fields; you review before saving.

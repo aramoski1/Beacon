@@ -220,9 +220,9 @@ export default function CustomFieldsPage() {
   const tabFields = fields.filter(f => f.entity_type === tab);
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Custom fields</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Custom fields</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Add fields to properties, leases, and contacts beyond the built-in defaults.
         </p>
