@@ -156,3 +156,25 @@ export async function getFollowUpsDashboard(): Promise<{
 
   return { overdue, today: todayRows, dueCount: rows.length };
 }
+
+/** Open follow-ups due after today — for dashboard upcoming section. */
+export async function getUpcomingFollowUps(limit = 8): Promise<FollowUpRow[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data } = await supabase
+    .from("follow_ups")
+    .select(
+      "id, contact_id, property_id, due_date, description, done, done_at, created_at, contacts(name), properties(address)"
+    )
+    .eq("owner_id", user.id)
+    .eq("done", false)
+    .gt("due_date", today)
+    .order("due_date", { ascending: true })
+    .limit(limit);
+
+  return (data ?? []).map(mapRow);
+}

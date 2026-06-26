@@ -5,50 +5,51 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
-  LayoutDashboard, LayoutGrid, Users, Zap, BookOpen,
-  CheckSquare, Building2, Link2, FileText, Upload, LogOut,
+  CalendarClock,
+  LayoutDashboard, LayoutGrid, Zap,
+  CheckSquare, Settings2, LogOut, CirclePlus, ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/login/actions";
 import { BeaconBrand } from "@/components/beacon-logo";
 
-// ─── Nav groups ───────────────────────────────────────────────────────────────
+// ─── Nav entries ──────────────────────────────────────────────────────────────
 
 type NavEntry = {
   href: string;
   icon: React.ElementType;
   label: string;
-  badge?: "followUps" | "outreach";
+  badge?: "followUps" | "outreach" | "leaseRadar";
 };
 
-const WORKSPACE: NavEntry[] = [
-  { href: "/dashboard",  icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/crm",        icon: LayoutGrid,      label: "CRM" },
-  { href: "/contacts",   icon: Users,           label: "Contacts" },
-  { href: "/follow-ups", icon: CheckSquare,     label: "Follow-ups",     badge: "followUps" },
-  { href: "/outreach",   icon: Zap,             label: "Outreach",       badge: "outreach" },
-  { href: "/abstracts",  icon: BookOpen,        label: "Lease abstracts" },
+const NAV: NavEntry[] = [
+  { href: "/dashboard",       icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/crm",             icon: LayoutGrid,      label: "Workspace" },
+  { href: "/properties/new",  icon: CirclePlus,      label: "Add property" },
+  { href: "/abstracts/new",   icon: ScrollText,      label: "Abstract lease" },
+  { href: "/lease-radar",      icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
+  { href: "/follow-ups",      icon: CheckSquare,     label: "Follow-ups", badge: "followUps" },
+  { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
+  { href: "/settings/fields", icon: Settings2,       label: "Settings" },
 ];
-
-const ADD_DATA = [
-  { href: "/properties/new",    icon: Building2, label: "Look up property" },
-  { href: "/properties/url",    icon: Link2,     label: "Add from URL" },
-  { href: "/properties/upload", icon: Upload,    label: "Upload property" },
-  { href: "/abstracts/new",     icon: FileText,  label: "Abstract a lease" },
-] as const;
 
 // ─── Active-path logic ────────────────────────────────────────────────────────
 
 function navActive(href: string, pathname: string): boolean {
-  if (href === "/abstracts") {
-    return pathname === "/abstracts" || (pathname.startsWith("/abstracts/") && pathname !== "/abstracts/new");
-  }
-  if (href === "/contacts") {
-    return pathname === "/contacts" || pathname.startsWith("/contacts/");
+  if (href === "/lease-radar") {
+    return pathname === "/lease-radar";
   }
   if (href === "/crm") {
-    return pathname === "/crm";
+    return (
+      pathname === "/crm" ||
+      (pathname.startsWith("/properties/") && pathname !== "/properties/new") ||
+      pathname.startsWith("/contacts/") ||
+      (pathname.startsWith("/abstracts/") && pathname !== "/abstracts/new")
+    );
+  }
+  if (href === "/settings/fields") {
+    return pathname.startsWith("/settings");
   }
   return pathname === href;
 }
@@ -87,29 +88,18 @@ function NavItem({
   );
 }
 
-// ─── Nav group ────────────────────────────────────────────────────────────────
-
-function NavGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-0.5">
-      <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 select-none">
-        {label}
-      </p>
-      {children}
-    </div>
-  );
-}
-
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 function Sidebar({
   user,
   overdueCount,
   followUpsDueCount,
+  leaseRadarUrgentCount,
 }: {
   user: User | null;
   overdueCount: number;
   followUpsDueCount: number;
+  leaseRadarUrgentCount: number;
 }) {
   const pathname = usePathname();
 
@@ -124,37 +114,24 @@ function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        <NavGroup label="Workspace">
-          {WORKSPACE.map(({ href, icon, label, badge }) => {
-            const active = navActive(href, pathname);
-            const badgeCount =
-              badge === "outreach" ? overdueCount :
-              badge === "followUps" ? followUpsDueCount :
-              undefined;
-            return (
-              <NavItem
-                key={href}
-                href={href}
-                icon={icon}
-                label={label}
-                active={active}
-                badgeCount={badgeCount}
-              />
-            );
-          })}
-        </NavGroup>
-
-        <NavGroup label="Add data">
-          {ADD_DATA.map(({ href, icon, label }) => (
+        {NAV.map(({ href, icon, label, badge }) => {
+          const active = navActive(href, pathname);
+          const badgeCount =
+            badge === "outreach" ? overdueCount :
+            badge === "followUps" ? followUpsDueCount :
+            badge === "leaseRadar" ? leaseRadarUrgentCount :
+            undefined;
+          return (
             <NavItem
               key={href}
               href={href}
               icon={icon}
               label={label}
-              active={navActive(href, pathname)}
+              active={active}
+              badgeCount={badgeCount}
             />
-          ))}
-        </NavGroup>
+          );
+        })}
       </nav>
 
       {/* User + sign out */}
@@ -185,18 +162,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [overdueCount, setOverdueCount] = useState(0);
   const [followUpsDueCount, setFollowUpsDueCount] = useState(0);
+  const [leaseRadarUrgentCount, setLeaseRadarUrgentCount] = useState(0);
 
   async function fetchCounts() {
     const supabase = createClient();
     const today = new Date().toISOString().slice(0, 10);
 
-    const [{ data: contactsForBadge }, { count: fuCount }] = await Promise.all([
+    const ninetyDays = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+
+    const [{ data: contactsForBadge }, { count: fuCount }, { count: leaseUrgent }] = await Promise.all([
       supabase.from("contacts").select("contact_tier, last_contacted_at"),
       supabase
         .from("follow_ups")
         .select("*", { count: "exact", head: true })
         .eq("done", false)
         .lte("due_date", today),
+      supabase
+        .from("lease_abstracts")
+        .select("*", { count: "exact", head: true })
+        .not("expiration_date", "is", null)
+        .gte("expiration_date", today)
+        .lte("expiration_date", ninetyDays),
     ]);
 
     const overdue =
@@ -209,6 +195,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     setOverdueCount(overdue);
     setFollowUpsDueCount(fuCount ?? 0);
+    setLeaseRadarUrgentCount(leaseUrgent ?? 0);
   }
 
   useEffect(() => {
@@ -220,7 +207,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchCounts();
-      else { setOverdueCount(0); setFollowUpsDueCount(0); }
+      else { setOverdueCount(0); setFollowUpsDueCount(0); setLeaseRadarUrgentCount(0); }
     });
     return () => subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -231,7 +218,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar user={user} overdueCount={overdueCount} followUpsDueCount={followUpsDueCount} />
+      <Sidebar user={user} overdueCount={overdueCount} followUpsDueCount={followUpsDueCount} leaseRadarUrgentCount={leaseRadarUrgentCount} />
       <main className="flex-1 overflow-auto min-w-0 bg-background">
         {children}
       </main>

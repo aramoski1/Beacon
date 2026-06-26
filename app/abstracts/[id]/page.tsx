@@ -95,7 +95,7 @@ export default async function AbstractPage({
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-6">
       {/* Back link */}
-      <a href="/abstracts" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+      <a href="/crm?tab=leases" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
         ← Lease abstracts
       </a>
 

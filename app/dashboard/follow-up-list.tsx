@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckSquare, CheckCircle2, Loader2, Building2, User } from "lucide-react";
+import { CheckSquare, CheckCircle2, Loader2, Building2, User, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { markFollowUpDone, type FollowUpRow } from "@/app/follow-ups/actions";
 
@@ -100,9 +100,12 @@ function FollowUpItem({
 export function DashboardFollowUpList({
   initialOverdue,
   initialToday,
+  compact,
 }: {
   initialOverdue: FollowUpRow[];
   initialToday:   FollowUpRow[];
+  /** When true, return null instead of empty-state box (for combined sections). */
+  compact?: boolean;
 }) {
   const [overdue, setOverdue] = useState(initialOverdue);
   const [today, setToday]     = useState(initialToday);
@@ -115,6 +118,7 @@ export function DashboardFollowUpList({
   const total = overdue.length + today.length;
 
   if (total === 0) {
+    if (compact) return null;
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
         <CheckCircle2 className="size-4 text-green-600" />
@@ -124,7 +128,7 @@ export function DashboardFollowUpList({
   }
 
   return (
-    <div className="rounded-lg border overflow-hidden">
+    <div className={compact ? "" : "rounded-lg border overflow-hidden"}>
       <ul className="divide-y">
         {overdue.map((r) => (
           <FollowUpItem key={r.id} row={r} onDone={markDone} />
@@ -133,6 +137,71 @@ export function DashboardFollowUpList({
           <FollowUpItem key={r.id} row={r} onDone={markDone} />
         ))}
       </ul>
+    </div>
+  );
+}
+
+// ─── Upcoming follow-ups (future due dates) ───────────────────────────────────
+
+function fmtUpcomingDate(iso: string) {
+  const d = new Date(iso + "T12:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(d);
+  due.setHours(0, 0, 0, 0);
+  const diff = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+  if (diff === 1) return "tomorrow";
+  if (diff <= 7) return d.toLocaleDateString("en-US", { weekday: "short" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function UpcomingFollowUpList({ items }: { items: FollowUpRow[] }) {
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-2">
+        No follow-ups scheduled — set one after outreach or from a contact record.
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border overflow-hidden divide-y">
+      {items.map((row) => (
+        <div key={row.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+          <CalendarDays className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <Link
+              href={row.contact_id ? `/contacts/${row.contact_id}` : "/follow-ups"}
+              className="text-sm font-medium hover:underline underline-offset-2"
+            >
+              {row.description}
+            </Link>
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              {row.contact_name && row.contact_id && (
+                <Link
+                  href={`/contacts/${row.contact_id}`}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <User className="size-3" />
+                  {row.contact_name}
+                </Link>
+              )}
+              {row.property_address && row.property_id && (
+                <Link
+                  href={`/properties/${row.property_id}`}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground truncate"
+                >
+                  <Building2 className="size-3 shrink-0" />
+                  <span className="truncate">{row.property_address}</span>
+                </Link>
+              )}
+            </div>
+          </div>
+          <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
+            {fmtUpcomingDate(row.due_date)}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

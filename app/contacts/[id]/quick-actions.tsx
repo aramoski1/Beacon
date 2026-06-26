@@ -1,18 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Zap, Clock, CalendarDays, PenLine, Loader2, X } from "lucide-react";
+import { Mail, Clock, CalendarDays, PenLine, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { createFollowUp } from "@/app/follow-ups/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { ComposeOutreach } from "@/components/compose-outreach";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type Panel = null | "activity" | "note" | "followup";
+type Panel = null | "email" | "activity" | "note" | "followup";
 type SubPhase = "form" | "nudging";
 
 // ─── Quick log form ────────────────────────────────────────────────────────────
@@ -190,7 +190,17 @@ function FollowUpForm({
 const btnCls =
   "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted/60 transition-colors";
 
-export function QuickActions({ contactId }: { contactId: string }) {
+export function QuickActions({
+  contactId,
+  contactName,
+  contactEmail,
+  userEmail,
+}: {
+  contactId: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  userEmail?: string | null;
+}) {
   const [panel, setPanel]       = useState<Panel>(null);
   const [subPhase, setSubPhase] = useState<SubPhase>("form");
   const router = useRouter();
@@ -216,13 +226,26 @@ export function QuickActions({ contactId }: { contactId: string }) {
     router.refresh();
   }
 
+  function handleEmailSent() {
+    router.refresh();
+  }
+
+  function handleEmailDone() {
+    setPanel(null);
+    setSubPhase("form");
+    router.refresh();
+  }
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex flex-wrap gap-2 items-center">
-        <Link href={`/outreach?contact=${contactId}`} className={btnCls}>
-          <Zap className="size-3.5 text-primary" />
-          Start outreach
-        </Link>
+        <button
+          onClick={() => openPanel(panel === "email" ? null : "email")}
+          className={cn(btnCls, panel === "email" && "bg-muted/60")}
+        >
+          <Mail className="size-3.5 text-primary" />
+          Email
+        </button>
         <button
           onClick={() => openPanel(panel === "activity" ? null : "activity")}
           className={cn(btnCls, panel === "activity" && "bg-muted/60")}
@@ -250,6 +273,19 @@ export function QuickActions({ contactId }: { contactId: string }) {
           </button>
         )}
       </div>
+
+      {panel === "email" && (
+        <div className="rounded-lg border border-border bg-muted/20 p-4">
+          <ComposeOutreach
+            contactId={contactId}
+            contactName={contactName}
+            contactEmail={contactEmail}
+            userEmail={userEmail}
+            onSent={handleEmailSent}
+            onDone={handleEmailDone}
+          />
+        </div>
+      )}
 
       {(panel === "activity" || panel === "note") && subPhase === "form" && (
         <QuickActivityForm

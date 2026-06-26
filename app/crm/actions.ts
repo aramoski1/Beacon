@@ -31,6 +31,7 @@ export type ContactSearchFilters = {
   ownership_type_keyword?: string;
   name_contains?: string;
   company_contains?: string;
+  contact_type?: string;         // owner | tenant | other
 };
 
 export type LeaseSearchFilters = {
@@ -90,6 +91,8 @@ Rules for interpretation:
 - "near [place]" / "[place] area" → geographic_keyword: place name
 - "tier 1/2/3" → contact_tier: 1/2/3
 - "prospects" → client_status: prospect
+- "owners" / "property owners" → contact_type: owner (when targeting contacts or both)
+- "tenants" → contact_type: tenant
 - "over X sqft" → size_sqft_min: X; "under X sqft" → size_sqft_max: X
 - "over $X" / "more than $X million" → last_sale_price_min: X (convert M to full dollars)
 - "expiring leases" / "leases expiring soon" → target: leases, leases.status: expiring
@@ -159,6 +162,11 @@ Rules for interpretation:
           ownership_type_keyword: { type: "string", description: "Substring matched against ownership_type." },
           name_contains: { type: "string", description: "Substring matched against name." },
           company_contains: { type: "string", description: "Substring matched against company." },
+          contact_type: {
+            type: "string",
+            enum: ["owner", "tenant", "other"],
+            description: "Contact role type — use owner for property owner queries.",
+          },
         },
       },
       leases: {
@@ -268,6 +276,92 @@ export async function deleteLease(id: string): Promise<{ error?: string }> {
     .eq("id", id)
     .eq("owner_id", user.id);
   if (error) return { error: error.message };
+  return {};
+}
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+
+// ─── Activity inline edit ─────────────────────────────────────────────────────
+
+export type ActivityUpdate = {
+  activity_date?: string | null;
+  activity_type?: string | null;
+  notes?: string | null;
+};
+
+const VALID_ACTIVITY_TYPES = new Set(["letter", "email", "call", "note", "meeting"]);
+
+export async function saveLinkedContactActivity(
+  contactId: string,
+  updates: ActivityUpdate,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("id")
+    .eq("id", contactId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!contact) return { error: "Contact not found." };
+
+  const { data: existing } = await supabase
+    .from("activities")
+    .select("id, activity_date, activity_type, notes")
+    .eq("contact_id", contactId)
+    .eq("owner_id", user.id)
+    .order("activity_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    const patch: Record<string, unknown> = {};
+    if (updates.activity_date != null) patch.activity_date = updates.activity_date;
+    if (updates.activity_type != null && VALID_ACTIVITY_TYPES.has(updates.activity_type)) {
+      patch.activity_type = updates.activity_type;
+    }
+    if (updates.notes !== undefined) patch.notes = updates.notes;
+    if (Object.keys(patch).length === 0) return {};
+
+    const { error } = await supabase
+      .from("activities")
+      .update(patch)
+      .eq("id", existing.id)
+      .eq("owner_id", user.id);
+    if (error) return { error: error.message };
+
+    const dateForContact = (updates.activity_date ?? existing.activity_date) as string;
+    await supabase
+      .from("contacts")
+      .update({ last_contacted_at: new Date(dateForContact).toISOString() })
+      .eq("id", contactId)
+      .eq("owner_id", user.id);
+  } else {
+    const today = new Date().toISOString().slice(0, 10);
+    const actType =
+      updates.activity_type && VALID_ACTIVITY_TYPES.has(updates.activity_type)
+        ? updates.activity_type
+        : "note";
+    const { error } = await supabase
+      .from("activities")
+      .insert({
+        owner_id: user.id,
+        contact_id: contactId,
+        activity_date: updates.activity_date ?? today,
+        activity_type: actType,
+        notes: updates.notes ?? null,
+      });
+    if (error) return { error: error.message };
+
+    await supabase
+      .from("contacts")
+      .update({ last_contacted_at: new Date(updates.activity_date ?? today).toISOString() })
+      .eq("id", contactId)
+      .eq("owner_id", user.id);
+  }
+
   return {};
 }
 

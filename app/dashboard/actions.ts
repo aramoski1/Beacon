@@ -19,6 +19,7 @@ export type RecentActivity = {
   notes: string | null;
   contact_id: string;
   contact_name: string | null;
+  property_id: string | null;
   property_address: string | null;
 };
 
@@ -28,6 +29,40 @@ export type ExpiringLease = {
   source_document: string | null;
   base_rate: number | null;
   daysUntilExpiry: number;
+  property_id: string | null;
+  property_address: string | null;
+};
+
+export type UnworkedOpportunity = {
+  id: string;
+  address: string | null;
+  owner_name: string | null;
+  owner_contact_name: string | null;
+  ingested_at: string | null;
+};
+
+export type ColdTier1Contact = {
+  id: string;
+  name: string | null;
+  company: string | null;
+  daysOverdue: number;
+  property_id: string | null;
+  property_address: string | null;
+};
+
+export type WeekMomentum = {
+  propertiesAdded: number;
+  contactsAdded: number;
+  touchpoints: number;
+  followUpsCompleted: number;
+  outreachSent: number;
+};
+
+export type DashboardDelta = {
+  propertiesAdded: number;
+  contactsAdded: number;
+  followUpsCompleted: number;
+  activities: RecentActivity[];
 };
 
 export type PortfolioSnapshot = {
@@ -54,6 +89,8 @@ export type BriefingMetrics = {
   activitiesThisWeek: number;
   dataIssues: number;
   actionItems: number;
+  unworkedOpportunities: number;
+  coldTier1: number;
 };
 
 export type CadenceHealth = {
@@ -135,10 +172,10 @@ export async function getRecentActivities(): Promise<RecentActivity[]> {
 
   const { data } = await supabase
     .from("activities")
-    .select("id, activity_type, activity_date, notes, contact_id, contacts(name), properties(address)")
+    .select("id, activity_type, activity_date, notes, contact_id, property_id, contacts(name), properties(address)")
     .eq("owner_id", user.id)
     .order("activity_date", { ascending: false })
-    .limit(20);
+    .limit(15);
 
   return (data ?? []).map((row) => ({
     id:               row.id,
@@ -147,6 +184,7 @@ export async function getRecentActivities(): Promise<RecentActivity[]> {
     notes:            row.notes,
     contact_id:       row.contact_id,
     contact_name:     (row.contacts as unknown as { name: string | null } | null)?.name ?? null,
+    property_id:      row.property_id,
     property_address: (row.properties as unknown as { address: string | null } | null)?.address ?? null,
   }));
 }
@@ -162,22 +200,25 @@ export async function getExpiringLeases(): Promise<{ items: ExpiringLease[]; tot
 
   const { data, count } = await supabase
     .from("lease_abstracts")
-    .select("id, expiration_date, source_document, base_rate", { count: "exact" })
+    .select("id, expiration_date, source_document, base_rate, linked_property, properties(address)", { count: "exact" })
     .eq("owner_id", user.id)
     .not("expiration_date", "is", null)
     .gte("expiration_date", today)
     .lte("expiration_date", cutoff)
     .order("expiration_date", { ascending: true })
-    .limit(6);
+    .limit(8);
 
   const items = (data ?? []).map((row) => {
     const exp = new Date(row.expiration_date!).getTime();
+    const prop = row.properties as unknown as { address: string | null } | null;
     return {
       id:               row.id,
       expiration_date:  row.expiration_date!,
       source_document:  row.source_document,
       base_rate:        row.base_rate,
       daysUntilExpiry:  Math.ceil((exp - now.getTime()) / 86_400_000),
+      property_id:      row.linked_property as string | null,
+      property_address: prop?.address ?? null,
     };
   });
 
@@ -321,20 +362,194 @@ export async function getActivitiesThisWeek(): Promise<number> {
   return count ?? 0;
 }
 
+function firstOwnerContactName(ownerContacts: unknown): string | null {
+  if (!Array.isArray(ownerContacts) || ownerContacts.length === 0) return null;
+  const first = ownerContacts[0] as { name?: string };
+  return first?.name?.trim() || null;
+}
+
+export async function getUnworkedOpportunities(limit = 8): Promise<UnworkedOpportunity[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const [{ data: props }, { data: contacts }] = await Promise.all([
+    supabase
+      .from("properties")
+      .select("id, address, owner_name, owner_contacts, ingested_at")
+      .eq("owner_id", user.id)
+      .not("owner_name", "is", null)
+      .order("ingested_at", { ascending: false })
+      .limit(200),
+    supabase.from("contacts").select("linked_properties").eq("owner_id", user.id),
+  ]);
+
+  const linked = new Set<string>();
+  for (const c of contacts ?? []) {
+    for (const pid of c.linked_properties ?? []) linked.add(pid);
+  }
+
+  return (props ?? [])
+    .filter((p) => p.owner_name?.trim() && !linked.has(p.id))
+    .slice(0, limit)
+    .map((p) => ({
+      id: p.id,
+      address: p.address,
+      owner_name: p.owner_name,
+      owner_contact_name: firstOwnerContactName(p.owner_contacts),
+      ingested_at: p.ingested_at,
+    }));
+}
+
+export async function getColdTier1Contacts(limit = 6): Promise<ColdTier1Contact[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: contacts } = await supabase
+    .from("contacts")
+    .select("id, name, company, contact_tier, last_contacted_at, linked_properties")
+    .eq("owner_id", user.id)
+    .eq("contact_tier", 1);
+
+  const cold = (contacts ?? [])
+    .map((c) => {
+      const threshold = CADENCE_DAYS[1];
+      let daysOverdue = threshold;
+      if (c.last_contacted_at) {
+        const daysSince = Math.floor(
+          (Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000,
+        );
+        daysOverdue = daysSince - threshold;
+      }
+      return { ...c, daysOverdue, linked_properties: c.linked_properties ?? [] };
+    })
+    .filter((c) => c.daysOverdue >= 0)
+    .sort((a, b) => b.daysOverdue - a.daysOverdue)
+    .slice(0, limit);
+
+  const propIds = [...new Set(cold.flatMap((c) => c.linked_properties).slice(0, limit * 2))];
+  const propMap = new Map<string, string | null>();
+  if (propIds.length > 0) {
+    const { data: props } = await supabase
+      .from("properties")
+      .select("id, address")
+      .in("id", propIds);
+    for (const p of props ?? []) propMap.set(p.id, p.address);
+  }
+
+  return cold.map((c) => {
+    const pid = c.linked_properties[0] ?? null;
+    return {
+      id: c.id,
+      name: c.name,
+      company: c.company,
+      daysOverdue: c.daysOverdue,
+      property_id: pid,
+      property_address: pid ? propMap.get(pid) ?? null : null,
+    };
+  });
+}
+
+export async function getWeekMomentum(): Promise<WeekMomentum> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { propertiesAdded: 0, contactsAdded: 0, touchpoints: 0, followUpsCompleted: 0, outreachSent: 0 };
+  }
+
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+
+  const [
+    { count: propertiesAdded },
+    { count: contactsAdded },
+    { count: touchpoints },
+    { count: followUpsCompleted },
+    { count: outreachSent },
+  ] = await Promise.all([
+    supabase.from("properties").select("*", { count: "exact", head: true }).eq("owner_id", user.id).gte("created_at", weekAgo),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("owner_id", user.id).gte("created_at", weekAgo),
+    supabase.from("activities").select("*", { count: "exact", head: true }).eq("owner_id", user.id).gte("activity_date", weekAgo),
+    supabase.from("follow_ups").select("*", { count: "exact", head: true }).eq("owner_id", user.id).eq("done", true).gte("done_at", weekAgo),
+    supabase.from("activities").select("*", { count: "exact", head: true }).eq("owner_id", user.id).eq("activity_type", "email").gte("activity_date", weekAgo),
+  ]);
+
+  return {
+    propertiesAdded: propertiesAdded ?? 0,
+    contactsAdded: contactsAdded ?? 0,
+    touchpoints: touchpoints ?? 0,
+    followUpsCompleted: followUpsCompleted ?? 0,
+    outreachSent: outreachSent ?? 0,
+  };
+}
+
+export async function getDashboardDelta(sinceIso: string): Promise<DashboardDelta> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { propertiesAdded: 0, contactsAdded: 0, followUpsCompleted: 0, activities: [] };
+  }
+
+  const since = new Date(sinceIso);
+  if (Number.isNaN(since.getTime())) {
+    return { propertiesAdded: 0, contactsAdded: 0, followUpsCompleted: 0, activities: [] };
+  }
+  const sinceStr = since.toISOString();
+
+  const [
+    { count: propertiesAdded },
+    { count: contactsAdded },
+    { count: followUpsCompleted },
+    { data: activityRows },
+  ] = await Promise.all([
+    supabase.from("properties").select("*", { count: "exact", head: true }).eq("owner_id", user.id).gte("created_at", sinceStr),
+    supabase.from("contacts").select("*", { count: "exact", head: true }).eq("owner_id", user.id).gte("created_at", sinceStr),
+    supabase.from("follow_ups").select("*", { count: "exact", head: true }).eq("owner_id", user.id).eq("done", true).gte("done_at", sinceStr),
+    supabase
+      .from("activities")
+      .select("id, activity_type, activity_date, notes, contact_id, property_id, contacts(name), properties(address)")
+      .eq("owner_id", user.id)
+      .gte("activity_date", sinceStr)
+      .order("activity_date", { ascending: false })
+      .limit(6),
+  ]);
+
+  const activities = (activityRows ?? []).map((row) => ({
+    id: row.id,
+    activity_type: row.activity_type,
+    activity_date: row.activity_date,
+    notes: row.notes,
+    contact_id: row.contact_id,
+    contact_name: (row.contacts as unknown as { name: string | null } | null)?.name ?? null,
+    property_id: row.property_id,
+    property_address: (row.properties as unknown as { address: string | null } | null)?.address ?? null,
+  }));
+
+  return {
+    propertiesAdded: propertiesAdded ?? 0,
+    contactsAdded: contactsAdded ?? 0,
+    followUpsCompleted: followUpsCompleted ?? 0,
+    activities,
+  };
+}
+
 export async function getBriefingMetrics(
   overdueOutreach: number,
   dueTodayOutreach: number,
   followUpsOverdue: number,
   followUpsToday: number,
 ): Promise<BriefingMetrics> {
-  const [expiring, activitiesThisWeek, dataHealth] = await Promise.all([
+  const [expiring, activitiesThisWeek, dataHealth, unworked, coldTier1] = await Promise.all([
     getExpiringLeases(),
     getActivitiesThisWeek(),
     getDataHealth(),
+    getUnworkedOpportunities(20),
+    getColdTier1Contacts(20),
   ]);
 
   const actionItems =
-    overdueOutreach + followUpsOverdue + expiring.total + dataHealth.ingestionErrors + dataHealth.flaggedProperties;
+    overdueOutreach + followUpsOverdue + expiring.total + dataHealth.ingestionErrors + dataHealth.flaggedProperties
+    + unworked.length + coldTier1.length;
 
   return {
     overdueOutreach,
@@ -345,5 +560,7 @@ export async function getBriefingMetrics(
     activitiesThisWeek,
     dataIssues:        dataHealth.ingestionErrors + dataHealth.flaggedProperties,
     actionItems,
+    unworkedOpportunities: unworked.length,
+    coldTier1: coldTier1.length,
   };
 }

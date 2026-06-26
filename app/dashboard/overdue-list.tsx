@@ -41,7 +41,16 @@ type DraftState =
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function OverdueList({ contacts }: { contacts: DueContact[] }) {
+export function OverdueList({
+  contacts,
+  mode = "all",
+  limit,
+}: {
+  contacts: DueContact[];
+  /** attention = overdue + due today (for dashboard); all = includes due-soon collapsible */
+  mode?: "all" | "attention";
+  limit?: number;
+}) {
   const [drafts, setDrafts] = useState<Map<string, DraftState>>(new Map());
   const [brokerContext, setBrokerContext] = useState("");
 
@@ -80,9 +89,17 @@ export function OverdueList({ contacts }: { contacts: DueContact[] }) {
   }
 
   const overdue  = contacts.filter((c) => c.daysOverdue > 0);
-  const dueSoon  = contacts.filter((c) => c.daysOverdue <= 0);
+  const dueToday = contacts.filter((c) => c.daysOverdue === 0);
+  const dueSoon  = contacts.filter((c) => c.daysOverdue < 0);
 
-  if (contacts.length === 0) {
+  const attentionList = [...overdue, ...dueToday].slice(0, limit);
+  const showAttention = mode === "attention";
+
+  if (showAttention && attentionList.length === 0) {
+    return null;
+  }
+
+  if (!showAttention && contacts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
         <div className="size-12 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
@@ -98,21 +115,33 @@ export function OverdueList({ contacts }: { contacts: DueContact[] }) {
 
   return (
     <div className="space-y-1">
-      {/* Overdue */}
-      {overdue.map((c) => (
-        <ContactRow
-          key={c.id}
-          contact={c}
-          state={getState(c.id)}
-          onDraft={() => handleDraft(c)}
-          onSend={(subject, body) => handleSend(c, subject, body)}
-          onEditState={(s) => setState(c.id, s)}
-        />
-      ))}
-
-      {/* Due soon (collapsible) */}
-      {dueSoon.length > 0 && (
-        <DueSoonGroup contacts={dueSoon} getState={getState} onDraft={handleDraft} onSend={handleSend} setContactState={setState} />
+      {showAttention ? (
+        attentionList.map((c) => (
+          <ContactRow
+            key={c.id}
+            contact={c}
+            state={getState(c.id)}
+            onDraft={() => handleDraft(c)}
+            onSend={(subject, body) => handleSend(c, subject, body)}
+            onEditState={(s) => setState(c.id, s)}
+          />
+        ))
+      ) : (
+        <>
+          {overdue.map((c) => (
+            <ContactRow
+              key={c.id}
+              contact={c}
+              state={getState(c.id)}
+              onDraft={() => handleDraft(c)}
+              onSend={(subject, body) => handleSend(c, subject, body)}
+              onEditState={(s) => setState(c.id, s)}
+            />
+          ))}
+          {dueSoon.length > 0 && (
+            <DueSoonGroup contacts={dueSoon} getState={getState} onDraft={handleDraft} onSend={handleSend} setContactState={setState} />
+          )}
+        </>
       )}
     </div>
   );
@@ -173,7 +202,7 @@ function ContactRow({
         {state.tag === "idle" && (
           <Button size="sm" variant="outline" onClick={onDraft} className="shrink-0 flex items-center gap-1.5 h-7 text-xs">
             <Mail className="size-3.5" />
-            Draft outreach
+            Compose
           </Button>
         )}
         {state.tag === "generating" && (

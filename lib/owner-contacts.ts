@@ -27,6 +27,15 @@ export function parseStoredOwnerContacts(raw: unknown): StoredOwnerContact[] {
     .filter((item) => item.name.length > 0);
 }
 
+/** Normalize owner/entity names for portfolio matching. */
+export function normalizeOwnerName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ");
+}
+
 /** True when the MDPA owner name looks like a registered entity (Sunbiz-eligible). */
 export function isEntityOwnerName(name: string | null | undefined): boolean {
   if (!name?.trim()) return false;

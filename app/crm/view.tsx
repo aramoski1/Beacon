@@ -5,11 +5,20 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Search, Sparkles, X, Trash2, CalendarDays, DollarSign, Settings2, Plus, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin, SlidersHorizontal, Check } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, CalendarDays, DollarSign, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin, SlidersHorizontal, Check, Mail } from "lucide-react";
+import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
 import { interpretSearch, deleteProperty, deleteContact, deleteLease, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
-import { createFieldDefinition, deleteFieldDefinition } from "@/app/settings/fields/actions";
-import { fieldSlug, type FieldDefinition, type EntityType, type FieldType } from "@/lib/custom-fields";
+import { SmartListsBar, BarModeToggle, SearchListActions } from "./smart-lists-bar";
+import { primaryTabForSearch, resolveSavableSearchResult } from "@/lib/crm-search-filters";
+import type { SmartListWithCounts } from "./smart-list-actions";
+import {
+  applyPropertyFilters,
+  applyContactFilters,
+  applyLeaseFilters,
+  fetchMatchingPropertyIdsFromClient,
+} from "@/lib/crm-search-filters";
+import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { resolvePropertyOwnerContacts, type StoredOwnerContact } from "@/lib/owner-contacts";
@@ -22,10 +31,14 @@ type Property = {
   city: string | null;
   owner_name: string | null;
   ownership_type: string | null;
+  owner_email: string | null;
   owner_contact_name: string | null;
   owner_contact_address: string | null;
   owner_contacts: StoredOwnerContact[] | null;
   owner_mailing_address: string | null;
+  last_activity_date: string | null;
+  last_activity_type: string | null;
+  last_activity_notes: string | null;
   size_sqft: number | null;
   land_sqft: number | null;
   asset_description: string | null;
@@ -146,6 +159,14 @@ const PROP_COL_DEFS: { id: string; label: string; alwaysOn?: boolean }[] = [
   { id: "notes",    label: "Notes" },
   { id: "saledate", label: "Last Sale Date" },
   { id: "saleval",  label: "Last Sale Value" },
+];
+
+const ACTIVITY_TYPES = [
+  { value: "call",    label: "Call" },
+  { value: "email",   label: "Email" },
+  { value: "letter",  label: "Letter" },
+  { value: "meeting", label: "Meeting" },
+  { value: "note",    label: "Note" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -415,56 +436,6 @@ function ContactTypeBadge({
 }
 
 // ─── Filter bar ───────────────────────────────────────────────────────────────
-
-function TabSearchInput({
-  value,
-  placeholder,
-  searching,
-  onChange,
-  onSearch,
-  onClear,
-}: {
-  value: string;
-  placeholder: string;
-  searching: boolean;
-  onChange: (v: string) => void;
-  onSearch: (q: string) => void;
-  onClear: () => void;
-}) {
-  return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); onSearch(value); }}
-      className="relative flex items-center shrink-0"
-    >
-      {searching ? (
-        <Loader2 className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground animate-spin" />
-      ) : (
-        <Sparkles className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground" />
-      )}
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Escape") { onChange(""); onClear(); } }}
-        placeholder={placeholder}
-        disabled={searching}
-        className={cn(
-          "pl-6 pr-6 py-1 text-xs border border-border rounded outline-none focus:ring-1 ring-ring bg-background w-56 placeholder:text-muted-foreground/60 disabled:opacity-60",
-          value && "border-primary"
-        )}
-      />
-      {value && !searching && (
-        <button
-          type="button"
-          onClick={() => { onChange(""); onClear(); }}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-        >
-          <X className="size-3" />
-        </button>
-      )}
-    </form>
-  );
-}
 
 function SearchExplanation({ explanation, onClear }: { explanation: string; onClear: () => void }) {
   return (
@@ -764,15 +735,9 @@ function PropertiesTable({
   const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
   const { startResize, cs: colStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
-  const [popup, setPopup] = useState<CellPopup>(null);
-  function showPopup(text: string, e: React.MouseEvent) {
-    if (!text) return;
-    setPopup({ text, x: e.clientX, y: e.clientY });
-  }
 
   return (
     <div className="overflow-x-auto">
-      <Popup popup={popup} onClose={() => setPopup(null)} />
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
@@ -962,39 +927,40 @@ function PropertiesTable({
 
                 {/* Owner Email */}
                 <td className={cn(tdCls, "min-w-[130px]", col("email"))}>
-                  {cs.length > 0
-                    ? cs.map((c) => (
-                        <EditableText
-                          key={c.id}
-                          value={c.email}
-                          placeholder="—"
-                          displayClassName="truncate block text-primary"
-                          onSave={(v) => onSaveContact(c.id, "email", v)}
-                        />
-                      ))
-                    : <span className="text-muted-foreground/30 italic">—</span>}
+                  <EditableText
+                    value={p.owner_email ?? cs[0]?.email ?? null}
+                    placeholder="—"
+                    displayClassName="truncate block text-primary"
+                    onSave={(v) => onSave(p.id, "owner_email", v)}
+                  />
                 </td>
 
-                {/* Activity Date/Type — most recent across all linked contacts */}
-                <td className={cn(tdCls, "min-w-[110px] whitespace-nowrap", col("activity"))}>
-                  {activity?.last_activity_date ? (() => {
-                    const actText = [fmtDate(activity.last_activity_date), activity.last_activity_type].filter(Boolean).join(" · ");
-                    return (
-                      <span className="text-muted-foreground cursor-pointer hover:text-foreground" onClick={(e) => showPopup(actText, e)}>
-                        {fmtDate(activity.last_activity_date)}
-                        {activity.last_activity_type && (
-                          <span className="ml-1 text-muted-foreground/60 capitalize">· {activity.last_activity_type}</span>
-                        )}
-                      </span>
-                    );
-                  })() : <span className="text-muted-foreground/30 italic">—</span>}
+                {/* Activity Date/Type */}
+                <td className={cn(tdCls, "min-w-[130px]", col("activity"))}>
+                  <div>
+                    <EditableText
+                      value={p.last_activity_date ?? activity?.last_activity_date?.slice(0, 10) ?? null}
+                      displayValue={fmtDate(p.last_activity_date ?? activity?.last_activity_date ?? null)}
+                      placeholder="add date"
+                      displayClassName="text-muted-foreground whitespace-nowrap"
+                      onSave={(v) => onSave(p.id, "last_activity_date", v)}
+                    />
+                    <EditableSelect
+                      value={p.last_activity_type ?? activity?.last_activity_type ?? null}
+                      options={ACTIVITY_TYPES}
+                      onSave={(v) => onSave(p.id, "last_activity_type", v)}
+                    />
+                  </div>
                 </td>
 
                 {/* Notes */}
                 <td className={cn(tdCls, "min-w-[120px] max-w-[200px]", col("notes"))}>
-                  {activity?.last_activity_notes
-                    ? <span className="line-clamp-2 text-muted-foreground cursor-pointer hover:text-foreground" onClick={(e) => showPopup(activity.last_activity_notes!, e)}>{activity.last_activity_notes}</span>
-                    : <span className="text-muted-foreground/30 italic">—</span>}
+                  <EditableText
+                    value={p.last_activity_notes ?? activity?.last_activity_notes ?? null}
+                    placeholder="—"
+                    displayClassName="line-clamp-2 text-muted-foreground"
+                    onSave={(v) => onSave(p.id, "last_activity_notes", v)}
+                  />
                 </td>
 
                 {/* Last Sale Date */}
@@ -1080,6 +1046,7 @@ function ContactsTable({
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  userEmail,
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
@@ -1087,7 +1054,17 @@ function ContactsTable({
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
+  userEmail?: string | null;
 }) {
+  const { startResize: cStartResize, cs: cColStyle } = useColResize();
+  const [cPopup, setCPopup] = useState<CellPopup>(null);
+  const [composeTarget, setComposeTarget] = useState<{ id: string; name: string | null; email: string | null } | null>(null);
+
+  function cShowPopup(text: string, e: React.MouseEvent) {
+    if (!text) return;
+    setCPopup({ text, x: e.clientX, y: e.clientY });
+  }
+
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
@@ -1098,13 +1075,6 @@ function ContactsTable({
         </Link>
       </div>
     );
-  }
-
-  const { startResize: cStartResize, cs: cColStyle } = useColResize();
-  const [cPopup, setCPopup] = useState<CellPopup>(null);
-  function cShowPopup(text: string, e: React.MouseEvent) {
-    if (!text) return;
-    setCPopup({ text, x: e.clientX, y: e.clientY });
   }
 
   return (
@@ -1124,6 +1094,7 @@ function ContactsTable({
             <th className={thCls} style={cColStyle("geocat")}>Geo cat<RH col="geocat" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("ownership")}>Ownership<RH col="ownership" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
+            <th className={cn(thCls, "w-8 text-right pr-0")} />
             <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
         </thead>
@@ -1181,6 +1152,17 @@ function ContactsTable({
                   {fmtDate(c.last_contacted_at) ?? "—"}
                 </span>
               </td>
+              {/* Email row action */}
+              <td className={cn(tdCls, "crm-row-action-cell w-8 text-right pr-0 whitespace-nowrap sticky right-8 bg-background")}>
+                <button
+                  type="button"
+                  onClick={() => setComposeTarget({ id: c.id, name: c.name, email: c.email })}
+                  className="crm-row-action text-muted-foreground hover:text-primary"
+                  title="Email"
+                >
+                  <Mail className="size-3.5" />
+                </button>
+              </td>
               <DeleteCell
                 id={c.id}
                 label="contact"
@@ -1194,6 +1176,43 @@ function ContactsTable({
         </tbody>
       </table>
     </div>
+
+    {/* Compose modal */}
+    {composeTarget && (
+      <div
+        className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4"
+        onClick={(e) => { if (e.target === e.currentTarget) setComposeTarget(null); }}
+      >
+        <div className="bg-background rounded-xl border shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between px-4 py-3 border-b">
+            <div>
+              <p className="font-medium text-sm">
+                Email {composeTarget.name ?? "contact"}
+              </p>
+              {composeTarget.email && (
+                <p className="text-xs text-muted-foreground">{composeTarget.email}</p>
+              )}
+            </div>
+            <button
+              onClick={() => setComposeTarget(null)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <div className="p-4">
+            <ComposeOutreach
+              contactId={composeTarget.id}
+              contactName={composeTarget.name}
+              contactEmail={composeTarget.email}
+              userEmail={userEmail}
+              onSent={() => {}}
+              onDone={() => setComposeTarget(null)}
+            />
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
@@ -1330,276 +1349,6 @@ function LeasesTable({
   );
 }
 
-// ─── Fields management panel ─────────────────────────────────────────────────
-
-const FIELD_TYPE_LABELS: Record<FieldType, string> = {
-  text: "Text", number: "Number", date: "Date", select: "Select",
-};
-
-const ENTITY_TABS: { key: EntityType; label: string }[] = [
-  { key: "property", label: "Property" },
-  { key: "lease",    label: "Lease" },
-  { key: "contact",  label: "Contact" },
-];
-
-function AddCustomFieldForm({ entityType, onCreated }: { entityType: EntityType; onCreated: () => void }) {
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [fieldType, setFieldType] = useState<FieldType>("text");
-  const [showForm, setShowForm] = useState(false);
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const fd = new FormData(e.currentTarget);
-    fd.set("entity_type", entityType);
-    startTransition(async () => {
-      const result = await createFieldDefinition(fd);
-      if ("error" in result) {
-        setError(result.error);
-      } else {
-        setShowForm(false);
-        setFieldType("text");
-        onCreated();
-      }
-    });
-  }
-
-  if (!showForm) {
-    return (
-      <button
-        onClick={() => setShowForm(true)}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-dashed hover:border-primary hover:text-primary transition-colors text-muted-foreground w-full"
-      >
-        <Plus className="size-3.5" />
-        Add field
-      </button>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="rounded-lg border p-4 space-y-3 bg-muted/10">
-      <p className="text-sm font-medium">New custom field</p>
-
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">Field name</label>
-        <input
-          name="field_name"
-          placeholder="e.g. Cap Rate"
-          required
-          disabled={isPending}
-          className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background"
-        />
-      </div>
-
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">Type</label>
-        <select
-          name="field_type"
-          value={fieldType}
-          onChange={(e) => setFieldType(e.target.value as FieldType)}
-          disabled={isPending}
-          className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background"
-        >
-          <option value="text">Text</option>
-          <option value="number">Number</option>
-          <option value="date">Date</option>
-          <option value="select">Select (dropdown)</option>
-        </select>
-      </div>
-
-      {fieldType === "select" && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Options</label>
-          <input
-            name="select_options"
-            placeholder="Option A, Option B, Option C"
-            disabled={isPending}
-            className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background"
-          />
-          <p className="text-xs text-muted-foreground">Comma-separated list of choices.</p>
-        </div>
-      )}
-
-      {entityType === "property" && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Fill mode</label>
-          <select
-            name="fill_mode"
-            required
-            disabled={isPending}
-            className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background"
-          >
-            <option value="">— Choose —</option>
-            <option value="extract">Extract — Claude pulls it from the source</option>
-            <option value="manual">Manual — broker fills it in</option>
-          </select>
-        </div>
-      )}
-
-      {error && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-          Add
-        </button>
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => { setShowForm(false); setError(null); }}
-          className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors text-muted-foreground"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function FieldItem({ field, onDeleted }: { field: FieldDefinition; onDeleted: () => void }) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleDelete() {
-    startTransition(async () => {
-      await deleteFieldDefinition(field.id);
-      onDeleted();
-    });
-  }
-
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5 border-b last:border-0">
-      <div className="min-w-0">
-        <p className="text-sm font-medium truncate">{field.field_name}</p>
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <span className="text-xs border border-border rounded px-1.5 py-0.5 text-muted-foreground">
-            {FIELD_TYPE_LABELS[field.field_type]}
-          </span>
-          {field.fill_mode && (
-            <span className="text-xs bg-muted rounded px-1.5 py-0.5 capitalize text-muted-foreground">
-              {field.fill_mode}
-            </span>
-          )}
-          {field.select_options?.length ? (
-            <span className="text-xs text-muted-foreground">{field.select_options.join(", ")}</span>
-          ) : null}
-        </div>
-      </div>
-      <button
-        onClick={handleDelete}
-        disabled={isPending}
-        className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-        title="Delete field"
-      >
-        {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-      </button>
-    </div>
-  );
-}
-
-function FieldsPanel({ onChanged }: { onChanged?: () => void }) {
-  const [entityTab, setEntityTab] = useState<EntityType>("property");
-  const [fields, setFields] = useState<FieldDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const loadFields = useCallback(async () => {
-    setLoading(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("field_definitions")
-      .select("*")
-      .order("entity_type")
-      .order("created_at", { ascending: true });
-    setFields((data ?? []) as FieldDefinition[]);
-    setLoading(false);
-  }, []);
-
-  const handleChanged = useCallback(async () => {
-    await loadFields();
-    onChanged?.();
-  }, [loadFields, onChanged]);
-
-  useEffect(() => { loadFields(); }, [loadFields]);
-
-  const tabFields = fields.filter((f) => f.entity_type === entityTab);
-
-  return (
-    <div className="max-w-xl mx-auto px-6 py-8 space-y-6">
-      <div>
-        <h2 className="text-base font-semibold">Custom fields</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Add fields to properties, leases, and contacts beyond the built-in defaults.
-        </p>
-      </div>
-
-      <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
-        {ENTITY_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setEntityTab(key)}
-            className={cn(
-              "px-4 py-1.5 rounded-md text-sm font-medium transition-colors",
-              entityTab === key
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="rounded-lg border">
-        <div className="px-4 py-3 border-b">
-          <p className="text-sm font-medium">
-            {ENTITY_TABS.find((t) => t.key === entityTab)?.label} fields
-          </p>
-          {entityTab === "property" && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Extract — Claude pulls the value from the source. Manual — broker fills it in when saving.
-            </p>
-          )}
-          {entityTab === "lease" && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Claude extracts these fields from the lease PDF automatically.
-            </p>
-          )}
-          {entityTab === "contact" && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              These fields appear on the Add Contact form for manual input.
-            </p>
-          )}
-        </div>
-        <div className="p-4 space-y-3">
-          {loading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-              <Loader2 className="size-4 animate-spin" />
-              Loading…
-            </div>
-          ) : tabFields.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No custom fields yet.</p>
-          ) : (
-            <div>
-              {tabFields.map((f) => (
-                <FieldItem key={f.id} field={f} onDeleted={handleChanged} />
-              ))}
-            </div>
-          )}
-          <AddCustomFieldForm entityType={entityTab} onCreated={handleChanged} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Pagination bar ───────────────────────────────────────────────────────────
 
 function PaginationBar({
@@ -1653,8 +1402,20 @@ const EMPTY_PROP_FILTERS: PropFilters   = { propType: "", ownership: "", sizeCat
 const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", contactType: "", sizeCat: "", geoCat: "", ownership: "", tag: "" };
 const EMPTY_LEASE_FILTERS: LeaseFilters = { status: "" };
 
-export default function CRMView() {
-  const [tab, setTab] = useState<"properties" | "leases" | "contacts" | "fields">("properties");
+const VALID_TABS = ["properties", "leases", "contacts"] as const;
+type Tab = typeof VALID_TABS[number];
+type BarMode = "search" | "smart-lists";
+
+const SEARCH_PLACEHOLDERS: Record<Tab, string> = {
+  properties: "e.g. industrial over 50k SF in Doral…",
+  leases: "e.g. leases expiring this quarter…",
+  contacts: "e.g. tier 1 owners not contacted in 90 days…",
+};
+
+export default function CRMView({ initialTab, userEmail }: { initialTab?: string; userEmail?: string | null }) {
+  const [tab, setTab] = useState<Tab>(
+    VALID_TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "properties"
+  );
   const propColVis = useColVis("beacon_crm_col_visibility");
 
   // ── Data state ─────────────────────────────────────────────────────────────
@@ -1695,17 +1456,25 @@ export default function CRMView() {
   const [conFilters, setConFilters] = useState<ConFilters>(EMPTY_CON_FILTERS);
   const [leaseFilters, setLeaseFilters] = useState<LeaseFilters>(EMPTY_LEASE_FILTERS);
 
-  // Per-tab AI search draft text (what the user is currently typing)
-  const [propTabQuery, setPropTabQuery]   = useState("");
-  const [conTabQuery, setConTabQuery]     = useState("");
-  const [leaseTabQuery, setLeaseTabQuery] = useState("");
-
-  // ── Search state ───────────────────────────────────────────────────────────
+  // Single AI search query (shared across entity tabs)
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [activeSearch, setActiveSearch] = useState<SearchResult | null>(null);
+  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [activeListName, setActiveListName] = useState<string | null>(null);
+  const [barMode, setBarMode] = useState<BarMode>("search");
+  const [smartListSavePrompt, setSmartListSavePrompt] = useState(false);
   const searchMode = activeSearch !== null;
+
+  const pendingSave = resolveSavableSearchResult(
+    tab,
+    activeSearch,
+    activeListId,
+    propFilters,
+    conFilters,
+    leaseFilters,
+  );
 
   // Restore AI search forwarded from dashboard
   useEffect(() => {
@@ -1716,9 +1485,8 @@ export default function CRMView() {
       const { query, result } = JSON.parse(raw) as { query: string; result: SearchResult };
       setSearchQuery(query);
       setActiveSearch(result);
-      if (result.target === "properties") setTab("properties");
-      if (result.target === "contacts") setTab("contacts");
-      if (result.target === "leases") setTab("leases");
+      setActiveListId(null);
+      setTab(primaryTabForSearch(result));
     } catch { /* ignore malformed payload */ }
   }, []);
 
@@ -1769,18 +1537,7 @@ export default function CRMView() {
 
     if (activeSearch?.properties) {
       const f = activeSearch.properties;
-      if (f.property_type) q = q.eq("property_type", f.property_type);
-      if (f.ownership_type) q = q.eq("ownership_type", f.ownership_type);
-      if (f.size_sqft_min != null) q = q.gte("size_sqft", f.size_sqft_min);
-      if (f.size_sqft_max != null) q = q.lte("size_sqft", f.size_sqft_max);
-      if (f.last_sale_price_min != null) q = q.gte("last_sale_price", f.last_sale_price_min);
-      if (f.last_sale_price_max != null) q = q.lte("last_sale_price", f.last_sale_price_max);
-      if (f.geographic_keyword) {
-        const kw = f.geographic_keyword.replace(/[%_,]/g, "");
-        q = q.or(`address.ilike.%${kw}%,city.ilike.%${kw}%,geographic_category.ilike.%${kw}%`);
-      }
-      if (f.owner_name_contains) q = q.ilike("owner_name", `%${f.owner_name_contains}%`);
-      if (f.size_category_keyword) q = q.ilike("size_category", `%${f.size_category_keyword}%`);
+      q = applyPropertyFilters(q, f);
     } else {
       if (propFilters.propType) q = q.eq("property_type", propFilters.propType);
       if (propFilters.ownership) q = q.eq("ownership_type", propFilters.ownership);
@@ -1877,24 +1634,21 @@ export default function CRMView() {
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
-    if (activeSearch?.contacts) {
-      const f = activeSearch.contacts;
-      if (f.contact_tier != null) q = q.eq("contact_tier", f.contact_tier);
-      if (f.client_status) q = q.eq("client_status", f.client_status);
-      if (f.action_tags_includes) q = q.contains("action_tags", [f.action_tags_includes]);
-      if (f.not_contacted_in_days != null) {
-        const cutoff = new Date(Date.now() - f.not_contacted_in_days * 86_400_000).toISOString();
-        q = q.or(`last_contacted_at.is.null,last_contacted_at.lt.${cutoff}`);
+    if (activeSearch?.contacts || activeSearch?.target === "both") {
+      if (activeSearch?.target === "both" && activeSearch.properties) {
+        const propertyIds = await fetchMatchingPropertyIdsFromClient(supabase, activeSearch.properties);
+        if (propertyIds.length === 0) {
+          setContacts([]);
+          setTotalCons(0);
+          setContactsLoading(false);
+          return;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        q = (q as any).overlaps("linked_properties", propertyIds);
       }
-      if (f.last_contacted_within_days != null) {
-        const cutoff = new Date(Date.now() - f.last_contacted_within_days * 86_400_000).toISOString();
-        q = q.not("last_contacted_at", "is", null).gte("last_contacted_at", cutoff);
+      if (activeSearch?.contacts) {
+        q = applyContactFilters(q, activeSearch.contacts);
       }
-      if (f.geographic_keyword) q = q.ilike("geographic_category", `%${f.geographic_keyword}%`);
-      if (f.size_category_keyword) q = q.ilike("size_category", `%${f.size_category_keyword}%`);
-      if (f.ownership_type_keyword) q = q.ilike("ownership_type", `%${f.ownership_type_keyword}%`);
-      if (f.name_contains) q = q.ilike("name", `%${f.name_contains}%`);
-      if (f.company_contains) q = q.ilike("company", `%${f.company_contains}%`);
     } else {
       if (conFilters.tier) q = q.eq("contact_tier", Number(conFilters.tier));
       if (conFilters.status) q = q.eq("client_status", conFilters.status);
@@ -1926,27 +1680,16 @@ export default function CRMView() {
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
-    const now = new Date().toISOString();
-    const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString();
-
-    const applyLeaseStatus = (status: string) => {
-      if (status === "active")   return q.not("expiration_date", "is", null).gte("expiration_date", in90);
-      if (status === "expiring") return q.not("expiration_date", "is", null).gt("expiration_date", now).lt("expiration_date", in90);
-      if (status === "expired")  return q.not("expiration_date", "is", null).lt("expiration_date", now);
-      return q;
-    };
-
     if (activeSearch?.leases) {
-      const f = activeSearch.leases as LeaseSearchFilters;
-      if (f.status) q = applyLeaseStatus(f.status);
-      if (f.expiring_within_days != null) {
-        const cutoff = new Date(Date.now() + f.expiring_within_days * 86_400_000).toISOString();
-        q = q.not("expiration_date", "is", null).gt("expiration_date", now).lt("expiration_date", cutoff);
-      }
-      if (f.base_rate_min != null) q = q.gte("base_rate", f.base_rate_min);
-      if (f.base_rate_max != null) q = q.lte("base_rate", f.base_rate_max);
+      q = applyLeaseFilters(q, activeSearch.leases as LeaseSearchFilters);
     } else {
-      if (leaseFilters.status) q = applyLeaseStatus(leaseFilters.status);
+      if (leaseFilters.status) {
+        const now = new Date().toISOString();
+        const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString();
+        if (leaseFilters.status === "active") q = q.not("expiration_date", "is", null).gte("expiration_date", in90);
+        if (leaseFilters.status === "expiring") q = q.not("expiration_date", "is", null).gt("expiration_date", now).lt("expiration_date", in90);
+        if (leaseFilters.status === "expired") q = q.not("expiration_date", "is", null).lt("expiration_date", now);
+      }
     }
 
     const { data, count } = await q;
@@ -1988,6 +1731,24 @@ export default function CRMView() {
       .update({ [field]: value, updated_at: new Date().toISOString() })
       .eq("id", id);
   }, []);
+
+  // Saves a linked contact field AND updates propContacts (for Owner Email in property rows)
+  const savePropContact = useCallback(async (id: string, field: string, value: unknown) => {
+    setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
+    setPropContacts((prev) => {
+      const next = new Map(prev);
+      for (const [propId, list] of next.entries()) {
+        next.set(propId, list.map((c) => c.id === id ? { ...c, [field]: value } : c));
+      }
+      return next;
+    });
+    const supabase = createClient();
+    await supabase
+      .from("contacts")
+      .update({ [field]: value, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }, []);
+
 
   // ── Delete handlers ────────────────────────────────────────────────────────
   const handleDeleteConfirm = useCallback(async (id: string) => {
@@ -2032,9 +1793,11 @@ export default function CRMView() {
   // ── Search handler ─────────────────────────────────────────────────────────
   async function runSearch(query: string) {
     if (!query.trim()) return;
+    const trimmed = query.trim();
     setSearching(true);
     setSearchError(null);
-    const result = await interpretSearch(query);
+    setSearchQuery(trimmed);
+    const result = await interpretSearch(trimmed);
     setSearching(false);
     if ("error" in result) {
       setSearchError(result.error);
@@ -2044,12 +1807,27 @@ export default function CRMView() {
     setConPage(0);
     setLeasePage(0);
     setActiveSearch(result);
-    if (result.target === "properties") setTab("properties");
-    if (result.target === "contacts") setTab("contacts");
-    if (result.target === "leases") setTab("leases");
+    setActiveListId(null);
+    setActiveListName(null);
+    setTab(primaryTabForSearch(result));
   }
 
-  // Header form (cross-tab search kept for "both" queries)
+  function applySmartList(list: SmartListWithCounts) {
+    setPropPage(0);
+    setConPage(0);
+    setLeasePage(0);
+    setPropFilters(EMPTY_PROP_FILTERS);
+    setConFilters(EMPTY_CON_FILTERS);
+    setLeaseFilters(EMPTY_LEASE_FILTERS);
+    setSearchQuery(list.query_text);
+    setActiveSearch(list.filters);
+    setActiveListId(list.id);
+    setActiveListName(list.name);
+    setSearchError(null);
+    setTab(list.entity_type);
+    setBarMode("search");
+  }
+
   async function handleSearch(e: FormEvent) {
     e.preventDefault();
     await runSearch(searchQuery);
@@ -2057,29 +1835,37 @@ export default function CRMView() {
 
   function clearSearch() {
     setActiveSearch(null);
+    setActiveListId(null);
+    setActiveListName(null);
     setSearchQuery("");
     setSearchError(null);
+    setPropFilters(EMPTY_PROP_FILTERS);
+    setConFilters(EMPTY_CON_FILTERS);
+    setLeaseFilters(EMPTY_LEASE_FILTERS);
     setPropPage(0);
     setConPage(0);
     setLeasePage(0);
-    setPropTabQuery("");
-    setConTabQuery("");
-    setLeaseTabQuery("");
   }
 
   // ── Filter helpers (reset page on filter change) ───────────────────────────
   function updatePropFilter<K extends keyof PropFilters>(key: K, value: PropFilters[K]) {
     setPropFilters((f) => ({ ...f, [key]: value }));
+    setActiveListId(null);
+    setActiveListName(null);
     setPropPage(0);
   }
 
   function updateConFilter<K extends keyof ConFilters>(key: K, value: ConFilters[K]) {
     setConFilters((f) => ({ ...f, [key]: value }));
+    setActiveListId(null);
+    setActiveListName(null);
     setConPage(0);
   }
 
   function updateLeaseFilter<K extends keyof LeaseFilters>(key: K, value: LeaseFilters[K]) {
     setLeaseFilters((f) => ({ ...f, [key]: value }));
+    setActiveListId(null);
+    setActiveListName(null);
     setLeasePage(0);
   }
 
@@ -2092,8 +1878,8 @@ export default function CRMView() {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Header */}
-      <header className="shrink-0 border-b px-6 py-3 flex items-center gap-4">
-        <h1 className="text-lg font-semibold tracking-tight shrink-0">CRM</h1>
+      <header className="shrink-0 border-b px-6 py-3 flex items-center gap-4 flex-wrap">
+        <h1 className="text-lg font-semibold tracking-tight shrink-0">Workspace</h1>
         {(totalProps !== null || totalLeases !== null || totalCons !== null) && (
           <span className="text-xs text-muted-foreground shrink-0">
             {totalProps ?? "…"} {totalProps === 1 ? "property" : "properties"} ·{" "}
@@ -2102,36 +1888,7 @@ export default function CRMView() {
           </span>
         )}
 
-        {/* AI Search bar */}
-        <form onSubmit={handleSearch} className="flex flex-1 gap-2 max-w-2xl ml-2">
-          <div className="relative flex-1">
-            {searching ? (
-              <Loader2 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground animate-spin" />
-            ) : (
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            )}
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                if (!e.target.value) clearSearch();
-              }}
-              placeholder="Search in plain English — 'industrial owners over 100k sqft…'"
-              disabled={searching}
-              className="w-full pl-9 pr-3 py-1.5 text-sm border border-border rounded-md outline-none focus:ring-2 ring-ring bg-background placeholder:text-muted-foreground/60 disabled:opacity-60"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={searching || !searchQuery.trim()}
-            className="shrink-0 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {searching ? "Searching…" : "Search"}
-          </button>
-        </form>
-
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2 ml-auto">
           <Link href="/contacts/new" className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors">
             + Contact
           </Link>
@@ -2244,209 +2001,164 @@ export default function CRMView() {
           )}
         </button>
 
-        <button
-          onClick={() => setTab("fields")}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
-            tab === "fields"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-          )}
-        >
-          <Settings2 className="size-3.5 inline mr-1.5 -mt-0.5" />
-          Fields
-        </button>
       </div>
 
-      {/* Filter / search context bar */}
-      <div className="shrink-0 border-b px-6 py-2 flex items-center gap-3 flex-wrap bg-muted/10 min-h-11">
+      {/* Filter / search context bar — one search bar + smart lists per entity tab */}
+      <div className="shrink-0 border-b px-6 py-2 flex flex-col gap-2 bg-muted/10">
         {searchError && (
-          <p className="text-xs text-destructive w-full">{searchError}</p>
+          <p className="text-xs text-destructive">{searchError}</p>
         )}
 
-        {tab === "fields" ? (
-          <span className="text-xs text-muted-foreground">
-            Define custom fields that appear on properties, leases, and contacts
-          </span>
-        ) : tab === "leases" ? (
-          <>
-            <TabSearchInput
-              value={leaseTabQuery}
-              placeholder="e.g. leases expiring this quarter…"
-              searching={searching}
-              onChange={setLeaseTabQuery}
-              onSearch={runSearch}
-              onClear={clearSearch}
-            />
-            {searchMode ? (
-              <SearchExplanation explanation={activeSearch!.explanation} onClear={clearSearch} />
-            ) : (
-              <>
-                <FilterSelect
-                  label="Status"
-                  value={leaseFilters.status}
-                  options={[
-                    { value: "active",   label: "Active" },
-                    { value: "expiring", label: "Expiring soon" },
-                    { value: "expired",  label: "Expired" },
-                  ]}
-                  onChange={(v) => updateLeaseFilter("status", v)}
-                />
-                {leaseFiltersActive && (
-                  <button
-                    onClick={() => { setLeaseFilters(EMPTY_LEASE_FILTERS); setLeasePage(0); }}
-                    className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </>
-            )}
-          </>
-        ) : tab === "properties" ? (
-          <>
-            <TabSearchInput
-              value={propTabQuery}
-              placeholder="e.g. industrial over 50k SF in Doral…"
-              searching={searching}
-              onChange={setPropTabQuery}
-              onSearch={runSearch}
-              onClear={clearSearch}
-            />
-            {searchMode ? (
-              <SearchExplanation explanation={activeSearch!.explanation} onClear={clearSearch} />
-            ) : (
-              <>
-                <FilterSelect
-                  label="Type"
-                  value={propFilters.propType}
-                  options={PROP_TYPES}
-                  onChange={(v) => updatePropFilter("propType", v)}
-                />
-                <FilterSelect
-                  label="Ownership"
-                  value={propFilters.ownership}
-                  options={OWNERSHIP_TYPES}
-                  onChange={(v) => updatePropFilter("ownership", v)}
-                />
-                {propFilterOpts.sizeCat.length > 0 && (
-                  <FilterSelect
-                    label="Size cat"
-                    value={propFilters.sizeCat}
-                    options={propFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => updatePropFilter("sizeCat", v)}
+        <div className="flex items-center gap-3 flex-wrap min-h-9">
+          <BarModeToggle mode={barMode} onChange={setBarMode} />
+
+          {barMode === "search" ? (
+            <>
+              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-[16rem] max-w-xl">
+                <div className="relative flex-1 min-w-0">
+                  {searching ? (
+                    <Loader2 className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground animate-spin" />
+                  ) : (
+                    <Sparkles className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                  )}
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (!e.target.value) clearSearch();
+                    }}
+                    placeholder={SEARCH_PLACEHOLDERS[tab]}
+                    disabled={searching}
+                    className="w-full pl-7 pr-2 py-1 text-xs border border-border rounded-md outline-none focus:ring-1 ring-ring bg-background placeholder:text-muted-foreground/60 disabled:opacity-60"
                   />
-                )}
-                {propFilterOpts.geoCat.length > 0 && (
-                  <FilterSelect
-                    label="Geo cat"
-                    value={propFilters.geoCat}
-                    options={propFilterOpts.geoCat.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => updatePropFilter("geoCat", v)}
-                  />
-                )}
-              </>
-            )}
-            <div className="ml-auto flex items-center gap-2 shrink-0">
-              {propFiltersActive && !searchMode && (
+                </div>
                 <button
-                  onClick={() => { setPropFilters(EMPTY_PROP_FILTERS); setPropPage(0); }}
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  type="submit"
+                  disabled={searching || !searchQuery.trim()}
+                  className="shrink-0 px-2.5 py-1 text-xs bg-primary text-primary-foreground rounded-md disabled:opacity-40"
                 >
-                  Clear filters
+                  {searching ? "…" : "Search"}
                 </button>
+              </form>
+
+              {activeSearch && (
+                <SearchExplanation explanation={activeSearch.explanation} onClear={clearSearch} />
               )}
-              <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} />
-            </div>
-          </>
-        ) : (
-          <>
-            <TabSearchInput
-              value={conTabQuery}
-              placeholder="e.g. tier 1 prospects not contacted in 30 days…"
-              searching={searching}
-              onChange={setConTabQuery}
-              onSearch={runSearch}
-              onClear={clearSearch}
+              {!searchMode && (
+                <>
+                  {tab === "leases" && (
+                    <>
+                      <FilterSelect
+                        label="Status"
+                        value={leaseFilters.status}
+                        options={[
+                          { value: "active", label: "Active" },
+                          { value: "expiring", label: "Expiring soon" },
+                          { value: "expired", label: "Expired" },
+                        ]}
+                        onChange={(v) => updateLeaseFilter("status", v)}
+                      />
+                      {leaseFiltersActive && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLeaseFilters(EMPTY_LEASE_FILTERS);
+                            setActiveListId(null);
+                            setActiveListName(null);
+                            setLeasePage(0);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {tab === "properties" && (
+                    <>
+                      <FilterSelect label="Type" value={propFilters.propType} options={PROP_TYPES} onChange={(v) => updatePropFilter("propType", v)} />
+                      <FilterSelect label="Ownership" value={propFilters.ownership} options={OWNERSHIP_TYPES} onChange={(v) => updatePropFilter("ownership", v)} />
+                      {propFilterOpts.sizeCat.length > 0 && (
+                        <FilterSelect label="Size cat" value={propFilters.sizeCat} options={propFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updatePropFilter("sizeCat", v)} />
+                      )}
+                      {propFilterOpts.geoCat.length > 0 && (
+                        <FilterSelect label="Geo cat" value={propFilters.geoCat} options={propFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updatePropFilter("geoCat", v)} />
+                      )}
+                      {propFiltersActive && (
+                        <button type="button" onClick={() => { setPropFilters(EMPTY_PROP_FILTERS); setActiveListId(null); setActiveListName(null); setPropPage(0); }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+                          Clear filters
+                        </button>
+                      )}
+                      <div className="ml-auto shrink-0">
+                        <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} />
+                      </div>
+                    </>
+                  )}
+                  {tab === "contacts" && (
+                    <>
+                      <FilterSelect label="Tier" value={conFilters.tier} options={[{ value: "1", label: "Tier 1" }, { value: "2", label: "Tier 2" }, { value: "3", label: "Tier 3" }]} onChange={(v) => updateConFilter("tier", v)} />
+                      <FilterSelect label="Status" value={conFilters.status} options={CLIENT_STATUSES} onChange={(v) => updateConFilter("status", v)} />
+                      <FilterSelect label="Type" value={conFilters.contactType} options={CONTACT_TYPES} onChange={(v) => updateConFilter("contactType", v)} />
+                      {conFilterOpts.tags.length > 0 && (
+                        <FilterSelect label="Tag" value={conFilters.tag} options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("tag", v)} />
+                      )}
+                      {conFilterOpts.sizeCat.length > 0 && (
+                        <FilterSelect label="Size cat" value={conFilters.sizeCat} options={conFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("sizeCat", v)} />
+                      )}
+                      {conFilterOpts.geoCat.length > 0 && (
+                        <FilterSelect label="Geo cat" value={conFilters.geoCat} options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("geoCat", v)} />
+                      )}
+                      {conFilterOpts.ownership.length > 0 && (
+                        <FilterSelect label="Ownership" value={conFilters.ownership} options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("ownership", v)} />
+                      )}
+                      {conFiltersActive && (
+                        <button type="button" onClick={() => { setConFilters(EMPTY_CON_FILTERS); setActiveListId(null); setActiveListName(null); setConPage(0); }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+                          Clear filters
+                        </button>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              <SearchListActions
+                entityType={tab}
+                savableFilters={pendingSave}
+                activeFilters={activeSearch}
+                searchQuery={searchQuery}
+                activeListId={activeListId}
+                activeListName={activeListName}
+                onSaved={(id, name) => {
+                  setActiveListId(id);
+                  setActiveListName(name);
+                  if (pendingSave) {
+                    setActiveSearch(pendingSave);
+                    setPropFilters(EMPTY_PROP_FILTERS);
+                    setConFilters(EMPTY_CON_FILTERS);
+                    setLeaseFilters(EMPTY_LEASE_FILTERS);
+                  }
+                }}
+                onDeleted={clearSearch}
+                savePrompt={smartListSavePrompt}
+                onSavePromptHandled={() => setSmartListSavePrompt(false)}
+              />
+            </>
+          ) : (
+            <SmartListsBar
+              entityType={tab}
+              activeListId={activeListId}
+              onSelectList={applySmartList}
+              onClearList={clearSearch}
             />
-            {searchMode ? (
-              <SearchExplanation explanation={activeSearch!.explanation} onClear={clearSearch} />
-            ) : (
-              <>
-                <FilterSelect
-                  label="Tier"
-                  value={conFilters.tier}
-                  options={[
-                    { value: "1", label: "Tier 1" },
-                    { value: "2", label: "Tier 2" },
-                    { value: "3", label: "Tier 3" },
-                  ]}
-                  onChange={(v) => updateConFilter("tier", v)}
-                />
-                <FilterSelect
-                  label="Status"
-                  value={conFilters.status}
-                  options={CLIENT_STATUSES}
-                  onChange={(v) => updateConFilter("status", v)}
-                />
-                <FilterSelect
-                  label="Type"
-                  value={conFilters.contactType}
-                  options={CONTACT_TYPES}
-                  onChange={(v) => updateConFilter("contactType", v)}
-                />
-                {conFilterOpts.tags.length > 0 && (
-                  <FilterSelect
-                    label="Tag"
-                    value={conFilters.tag}
-                    options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => updateConFilter("tag", v)}
-                  />
-                )}
-                {conFilterOpts.sizeCat.length > 0 && (
-                  <FilterSelect
-                    label="Size cat"
-                    value={conFilters.sizeCat}
-                    options={conFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => updateConFilter("sizeCat", v)}
-                  />
-                )}
-                {conFilterOpts.geoCat.length > 0 && (
-                  <FilterSelect
-                    label="Geo cat"
-                    value={conFilters.geoCat}
-                    options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => updateConFilter("geoCat", v)}
-                  />
-                )}
-                {conFilterOpts.ownership.length > 0 && (
-                  <FilterSelect
-                    label="Ownership"
-                    value={conFilters.ownership}
-                    options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => updateConFilter("ownership", v)}
-                  />
-                )}
-                {conFiltersActive && (
-                  <button
-                    onClick={() => { setConFilters(EMPTY_CON_FILTERS); setConPage(0); }}
-                    className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </>
-            )}
-          </>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Table area + pagination */}
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex-1 overflow-auto">
-          {tab === "fields" ? (
-            <FieldsPanel onChanged={reloadCustomDefs} />
-          ) : tab === "properties" ? (
+          {tab === "properties" ? (
             totalProps === null ? (
               <TableSkeleton rows={10} cols={8} />
             ) : (
@@ -2457,7 +2169,7 @@ export default function CRMView() {
                   customDefs={customPropertyDefs}
                   colVis={propColVis}
                   onSave={saveProp}
-                  onSaveContact={saveContact}
+                  onSaveContact={savePropContact}
                   deletingId={deletingId}
                   onDeleteRequest={setDeletingId}
                   onDeleteConfirm={handleDeleteConfirm}
@@ -2491,13 +2203,13 @@ export default function CRMView() {
                   onDeleteRequest={setDeletingContactId}
                   onDeleteConfirm={handleDeleteContactConfirm}
                   onDeleteCancel={() => setDeletingContactId(null)}
+                  userEmail={userEmail}
                 />
               </div>
             )
           )}
         </div>
 
-        {/* Pagination — hidden for Fields tab */}
         {tab === "properties" && (
           <PaginationBar
             page={propPage}

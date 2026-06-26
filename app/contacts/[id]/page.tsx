@@ -19,6 +19,8 @@ import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { ContactActivitySection } from "./activity-section";
 import { QuickActions } from "./quick-actions";
 import { fetchActivitiesByContact, type Activity } from "@/app/activities/actions";
+import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
+import { RelationshipBriefingPanel } from "./relationship-briefing";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,7 +123,7 @@ export default async function ContactPage({
   if (error || !data) notFound();
   const c = data as Contact;
 
-  const [{ data: fdData }, linkedPropsResult, activities] = await Promise.all([
+  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -134,6 +136,12 @@ export default async function ContactPage({
           .in("id", c.linked_properties)
       : Promise.resolve({ data: [] }),
     fetchActivitiesByContact(id),
+    supabase
+      .from("follow_ups")
+      .select("id, description, due_date, done, property_id, properties(address)")
+      .eq("contact_id", id)
+      .eq("owner_id", user.id)
+      .order("due_date", { ascending: true }),
   ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -150,7 +158,7 @@ export default async function ContactPage({
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-6">
       {/* Back link */}
       <Link
-        href="/contacts"
+        href="/crm?tab=contacts"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="size-3.5" />
@@ -211,6 +219,10 @@ export default async function ContactPage({
             )}
           </div>
         )}
+
+        {(c.linked_properties?.length ?? 0) > 0 && (
+          <OwnerPortfolioLink contactId={id} className="text-sm" label="View owner portfolio →" />
+        )}
       </div>
 
       {/* Next follow-up — prominent */}
@@ -218,8 +230,15 @@ export default async function ContactPage({
         <NextFollowUpBanner date={c.next_action_due} />
       )}
 
+      <RelationshipBriefingPanel contactId={id} />
+
       {/* Quick actions */}
-      <QuickActions contactId={id} />
+      <QuickActions
+        contactId={id}
+        contactName={c.name}
+        contactEmail={c.email}
+        userEmail={user.email ?? null}
+      />
 
       {/* Two-column: contact info + linked properties */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -269,9 +288,12 @@ export default async function ContactPage({
         {/* Linked properties */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Building2 className="size-4" />
-              Linked properties
+            <CardTitle className="text-sm flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <Building2 className="size-4" />
+                Linked properties
+              </span>
+              <OwnerPortfolioLink contactId={id} />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -364,6 +386,58 @@ export default async function ContactPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Follow-ups */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Clock className="size-4" />
+            Follow-ups
+            {contactFollowUps && contactFollowUps.length > 0 && (
+              <span className="text-xs font-normal text-muted-foreground">({contactFollowUps.length})</span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!contactFollowUps || contactFollowUps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No follow-ups.{" "}
+              <Link href="/follow-ups" className="underline underline-offset-2 hover:text-foreground">
+                Manage follow-ups →
+              </Link>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {contactFollowUps.map((fu) => {
+                const due = new Date(fu.due_date);
+                const overdue = !fu.done && due < new Date();
+                const propAddress = (fu.properties as { address: string | null }[] | null)?.[0]?.address ?? (fu.properties as unknown as { address: string | null } | null)?.address;
+                return (
+                  <div key={fu.id} className="flex items-start gap-3 rounded-lg border px-3 py-2">
+                    <span className={`shrink-0 mt-0.5 size-3.5 rounded-sm border flex items-center justify-center ${fu.done ? "bg-primary border-primary" : "border-border"}`}>
+                      {fu.done && <span className="text-primary-foreground text-[8px] font-bold">✓</span>}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-sm ${fu.done ? "line-through text-muted-foreground" : ""}`}>{fu.description}</span>
+                      {propAddress && fu.property_id && (
+                        <Link
+                          href={`/properties/${fu.property_id}`}
+                          className="block text-xs text-muted-foreground hover:text-foreground truncate mt-0.5"
+                        >
+                          @ {propAddress}
+                        </Link>
+                      )}
+                    </div>
+                    <span className={`shrink-0 text-xs whitespace-nowrap rounded-full px-2 py-0.5 ${overdue ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
+                      {due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Activity timeline */}
       <ContactActivitySection contactId={id} contactTier={c.contact_tier} initialActivities={activities as Activity[]} />

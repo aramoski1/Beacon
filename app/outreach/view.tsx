@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { generateDrafts, logOutreach, type DueContact, type EmailDraft, type OutreachTemplate } from "./actions";
+import { generateDrafts, logOutreach, getContactsByIds, type DueContact, type EmailDraft, type OutreachTemplate } from "./actions";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +72,22 @@ export default function OutreachView({
   useEffect(() => {
     const saved = localStorage.getItem("beacon_broker_context");
     if (saved) setBrokerContext(saved);
+  }, []);
+
+  // Smart-list segment pre-selection from workspace
+  useEffect(() => {
+    const raw = sessionStorage.getItem("beacon_outreach_selection");
+    if (!raw) return;
+    sessionStorage.removeItem("beacon_outreach_selection");
+    try {
+      const ids = JSON.parse(raw) as string[];
+      if (!Array.isArray(ids) || ids.length === 0) return;
+      getContactsByIds(ids).then((segmentContacts) => {
+        if (segmentContacts.length === 0) return;
+        setContacts(segmentContacts);
+        setSelected(new Set(segmentContacts.map((c) => c.id)));
+      });
+    } catch { /* ignore */ }
   }, []);
 
   function saveBrokerContext(val: string) {
@@ -167,9 +183,15 @@ export default function OutreachView({
     return (
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Outreach</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Suggested outreach</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {overdueContacts.length > 0 ? `${overdueContacts.length} overdue · ` : ""}{contacts.length} total due
+            Contacts due by cadence.{" "}
+            {overdueContacts.length > 0 && (
+              <span className="text-destructive font-medium">{overdueContacts.length} overdue · </span>
+            )}
+            Email any contact from the{" "}
+            <a href="/crm?tab=contacts" className="underline underline-offset-2 hover:text-foreground">Contacts tab</a>{" "}
+            or their profile page at any time.
           </p>
         </div>
 
@@ -219,9 +241,11 @@ export default function OutreachView({
         {contacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
             <CheckCircle2 className="size-10 text-green-500" />
-            <p className="font-medium">All caught up — no contacts are due.</p>
+            <p className="font-medium">All caught up on cadence.</p>
             <p className="text-sm text-muted-foreground">
-              Check back when contacts are due for outreach.
+              No contacts are due right now. Email any contact directly from the{" "}
+              <a href="/crm?tab=contacts" className="underline underline-offset-2 hover:text-foreground">Contacts tab</a>{" "}
+              or their profile page.
             </p>
           </div>
         ) : (

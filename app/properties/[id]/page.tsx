@@ -26,6 +26,7 @@ import { SunbizSection } from "./sunbiz-section";
 import { CoStarSection } from "./costar-section";
 import { EnhanceSection } from "./enhance-section";
 import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
+import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ export default async function PropertyPage({
   if (error || !data) notFound();
   const p = data as Property;
 
-  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities] = await Promise.all([
+  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -136,6 +137,18 @@ export default async function PropertyPage({
       .contains("linked_properties", [id])
       .order("created_at", { ascending: true }),
     fetchActivitiesByProperty(id),
+    supabase
+      .from("lease_abstracts")
+      .select("id, source_document, expiration_date, execution_date, base_rate, term")
+      .eq("linked_property", id)
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("follow_ups")
+      .select("id, description, due_date, done")
+      .eq("property_id", id)
+      .eq("owner_id", user.id)
+      .order("due_date", { ascending: true }),
   ]);
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = p.custom_fields ?? {};
@@ -317,6 +330,13 @@ export default async function PropertyPage({
               label="Owner"
               value={p.owner_name ?? "—"}
               flagReason={flagMap.get("owner_name")}
+              action={p.owner_name ? (
+                <OwnerPortfolioLink
+                  propertyId={id}
+                  label="Portfolio →"
+                  className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10"
+                />
+              ) : undefined}
             />
             {displayOwnerContacts.length > 0 && displayOwnerContacts.map((oc, i) => (
               <Field
@@ -328,6 +348,14 @@ export default async function PropertyPage({
                     : (displayOwnerContacts.length > 1 ? `Owner contact ${i + 1}` : "Owner contact")
                 }
                 value={[oc.name, oc.title, oc.address].filter(Boolean).join(" · ")}
+                action={
+                  <OwnerPortfolioLink
+                    propertyId={id}
+                    personIndex={i}
+                    label="Portfolio →"
+                    className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10"
+                  />
+                }
               />
             ))}
             <Field
@@ -420,6 +448,99 @@ export default async function PropertyPage({
         isEntityOwner={isEntityName(p.owner_name)}
       />
 
+      {/* Linked leases */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Building2 className="size-4" />
+            Leases
+            {linkedLeases && linkedLeases.length > 0 && (
+              <span className="text-xs font-normal text-muted-foreground">({linkedLeases.length})</span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!linkedLeases || linkedLeases.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No leases linked.{" "}
+              <Link href="/abstracts/new" className="underline underline-offset-2 hover:text-foreground">
+                Abstract a lease →
+              </Link>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {linkedLeases.map((la) => {
+                const exp = la.expiration_date ? new Date(la.expiration_date).getTime() : null;
+                const now = Date.now();
+                const status = !exp ? "unknown" : exp < now ? "expired" : exp < now + 90 * 86_400_000 ? "expiring" : "active";
+                const statusCls = status === "active" ? "bg-green-100 text-green-700" : status === "expiring" ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground";
+                const statusLabel = status === "active" ? "Active" : status === "expiring" ? "Expiring soon" : status === "expired" ? "Expired" : "No expiry";
+                const fileName = la.source_document ? (la.source_document.split("/").pop() ?? la.source_document) : "Unnamed lease";
+                return (
+                  <Link
+                    key={la.id}
+                    href={`/abstracts/${la.id}`}
+                    className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2 hover:bg-muted/50 transition-colors"
+                  >
+                    <span className={`shrink-0 text-xs font-medium rounded-full px-2 py-0.5 ${statusCls}`}>{statusLabel}</span>
+                    <span className="flex-1 text-sm font-medium truncate">{fileName}</span>
+                    {la.expiration_date && (
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        Exp. {new Date(la.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </span>
+                    )}
+                    {la.base_rate != null && (
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">${la.base_rate}/sf</span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Follow-ups */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Calendar className="size-4" />
+            Follow-ups
+            {propFollowUps && propFollowUps.length > 0 && (
+              <span className="text-xs font-normal text-muted-foreground">({propFollowUps.length})</span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!propFollowUps || propFollowUps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No follow-ups.{" "}
+              <Link href="/follow-ups" className="underline underline-offset-2 hover:text-foreground">
+                Manage follow-ups →
+              </Link>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {propFollowUps.map((fu) => {
+                const due = new Date(fu.due_date);
+                const overdue = !fu.done && due < new Date();
+                return (
+                  <div key={fu.id} className="flex items-start gap-3 rounded-lg border px-3 py-2">
+                    <span className={`shrink-0 mt-0.5 size-3.5 rounded-sm border flex items-center justify-center ${fu.done ? "bg-primary border-primary" : "border-border"}`}>
+                      {fu.done && <span className="text-primary-foreground text-[8px] font-bold">✓</span>}
+                    </span>
+                    <span className={`flex-1 text-sm ${fu.done ? "line-through text-muted-foreground" : ""}`}>{fu.description}</span>
+                    <span className={`shrink-0 text-xs whitespace-nowrap rounded-full px-2 py-0.5 ${overdue ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
+                      {due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {isEntityName(p.owner_name) && p.owner_name && (
         <SunbizSection
           propertyId={id}
@@ -510,11 +631,13 @@ function Field({
   label,
   value,
   flagReason,
+  action,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   flagReason?: string;
+  action?: React.ReactNode;
 }) {
   const isNotFound = flagReason === "not found in source record";
   const isUncertain = !!flagReason && !isNotFound;
@@ -525,12 +648,13 @@ function Field({
         {icon}
         {label}
       </dt>
-      <dd className={cn("text-sm font-medium flex items-center gap-1.5", isUncertain && "text-yellow-700 dark:text-yellow-300")}>
+      <dd className={cn("text-sm font-medium flex items-center gap-2 flex-wrap", isUncertain && "text-yellow-700 dark:text-yellow-300")}>
         {isNotFound && value === "—" ? (
           <span className="text-xs italic text-muted-foreground/40 font-normal">not in source</span>
         ) : (
-          value
+          <span className="min-w-0">{value}</span>
         )}
+        {action}
         {isUncertain && (
           <AlertTriangle className="size-3.5 text-yellow-500 shrink-0" />
         )}

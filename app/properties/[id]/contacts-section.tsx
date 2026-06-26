@@ -17,6 +17,7 @@ import type { StoredOwnerContact } from "@/lib/owner-contacts";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -384,6 +385,9 @@ export function PropertyContactsSection({
   const btnCls =
     "inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border border-border bg-background hover:bg-muted/60 transition-colors";
 
+  const PORTFOLIO_BTN_CLS =
+    "shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors";
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-3">
@@ -414,15 +418,23 @@ export function PropertyContactsSection({
               )}
               {ownerError && <p className="text-xs text-destructive mt-1">{ownerError}</p>}
             </div>
-            <button
-              onClick={handleOwnerCreate}
-              disabled={creatingOwner}
-              className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
-            >
-              {creatingOwner
-                ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
-                : <><UserPlus className="size-3.5" />Create contact</>}
-            </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+              <OwnerPortfolioLink
+                propertyId={propertyId}
+                personIndex={0}
+                label="Portfolio →"
+                className={PORTFOLIO_BTN_CLS}
+              />
+              <button
+                onClick={handleOwnerCreate}
+                disabled={creatingOwner}
+                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                {creatingOwner
+                  ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
+                  : <><UserPlus className="size-3.5" />Create contact</>}
+              </button>
+            </div>
           </div>
         )}
         {isMdpa && ownerName && !isEntityOwner && ownerCreated && (
@@ -447,15 +459,23 @@ export function PropertyContactsSection({
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => handleSunbizContactCreate(i)}
-                disabled={creatingSunbizIdx === i}
-                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
-              >
-                {creatingSunbizIdx === i
-                  ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
-                  : <><UserPlus className="size-3.5" />Create contact from this owner</>}
-              </button>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                <OwnerPortfolioLink
+                  propertyId={propertyId}
+                  personIndex={i}
+                  label="Portfolio →"
+                  className={PORTFOLIO_BTN_CLS}
+                />
+                <button
+                  onClick={() => handleSunbizContactCreate(i)}
+                  disabled={creatingSunbizIdx === i}
+                  className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
+                >
+                  {creatingSunbizIdx === i
+                    ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
+                    : <><UserPlus className="size-3.5" />Create contact from this owner</>}
+                </button>
+              </div>
             </div>
           );
         })}
@@ -499,6 +519,7 @@ export function PropertyContactsSection({
                           </span>
                         )}
                         <FollowUpChip date={c.next_action_due} />
+                        <OwnerPortfolioLink contactId={c.id} />
                       </div>
 
                       {(c.company || c.role) && (

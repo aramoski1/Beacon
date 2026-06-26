@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { parseStoredOwnerContacts } from "@/lib/owner-contacts";
+import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 import type { SunbizResult } from "@/lib/sunbiz-types";
 import {
   lookupSunbiz,
@@ -116,9 +117,33 @@ export function SunbizSection({
 
       <CardContent>
         {savedContacts.length > 0 && phase.tag !== "results" && phase.tag !== "saving" && (
-          <p className="text-sm text-muted-foreground mb-3">
-            {savedContacts.length} authorized {savedContacts.length === 1 ? "person" : "persons"} on file on this property row.
-          </p>
+          <div className="space-y-2 mb-4">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Authorized persons on file
+            </p>
+            {savedContacts.map((person, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{person.name}</p>
+                  {person.title && (
+                    <p className="text-xs text-muted-foreground truncate">{person.title}</p>
+                  )}
+                  {person.address && (
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{person.address}</p>
+                  )}
+                </div>
+                <OwnerPortfolioLink
+                  propertyId={propertyId}
+                  personIndex={i}
+                  label="Portfolio →"
+                  className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
+                />
+              </div>
+            ))}
+          </div>
         )}
 
         {phase.tag === "idle" && (

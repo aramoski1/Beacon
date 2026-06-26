@@ -243,12 +243,12 @@ export function CadencePanel({ cadence }: { cadence: CadenceHealth }) {
 // ─── Quick actions ────────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
-  { href: "/properties/new",    icon: Building2, label: "Tax roll lookup", desc: "Miami-Dade GIS" },
-  { href: "/properties/upload", icon: Upload,    label: "Upload file",     desc: "CoStar, PDF, CSV" },
-  { href: "/abstracts/new",     icon: FileText,  label: "Abstract lease",  desc: "AI extraction" },
-  { href: "/contacts/new",      icon: Plus,      label: "Add contact",     desc: "Owner or tenant" },
-  { href: "/crm",               icon: LayoutGrid, label: "Full CRM",        desc: "All records" },
-  { href: "/properties/url",    icon: Link2,     label: "From URL",        desc: "Paste listing" },
+  { href: "/properties/new",              icon: Building2,  label: "Tax roll lookup", desc: "Miami-Dade GIS" },
+  { href: "/properties/new?method=upload", icon: Upload,    label: "Upload file",     desc: "CoStar, PDF, CSV" },
+  { href: "/abstracts/new",               icon: FileText,   label: "Abstract lease",  desc: "AI extraction" },
+  { href: "/contacts/new",                icon: Plus,       label: "Add contact",     desc: "Owner or tenant" },
+  { href: "/crm",                         icon: LayoutGrid, label: "Full CRM",        desc: "All records" },
+  { href: "/properties/new?method=url",   icon: Link2,      label: "From URL",        desc: "Paste listing" },
 ];
 
 export function QuickActionsPanel() {
@@ -299,7 +299,7 @@ export function ExpiringLeasesPanel({ items, total }: { items: ExpiringLease[]; 
           )}
         </span>
         {total > 0 && (
-          <Link href="/crm" className="text-xs text-primary hover:underline underline-offset-2">All leases</Link>
+          <Link href="/lease-radar" className="text-xs text-primary hover:underline underline-offset-2">Full radar</Link>
         )}
       </div>
       {total === 0 ? (
@@ -326,7 +326,10 @@ export function ExpiringLeasesPanel({ items, total }: { items: ExpiringLease[]; 
                 <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
                   {leaseLabel(l.source_document)}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground truncate">
+                  {l.property_address ? (
+                    <span>{l.property_address} · </span>
+                  ) : null}
                   {l.base_rate != null && `$${l.base_rate}/sf · `}
                   Exp {new Date(l.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </p>
@@ -485,7 +488,9 @@ export function PriorityPills({ metrics }: { metrics: BriefingMetrics }) {
   if (metrics.followUpsOverdue > 0) items.push({ label: "follow-ups overdue", value: metrics.followUpsOverdue, href: "/follow-ups", urgent: true });
   if (metrics.dueTodayOutreach > 0) items.push({ label: "outreach today", value: metrics.dueTodayOutreach, href: "/outreach" });
   if (metrics.followUpsToday > 0) items.push({ label: "follow-ups today", value: metrics.followUpsToday, href: "/follow-ups" });
-  if (metrics.expiringLeases > 0) items.push({ label: "lease rollovers", value: metrics.expiringLeases, href: "/crm" });
+  if (metrics.unworkedOpportunities > 0) items.push({ label: "ready to pursue", value: metrics.unworkedOpportunities, href: "/dashboard#unworked", urgent: true });
+  if (metrics.coldTier1 > 0) items.push({ label: "Tier 1 going cold", value: metrics.coldTier1, href: "/outreach", urgent: true });
+  if (metrics.expiringLeases > 0) items.push({ label: "lease expirations", value: metrics.expiringLeases, href: "/lease-radar", urgent: true });
   if (metrics.dataIssues > 0) items.push({ label: "data issues", value: metrics.dataIssues, href: "/properties/audit", urgent: true });
   if (metrics.activitiesThisWeek > 0) items.push({ label: "touchpoints this week", value: metrics.activitiesThisWeek, href: "/dashboard" });
 
@@ -592,7 +597,15 @@ export function ActivityTimeline({ activities }: { activities: RecentActivity[] 
                       <span className="text-xs capitalize text-muted-foreground">{a.activity_type}</span>
                     </div>
                     {a.property_address && (
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{a.property_address}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {a.property_id ? (
+                          <Link href={`/properties/${a.property_id}`} className="hover:text-foreground hover:underline underline-offset-2">
+                            {a.property_address}
+                          </Link>
+                        ) : (
+                          a.property_address
+                        )}
+                      </p>
                     )}
                     {a.notes && <p className="text-xs text-muted-foreground/80 mt-0.5 line-clamp-2">{a.notes}</p>}
                   </div>

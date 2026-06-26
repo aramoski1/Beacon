@@ -60,6 +60,22 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-owner-contacts-jsonb.ts",
     description: "Properties — owner_contacts JSONB array (multiple Sunbiz persons per property)",
   },
+  {
+    file: "migrate-activities-update-policy.ts",
+    description: "Activities — add owner UPDATE RLS policy for CRM inline editing",
+  },
+  {
+    file: "migrate-property-activity-fields.ts",
+    description: "Properties — owner_email, last_activity_date/type/notes for CRM inline editing",
+  },
+  {
+    file: "migrate-smart-lists.ts",
+    description: "Smart lists — saved NL search segments with live filters JSONB",
+  },
+  {
+    file: "migrate-smart-lists-entity-type.ts",
+    description: "Smart lists — entity_type column (properties / contacts / leases)",
+  },
 ];
 
 const hr = "─".repeat(60);
