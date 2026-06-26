@@ -33,7 +33,6 @@ import {
   ExpiringLeasesPanel,
   SectionHeader,
   PriorityPills,
-  QuickActionsPanel,
   CadencePanel,
   PortfolioPanel,
   DataHealthPanel,
@@ -234,7 +233,6 @@ export default async function DashboardPage() {
         </div>
 
         <div className="space-y-4">
-          <QuickActionsPanel />
           <ExpiringLeasesPanel items={expiringLeases.items.slice(0, 6)} total={expiringLeases.total} />
           <PortfolioPanel portfolio={portfolio} />
           <DataHealthPanel health={dataHealth} />

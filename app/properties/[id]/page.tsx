@@ -22,9 +22,7 @@ import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { PropertyContactsSection, type LinkedContact } from "./contacts-section";
 import { PropertyActivitySection, type ActivityContact } from "./activity-section";
 import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
-import { SunbizSection } from "./sunbiz-section";
-import { CoStarSection } from "./costar-section";
-import { EnhanceSection } from "./enhance-section";
+import { EnrichPanel } from "./enrich-panel";
 import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
@@ -275,10 +273,15 @@ export default async function PropertyPage({
         </div>
       ) : null}
 
-      {/* County data enhancement — only for URL/upload/forward sources without an existing folio */}
-      {p.source !== "tax_roll" && !folioNumber && (
-        <EnhanceSection propertyId={id} />
-      )}
+      {/* Enrich property — county data, Sunbiz owner discovery, owner contact promotion, CoStar upload */}
+      <EnrichPanel
+        propertyId={id}
+        ownerName={p.owner_name}
+        isEntityOwner={isEntityName(p.owner_name)}
+        needsCountyEnhancement={p.source !== "tax_roll" && !folioNumber}
+        isMdpa={!!folioNumber}
+        initialOwnerContacts={storedOwnerContacts}
+      />
 
       {/* Uncertain / ambiguous fields — yellow */}
       {uncertainFlags.length > 0 && (
@@ -441,11 +444,6 @@ export default async function PropertyPage({
       <PropertyContactsSection
         propertyId={id}
         initialContacts={linkedContacts}
-        ownerName={p.owner_name}
-        ownerMailingAddress={p.owner_mailing_address}
-        ownerContacts={storedOwnerContacts}
-        isMdpa={!!folioNumber}
-        isEntityOwner={isEntityName(p.owner_name)}
       />
 
       {/* Linked leases */}
@@ -540,17 +538,6 @@ export default async function PropertyPage({
           )}
         </CardContent>
       </Card>
-
-      {isEntityName(p.owner_name) && p.owner_name && (
-        <SunbizSection
-          propertyId={id}
-          ownerName={p.owner_name}
-          initialOwnerContacts={p.owner_contacts}
-        />
-      )}
-
-      {/* CoStar owner enrichment via file upload */}
-      <CoStarSection propertyId={id} />
 
       {/* Activity timeline */}
       <PropertyActivitySection

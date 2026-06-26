@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
-  CalendarClock,
+  CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
-  CheckSquare, Settings2, LogOut, CirclePlus, ScrollText,
+  CheckSquare, Settings2, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -26,9 +26,7 @@ type NavEntry = {
 const NAV: NavEntry[] = [
   { href: "/dashboard",       icon: LayoutDashboard, label: "Dashboard" },
   { href: "/crm",             icon: LayoutGrid,      label: "Workspace" },
-  { href: "/properties/new",  icon: CirclePlus,      label: "Add property" },
-  { href: "/abstracts/new",   icon: ScrollText,      label: "Abstract lease" },
-  { href: "/lease-radar",      icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
+  { href: "/lease-radar",     icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
   { href: "/follow-ups",      icon: CheckSquare,     label: "Follow-ups", badge: "followUps" },
   { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
   { href: "/settings/fields", icon: Settings2,       label: "Settings" },
@@ -90,6 +88,12 @@ function NavItem({
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
+const NEW_MENU_ITEMS = [
+  { href: "/properties/new", label: "Add property" },
+  { href: "/contacts/new",   label: "Add contact" },
+  { href: "/abstracts/new",  label: "Abstract lease" },
+];
+
 function Sidebar({
   user,
   overdueCount,
@@ -102,6 +106,19 @@ function Sidebar({
   leaseRadarUrgentCount: number;
 }) {
   const pathname = usePathname();
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    function handler(e: MouseEvent) {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
+        setNewMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [newMenuOpen]);
 
   return (
     <aside className="w-52 shrink-0 flex flex-col h-full border-r bg-card">
@@ -110,6 +127,32 @@ function Sidebar({
         <Link href="/dashboard" className="block rounded-md outline-none focus-visible:ring-2 ring-ring">
           <BeaconBrand />
         </Link>
+      </div>
+
+      {/* + New button */}
+      <div className="relative px-2 pt-2 pb-1" ref={newMenuRef}>
+        <button
+          type="button"
+          onClick={() => setNewMenuOpen((v) => !v)}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <Plus className="size-3.5" />
+          New
+        </button>
+        {newMenuOpen && (
+          <div className="absolute left-2 right-2 top-full mt-0.5 z-50 rounded-md border bg-card shadow-lg py-1">
+            {NEW_MENU_ITEMS.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setNewMenuOpen(false)}
+                className="flex items-center px-3 py-2 text-sm text-foreground hover:bg-muted/60 transition-colors"
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Nav */}

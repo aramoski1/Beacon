@@ -1,0 +1,959 @@
+"use client";
+
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  CheckSquare,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  FileText,
+  Globe,
+  Loader2,
+  MapPin,
+  Search,
+  Sparkles,
+  Square,
+  Upload,
+  UserPlus,
+  X,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
+import type { StoredOwnerContact } from "@/lib/owner-contacts";
+import type { CoStarOwner, CoStarContact } from "@/lib/costar";
+import {
+  initiateCountyEnhancement,
+  previewCountyEnhancement,
+  applyCountyEnhancement,
+  lookupSunbiz,
+  saveSunbizOwnerContacts,
+  createContactFromSunbizOwner,
+  createOwnerContact,
+  parseCoStarFile,
+  createCoStarContacts,
+  type EnhancementPreview,
+  type SunbizLookupAction,
+} from "./actions";
+
+// ── Types derived from action return types ────────────────────────────────────
+
+type SunbizResult = NonNullable<EnhancementPreview["sunbiz_result"]>;
+type SunbizPerson = SunbizResult["persons"][number];
+
+// ── County phase ──────────────────────────────────────────────────────────────
+
+type CountyPhase =
+  | { tag: "idle" }
+  | { tag: "searching" }
+  | { tag: "error"; message: string }
+  | { tag: "pick_folio"; matches: { strap: string; address: string }[] }
+  | { tag: "loading_preview" }
+  | { tag: "previewing"; preview: EnhancementPreview }
+  | { tag: "saving" }
+  | { tag: "done"; changesCount: number; ownerContactsSaved: number };
+
+// ── Sunbiz phase ──────────────────────────────────────────────────────────────
+
+type SunbizPhase =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "results"; result: SunbizResult; matches_found: number }
+  | { tag: "saving" }
+  | { tag: "saved"; count: number };
+
+const SUNBIZ_STATUS_CLS: Record<string, string> = {
+  ACTIVE:            "bg-green-100 text-green-700",
+  INACTIVE:          "bg-slate-100 text-slate-600",
+  DISSOLVED:         "bg-red-100 text-red-700",
+  REVOKED:           "bg-red-100 text-red-700",
+  "ADMIN DISSOLVED": "bg-red-100 text-red-700",
+  "ADMIN REVOKED":   "bg-red-100 text-red-700",
+};
+
+// ── CoStar phase ──────────────────────────────────────────────────────────────
+
+type CoStarPhase =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "results"; owner: CoStarOwner }
+  | { tag: "saving" }
+  | { tag: "saved"; count: number };
+
+const COSTAR_ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.csv,.txt";
+
+// ── Reusable sub-elements ─────────────────────────────────────────────────────
+
+function SubHeader({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+      <Icon className="size-3.5" />
+      {title}
+    </p>
+  );
+}
+
+function ErrorBox({ message, onBack, backLabel = "Back" }: { message: string; onBack: () => void; backLabel?: string }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+        <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+        {message}
+      </div>
+      <Button size="sm" variant="outline" onClick={onBack}>{backLabel}</Button>
+    </div>
+  );
+}
+
+function Spinner({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+      <Loader2 className="size-4 animate-spin shrink-0" />
+      {label}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function EnrichPanel({
+  propertyId,
+  ownerName,
+  isEntityOwner,
+  needsCountyEnhancement,
+  isMdpa,
+  initialOwnerContacts,
+}: {
+  propertyId: string;
+  ownerName: string | null;
+  isEntityOwner: boolean;
+  needsCountyEnhancement: boolean;
+  isMdpa: boolean;
+  initialOwnerContacts: StoredOwnerContact[];
+}) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+
+  // County
+  const [county, setCounty] = useState<CountyPhase>({ tag: "idle" });
+  const [showUnchanged, setShowUnchanged] = useState(false);
+  const [countyPersonSel, setCountyPersonSel] = useState<Set<number>>(new Set());
+
+  // Sunbiz (standalone)
+  const [sunbiz, setSunbiz] = useState<SunbizPhase>({ tag: "idle" });
+  const [sunbizPersonSel, setSunbizPersonSel] = useState<Set<number>>(new Set());
+
+  // Owner contacts — local copy updated by enrichment steps
+  const [ownerContacts, setOwnerContacts] = useState<StoredOwnerContact[]>(initialOwnerContacts);
+  const [creatingSunbizIdx, setCreatingSunbizIdx] = useState<number | null>(null);
+  const [promotedIndices, setPromotedIndices] = useState<Set<number>>(new Set());
+  const [ownerCreated, setOwnerCreated] = useState(false);
+  const [ownerContactError, setOwnerContactError] = useState<string | null>(null);
+
+  // CoStar
+  const [costarOpen, setCostarOpen] = useState(false);
+  const [costar, setCostar] = useState<CoStarPhase>({ tag: "idle" });
+  const [costarSel, setCostarSel] = useState<Set<number>>(new Set());
+  const [fileName, setFileName] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── County handlers ─────────────────────────────────────────────────────────
+
+  async function countyDoPreview(strap: string, siteAddress: string) {
+    setCounty({ tag: "loading_preview" });
+    const res = await previewCountyEnhancement(propertyId, strap, siteAddress);
+    if ("error" in res) { setCounty({ tag: "error", message: res.error }); return; }
+    const persons = res.preview.sunbiz_result?.persons ?? [];
+    setCountyPersonSel(new Set(persons.map((_, i) => i)));
+    setCounty({ tag: "previewing", preview: res.preview });
+  }
+
+  function handleCountyStart() {
+    setCounty({ tag: "searching" });
+    startTransition(async () => {
+      const res = await initiateCountyEnhancement(propertyId);
+      if ("error" in res) { setCounty({ tag: "error", message: res.error }); return; }
+      const { matches } = res;
+      if (matches.length === 1) {
+        await countyDoPreview(matches[0].strap, matches[0].address);
+      } else {
+        setCounty({ tag: "pick_folio", matches });
+      }
+    });
+  }
+
+  function handleCountyApply(preview: EnhancementPreview) {
+    const persons = preview.sunbiz_result?.persons ?? [];
+    const sunbizPersons = [...countyPersonSel]
+      .sort((a, b) => a - b)
+      .map((i) => persons[i])
+      .filter((p): p is SunbizPerson => p != null);
+
+    setCounty({ tag: "saving" });
+    startTransition(async () => {
+      const res = await applyCountyEnhancement(propertyId, preview.strap, preview.mdpaData, sunbizPersons);
+      if ("error" in res) { setCounty({ tag: "error", message: res.error }); return; }
+      setCounty({ tag: "done", changesCount: preview.changes.length, ownerContactsSaved: res.owner_contacts_saved });
+      // Update owner contacts locally so the promote section shows immediately
+      if (sunbizPersons.length > 0) {
+        setOwnerContacts(sunbizPersons.map((p) => ({ name: p.name, title: p.title ?? "", address: p.address ?? null })));
+      } else if (!isEntityOwner && preview.mdpaData.owner_name) {
+        setOwnerContacts([{ name: preview.mdpaData.owner_name!, title: "", address: preview.mdpaData.owner_mailing_address ?? null }]);
+      }
+      router.refresh();
+    });
+  }
+
+  // ── Sunbiz handlers ─────────────────────────────────────────────────────────
+
+  function handleSunbizLookup() {
+    setSunbiz({ tag: "loading" });
+    startTransition(async () => {
+      const res: SunbizLookupAction = await lookupSunbiz(propertyId);
+      if ("error" in res) { setSunbiz({ tag: "error", message: res.error }); return; }
+      if (!res.result) {
+        setSunbiz({ tag: "error", message: `No entity found on Sunbiz matching "${ownerName}". The name may be abbreviated or registered differently.` });
+        return;
+      }
+      setSunbizPersonSel(new Set(res.result.persons.map((_, i) => i)));
+      setSunbiz({ tag: "results", result: res.result, matches_found: res.matches_found });
+    });
+  }
+
+  function handleSunbizSave() {
+    if (sunbiz.tag !== "results") return;
+    const result = sunbiz.result;
+    const toSave = [...sunbizPersonSel]
+      .sort((a, b) => a - b)
+      .map((i) => result.persons[i])
+      .filter((p): p is SunbizPerson => p != null);
+    if (!toSave.length) return;
+
+    setSunbiz({ tag: "saving" });
+    startTransition(async () => {
+      const res = await saveSunbizOwnerContacts(propertyId, toSave);
+      if ("error" in res) { setSunbiz({ tag: "error", message: res.error }); return; }
+      setSunbiz({ tag: "saved", count: toSave.length });
+      setOwnerContacts(toSave.map((p) => ({ name: p.name, title: p.title ?? "", address: p.address ?? null })));
+      router.refresh();
+    });
+  }
+
+  // ── Owner contact handlers ───────────────────────────────────────────────────
+
+  function handleOwnerCreate() {
+    setOwnerContactError(null);
+    startTransition(async () => {
+      const result = await createOwnerContact(propertyId);
+      if (result.error) { setOwnerContactError(result.error); return; }
+      setOwnerCreated(true);
+      router.refresh();
+    });
+  }
+
+  function handleSunbizContactCreate(personIndex: number) {
+    setCreatingSunbizIdx(personIndex);
+    setOwnerContactError(null);
+    startTransition(async () => {
+      const result = await createContactFromSunbizOwner(propertyId, personIndex);
+      setCreatingSunbizIdx(null);
+      if (result.error) { setOwnerContactError(result.error); return; }
+      setPromotedIndices((prev) => new Set(prev).add(personIndex));
+      router.refresh();
+    });
+  }
+
+  // ── CoStar handlers ──────────────────────────────────────────────────────────
+
+  function handleCoStarParse() {
+    const file = fileRef.current?.files?.[0];
+    if (!file) return;
+    setCostar({ tag: "loading" });
+    const fd = new FormData();
+    fd.append("file", file);
+    startTransition(async () => {
+      const res = await parseCoStarFile(fd);
+      if ("error" in res) { setCostar({ tag: "error", message: res.error }); return; }
+      if (!res.owner.contacts.length) {
+        setCostar({ tag: "error", message: 'No contacts found. Make sure this is a CoStar "About the Owner" export.' });
+        return;
+      }
+      setCostarSel(new Set(res.owner.contacts.map((_, i) => i)));
+      setCostar({ tag: "results", owner: res.owner });
+    });
+  }
+
+  function handleCoStarSave() {
+    if (costar.tag !== "results") return;
+    const owner = costar.owner;
+    const toCreate: CoStarContact[] = [...costarSel]
+      .sort((a, b) => a - b)
+      .map((i) => owner.contacts[i])
+      .filter((c): c is CoStarContact => c != null);
+    setCostar({ tag: "saving" });
+    startTransition(async () => {
+      const res = await createCoStarContacts(propertyId, toCreate, owner.company_name);
+      if ("error" in res) { setCostar({ tag: "error", message: res.error }); return; }
+      setCostar({ tag: "saved", count: res.created });
+      router.refresh();
+    });
+  }
+
+  function resetCoStar() {
+    setCostar({ tag: "idle" });
+    setCostarSel(new Set());
+    setFileName(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  // ── Collapsed trigger ────────────────────────────────────────────────────────
+
+  if (!open) {
+    const sources = [
+      needsCountyEnhancement && "County data",
+      isEntityOwner && "Sunbiz owners",
+      "CoStar upload",
+    ].filter(Boolean) as string[];
+
+    const done: string[] = [];
+    if (!needsCountyEnhancement && isMdpa) done.push("County ✓");
+    if (ownerContacts.length > 0) done.push(`${ownerContacts.length} owner${ownerContacts.length !== 1 ? "s" : ""} saved`);
+
+    return (
+      <div className="rounded-xl border bg-card px-5 py-4 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold">Enrich property</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {done.length > 0 ? done.join(" · ") : sources.join(" · ")}
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)} className="shrink-0">
+          Enrich →
+        </Button>
+      </div>
+    );
+  }
+
+  // ── Open panel ───────────────────────────────────────────────────────────────
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="size-4" />
+            Enrich property
+          </CardTitle>
+          <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="size-4" />
+          </button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-7">
+
+        {/* ── Step 1: County data ─────────────────────────────────────── */}
+        {needsCountyEnhancement && (
+          <section className="space-y-3">
+            <SubHeader icon={MapPin} title="County data" />
+
+            {county.tag === "idle" && (
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Look up this property on Miami-Dade public records to fill in owner, sale, and building data.
+                </p>
+                <Button
+                  size="sm" variant="outline" onClick={handleCountyStart}
+                  className="shrink-0 border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  <MapPin className="size-3.5 mr-1.5" /> Run
+                </Button>
+              </div>
+            )}
+
+            {(county.tag === "searching" || county.tag === "loading_preview" || county.tag === "saving") && (
+              <Spinner label={
+                county.tag === "searching" ? "Searching Miami-Dade county records…" :
+                county.tag === "loading_preview" ? "Fetching MDPA detail, extracting fields, searching Sunbiz…" :
+                "Saving county data…"
+              } />
+            )}
+
+            {county.tag === "error" && (
+              <ErrorBox message={county.message} onBack={() => setCounty({ tag: "idle" })} />
+            )}
+
+            {county.tag === "pick_folio" && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">Multiple parcels found. Select the one that matches:</p>
+                <div className="space-y-1.5">
+                  {county.matches.map((m) => (
+                    <button
+                      key={m.strap}
+                      onClick={() => startTransition(async () => { await countyDoPreview(m.strap, m.address); })}
+                      className="w-full text-left flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm hover:bg-muted/40 transition-colors"
+                    >
+                      <span className="font-medium">{m.address}</span>
+                      <span className="font-mono text-xs text-muted-foreground shrink-0">{m.strap}</span>
+                    </button>
+                  ))}
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setCounty({ tag: "idle" })}>Cancel</Button>
+              </div>
+            )}
+
+            {county.tag === "previewing" && (() => {
+              const { preview } = county;
+              const sunbizPersons = preview.sunbiz_result?.persons ?? [];
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-mono">{preview.strap}</span>
+                    <span>·</span>
+                    <span>{preview.siteAddress}</span>
+                  </div>
+
+                  {preview.changes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">County data matches all existing values — nothing would change.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {preview.changes.length} field{preview.changes.length !== 1 ? "s" : ""} will change
+                      </p>
+                      <div className="rounded-lg border overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b bg-muted/30">
+                              <th className="text-left px-3 py-2 font-medium text-muted-foreground w-1/4">Field</th>
+                              <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">Current</th>
+                              <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">County (MDPA)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.changes.map((entry, i) => (
+                              <tr key={entry.field} className={cn("border-b last:border-0", i % 2 !== 0 && "bg-muted/10")}>
+                                <td className="px-3 py-2 text-muted-foreground">{entry.label}</td>
+                                <td className="px-3 py-2 text-red-700/80 line-through decoration-red-300/60 italic">
+                                  {entry.before ?? <span className="not-italic text-muted-foreground/40">—</span>}
+                                </td>
+                                <td className="px-3 py-2 font-medium text-green-700">
+                                  {entry.after ?? <span className="font-normal text-muted-foreground/40">—</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {preview.unchanged.length > 0 && (
+                    <button
+                      onClick={() => setShowUnchanged((v) => !v)}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showUnchanged ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+                      {showUnchanged ? "Hide" : "Show"} {preview.unchanged.length} unchanged field{preview.unchanged.length !== 1 ? "s" : ""}
+                    </button>
+                  )}
+                  {showUnchanged && preview.unchanged.length > 0 && (
+                    <div className="rounded-lg border overflow-hidden opacity-60">
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {preview.unchanged.map((entry, i) => (
+                            <tr key={entry.field} className={cn("border-b last:border-0", i % 2 !== 0 && "bg-muted/10")}>
+                              <td className="px-3 py-2 text-muted-foreground w-1/4">{entry.label}</td>
+                              <td className="px-3 py-2" colSpan={2}>{entry.before ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {preview.sunbiz_result && sunbizPersons.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                          <Building2 className="size-3.5" />
+                          Sunbiz — {preview.sunbiz_result.entity_name}
+                        </p>
+                        <a
+                          href={preview.sunbiz_result.source_url}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-primary underline underline-offset-2 flex items-center gap-0.5"
+                        >
+                          View ↗ <ExternalLink className="size-3" />
+                        </a>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Select persons to save — no CRM contacts created until you promote them below
+                      </p>
+                      <div className="space-y-1.5">
+                        {sunbizPersons.map((person, i) => (
+                          <label
+                            key={i}
+                            className={cn(
+                              "flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
+                              countyPersonSel.has(i) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setCountyPersonSel((prev) => {
+                                const next = new Set(prev);
+                                next.has(i) ? next.delete(i) : next.add(i);
+                                return next;
+                              })}
+                              className="shrink-0 mt-0.5 text-primary"
+                            >
+                              {countyPersonSel.has(i) ? <CheckSquare className="size-4" /> : <Square className="size-4 text-muted-foreground" />}
+                            </button>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">{person.name}</p>
+                              <p className="text-xs text-muted-foreground">{person.title}</p>
+                              {person.address && <p className="text-xs text-muted-foreground mt-0.5">{person.address}</p>}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {preview.sunbiz_error && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <AlertTriangle className="size-3.5 text-yellow-500 shrink-0" />
+                      Sunbiz: {preview.sunbiz_error}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      onClick={() => handleCountyApply(preview)}
+                      disabled={preview.changes.length === 0 && countyPersonSel.size === 0}
+                    >
+                      <ArrowRight className="size-3.5 mr-1.5" />
+                      {preview.changes.length === 0 && countyPersonSel.size === 0
+                        ? "Nothing to apply"
+                        : [
+                            preview.changes.length > 0 && `Apply ${preview.changes.length} field${preview.changes.length !== 1 ? "s" : ""}`,
+                            countyPersonSel.size > 0 && `save ${countyPersonSel.size} Sunbiz owner${countyPersonSel.size !== 1 ? "s" : ""}`,
+                          ].filter(Boolean).join(" · ")}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCounty({ tag: "idle" })}>Cancel</Button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {county.tag === "done" && (
+              <div className="flex items-start gap-2 text-sm">
+                <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-green-600" />
+                <div>
+                  <span className="text-green-700">
+                    {county.changesCount === 0
+                      ? "County data matched existing values — no changes made."
+                      : `${county.changesCount} field${county.changesCount !== 1 ? "s" : ""} updated with Miami-Dade county data.`}
+                  </span>
+                  {county.ownerContactsSaved > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {county.ownerContactsSaved} Sunbiz {county.ownerContactsSaved === 1 ? "person" : "persons"} saved — promote below.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Step 2: Florida Sunbiz (entity owners only) ─────────────── */}
+        {isEntityOwner && (
+          <section className="space-y-3">
+            <SubHeader icon={Building2} title="Florida Sunbiz" />
+
+            {/* Persons already on file */}
+            {ownerContacts.length > 0 && sunbiz.tag !== "results" && sunbiz.tag !== "saving" && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Persons on file:</p>
+                {ownerContacts.map((oc, i) => (
+                  <div key={i} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{oc.name}</p>
+                      {oc.title && <p className="text-xs text-muted-foreground">{oc.title}</p>}
+                      {oc.address && <p className="text-xs text-muted-foreground mt-0.5 truncate">{oc.address}</p>}
+                    </div>
+                    <OwnerPortfolioLink
+                      propertyId={propertyId}
+                      personIndex={i}
+                      label="Portfolio →"
+                      className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {sunbiz.tag === "idle" && (
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground">
+                  {ownerContacts.length > 0
+                    ? `Re-run Sunbiz lookup for ${ownerName ?? "owner"}.`
+                    : `Look up "${ownerName ?? "owner"}" in Florida public records.`}
+                </p>
+                <Button size="sm" variant="outline" onClick={handleSunbizLookup} className="shrink-0 flex items-center gap-1.5">
+                  <Search className="size-3.5" /> Look up
+                </Button>
+              </div>
+            )}
+
+            {sunbiz.tag === "loading" && <Spinner label="Searching Sunbiz and extracting persons…" />}
+
+            {sunbiz.tag === "error" && (
+              <ErrorBox message={sunbiz.message} onBack={() => setSunbiz({ tag: "idle" })} backLabel="Try again" />
+            )}
+
+            {(sunbiz.tag === "results" || sunbiz.tag === "saving") && (
+              <div className="space-y-4">
+                {sunbiz.tag === "results" && (
+                  <>
+                    <div className="flex items-start gap-3 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold">{sunbiz.result.entity_name}</p>
+                          <span className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                            SUNBIZ_STATUS_CLS[sunbiz.result.status] ?? "bg-muted text-muted-foreground",
+                          )}>
+                            {sunbiz.result.status}
+                          </span>
+                        </div>
+                      </div>
+                      <a
+                        href={sunbiz.result.source_url}
+                        target="_blank" rel="noopener noreferrer"
+                        className="shrink-0 flex items-center gap-1 text-xs text-primary underline underline-offset-2"
+                      >
+                        View on Sunbiz <ExternalLink className="size-3" />
+                      </a>
+                    </div>
+
+                    {sunbiz.result.persons.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          Select persons to save — no CRM contacts created until you promote them
+                        </p>
+                        <div className="space-y-1.5">
+                          {sunbiz.result.persons.map((person, i) => (
+                            <label
+                              key={i}
+                              className={cn(
+                                "flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
+                                sunbizPersonSel.has(i) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30",
+                              )}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setSunbizPersonSel((prev) => {
+                                  const next = new Set(prev);
+                                  next.has(i) ? next.delete(i) : next.add(i);
+                                  return next;
+                                })}
+                                className="shrink-0 mt-0.5 text-primary"
+                              >
+                                {sunbizPersonSel.has(i) ? <CheckSquare className="size-4" /> : <Square className="size-4 text-muted-foreground" />}
+                              </button>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium">{person.name}</p>
+                                <p className="text-xs text-muted-foreground">{person.title}</p>
+                                {person.address && <p className="text-xs text-muted-foreground mt-0.5">{person.address}</p>}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" onClick={handleSunbizSave} disabled={sunbizPersonSel.size === 0}>
+                        Save {sunbizPersonSel.size > 0 ? sunbizPersonSel.size : ""} to property
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSunbiz({ tag: "idle" })}>Cancel</Button>
+                    </div>
+                  </>
+                )}
+                {sunbiz.tag === "saving" && <Spinner label="Saving to property…" />}
+              </div>
+            )}
+
+            {sunbiz.tag === "saved" && (
+              <div className="space-y-1">
+                <p className="text-sm flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+                  {sunbiz.count} {sunbiz.count === 1 ? "person" : "persons"} saved to the property row — promote below.
+                </p>
+                <button
+                  onClick={() => { setSunbiz({ tag: "idle" }); setSunbizPersonSel(new Set()); }}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Look up again
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Step 3: Promote owner contacts to CRM ───────────────────── */}
+        <section className="space-y-3">
+          <SubHeader icon={UserPlus} title="Owner contacts" />
+
+          {/* Individual (non-entity) MDPA owner */}
+          {isMdpa && ownerName && !isEntityOwner && !ownerCreated && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Owner from MDPA</p>
+                <p className="text-sm font-medium mt-0.5 truncate">{ownerName}</p>
+              </div>
+              <button
+                onClick={handleOwnerCreate}
+                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                <UserPlus className="size-3.5" /> Create contact
+              </button>
+            </div>
+          )}
+          {isMdpa && ownerName && !isEntityOwner && ownerCreated && (
+            <p className="text-xs text-muted-foreground italic">
+              Owner contact created — tagged <span className="font-mono">mdpa_mailing</span> and <span className="font-mono">unverified</span>.
+            </p>
+          )}
+
+          {/* Entity owner — promote each Sunbiz person */}
+          {isEntityOwner && ownerContacts.length > 0 && (
+            <div className="space-y-1.5">
+              {ownerContacts.map((oc, i) => {
+                const isPromoted = promotedIndices.has(i);
+                return (
+                  <div key={i} className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Sunbiz owner{ownerContacts.length > 1 ? ` ${i + 1}` : ""}
+                      </p>
+                      <p className="text-sm font-medium mt-0.5 truncate">{oc.name}</p>
+                      {(oc.title || oc.address) && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {[oc.title, oc.address].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                      <OwnerPortfolioLink
+                        propertyId={propertyId}
+                        personIndex={i}
+                        label="Portfolio →"
+                        className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
+                      />
+                      {isPromoted ? (
+                        <span className="text-xs text-green-600 flex items-center gap-1">
+                          <CheckCircle2 className="size-3.5" /> In CRM
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleSunbizContactCreate(i)}
+                          disabled={creatingSunbizIdx === i}
+                          className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
+                        >
+                          {creatingSunbizIdx === i
+                            ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
+                            : <><UserPlus className="size-3.5" />Create contact</>}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {ownerContactError && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertTriangle className="size-3 shrink-0" /> {ownerContactError}
+            </p>
+          )}
+
+          {!isMdpa && !isEntityOwner && ownerContacts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {needsCountyEnhancement
+                ? "Run county data above to discover the owner."
+                : "No owner contacts found. Upload a CoStar file below or add a contact manually."}
+            </p>
+          )}
+          {isEntityOwner && ownerContacts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {needsCountyEnhancement
+                ? "Run county data above — it will auto-search Sunbiz for entity owners."
+                : "Run the Sunbiz lookup above to find registered agents and authorized persons."}
+            </p>
+          )}
+        </section>
+
+        {/* ── CoStar upload (collapsible) ─────────────────────────────── */}
+        <section>
+          <button
+            onClick={() => setCostarOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {costarOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            <FileText className="size-3.5" />
+            CoStar upload
+          </button>
+
+          {costarOpen && (
+            <div className="mt-3 space-y-3">
+              {costar.tag === "idle" && (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Upload a CoStar &ldquo;About the Owner&rdquo; export to extract contact information.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <label className="flex-1 cursor-pointer">
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept={COSTAR_ACCEPTED}
+                        className="sr-only"
+                        onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+                      />
+                      <div className={cn(
+                        "flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/40",
+                        fileName ? "border-primary/40 bg-primary/5 text-foreground" : "border-dashed text-muted-foreground",
+                      )}>
+                        <Upload className="size-3.5 shrink-0" />
+                        <span className="truncate">{fileName ?? "Choose file…"}</span>
+                      </div>
+                    </label>
+                    <Button size="sm" onClick={handleCoStarParse} disabled={!fileName} className="shrink-0">Parse</Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">PDF · JPG · PNG · WebP · CSV · TXT — max 10 MB</p>
+                </>
+              )}
+
+              {costar.tag === "loading" && <Spinner label="Parsing file and extracting owner contacts…" />}
+
+              {costar.tag === "error" && (
+                <ErrorBox message={costar.message} onBack={resetCoStar} backLabel="Try again" />
+              )}
+
+              {(costar.tag === "results" || costar.tag === "saving") && (
+                <div className="space-y-4">
+                  {costar.tag === "results" && (
+                    <>
+                      {(costar.owner.company_name || costar.owner.website || costar.owner.hq_address) && (
+                        <div className="rounded-lg bg-muted/30 border px-3 py-2.5 space-y-1.5">
+                          {costar.owner.company_name && (
+                            <div className="flex items-center gap-2">
+                              <Building2 className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-sm font-medium">{costar.owner.company_name}</span>
+                            </div>
+                          )}
+                          {costar.owner.hq_address && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-xs text-muted-foreground">{costar.owner.hq_address}</span>
+                            </div>
+                          )}
+                          {costar.owner.website && (
+                            <div className="flex items-center gap-2">
+                              <Globe className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-xs text-muted-foreground">{costar.owner.website}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          Select contacts to create — tagged{" "}
+                          <span className="font-mono normal-case">costar</span> and{" "}
+                          <span className="font-mono normal-case">unverified</span>
+                        </p>
+                        <div className="space-y-1.5">
+                          {costar.owner.contacts.map((contact, i) => (
+                            <label
+                              key={i}
+                              className={cn(
+                                "flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
+                                costarSel.has(i) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30",
+                              )}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setCostarSel((prev) => {
+                                  const next = new Set(prev);
+                                  next.has(i) ? next.delete(i) : next.add(i);
+                                  return next;
+                                })}
+                                className="shrink-0 mt-0.5 text-primary"
+                              >
+                                {costarSel.has(i) ? <CheckSquare className="size-4" /> : <Square className="size-4 text-muted-foreground" />}
+                              </button>
+                              <div className="min-w-0 space-y-0.5">
+                                <p className="text-sm font-medium">{contact.name}</p>
+                                {contact.title && <p className="text-xs text-muted-foreground">{contact.title}</p>}
+                                {contact.email && <p className="text-xs text-muted-foreground">{contact.email}</p>}
+                                {contact.phone && <p className="text-xs text-muted-foreground">{contact.phone}</p>}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <Button size="sm" onClick={handleCoStarSave} disabled={costarSel.size === 0}>
+                          Create {costarSel.size > 0 ? costarSel.size : ""}{" "}
+                          {costarSel.size === 1 ? "contact" : "contacts"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={resetCoStar}>Cancel</Button>
+                        <span className="ml-auto flex items-center text-xs text-muted-foreground">
+                          Source: CoStar · no data invented
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {costar.tag === "saving" && <Spinner label="Creating contacts…" />}
+                </div>
+              )}
+
+              {costar.tag === "saved" && (
+                <div className="space-y-2">
+                  <p className="text-sm text-foreground flex items-center gap-2">
+                    <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+                    {costar.count === 0
+                      ? "No contacts were created."
+                      : `${costar.count} ${costar.count === 1 ? "contact" : "contacts"} created, tagged costar and unverified. Verify before outreach.`}
+                  </p>
+                  <button
+                    onClick={resetCoStar}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    Upload another file
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+      </CardContent>
+    </Card>
+  );
+}

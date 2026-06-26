@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  Users, Plus, Loader2, Phone, Mail, MapPin, UserPlus, X,
+  Users, Plus, Loader2, Phone, Mail, MapPin, X,
   Zap, Clock, CalendarDays, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,8 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createContact } from "@/app/contacts/new/actions";
-import { createOwnerContact, createContactFromSunbizOwner } from "./actions";
-import type { StoredOwnerContact } from "@/lib/owner-contacts";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
@@ -244,20 +242,9 @@ function InlineDraftPanel({
 export function PropertyContactsSection({
   propertyId,
   initialContacts,
-  ownerName,
-  ownerMailingAddress,
-  ownerContacts = [],
-  isMdpa,
-  isEntityOwner = false,
 }: {
   propertyId: string;
   initialContacts: LinkedContact[];
-  ownerName?: string | null;
-  ownerMailingAddress?: string | null;
-  ownerContacts?: StoredOwnerContact[];
-  isMdpa?: boolean;
-  /** When false (individual MDPA owner), show MDPA promote only — not Sunbiz boxes. */
-  isEntityOwner?: boolean;
 }) {
   const [contacts, setContacts] = useState<LinkedContact[]>(initialContacts);
   const [showForm, setShowForm] = useState(false);
@@ -266,22 +253,6 @@ export function PropertyContactsSection({
   const [brokerContext, setBrokerContext] = useState("");
 
   const [phases, setPhases] = useState<Map<string, ContactPhase>>(new Map());
-
-  // Owner contact creation state
-  const [creatingOwner, setCreatingOwner] = useState(false);
-  const [ownerCreated, setOwnerCreated] = useState(false);
-  const [ownerError, setOwnerError] = useState<string | null>(null);
-  const [creatingSunbizIdx, setCreatingSunbizIdx] = useState<number | null>(null);
-  const [promotedSunbiz, setPromotedSunbiz] = useState<Set<number>>(new Set());
-  const [sunbizError, setSunbizError] = useState<string | null>(null);
-
-  function isSunbizPromoted(index: number, oc: StoredOwnerContact) {
-    return promotedSunbiz.has(index) || contacts.some(
-      (c) =>
-        c.action_tags?.includes("sunbiz") &&
-        c.name?.trim().toLowerCase() === oc.name.trim().toLowerCase()
-    );
-  }
 
   useEffect(() => {
     const saved = localStorage.getItem("beacon_broker_context");
@@ -294,44 +265,6 @@ export function PropertyContactsSection({
 
   function setPhase(id: string, phase: ContactPhase) {
     setPhases((prev) => new Map(prev).set(id, phase));
-  }
-
-  async function handleOwnerCreate() {
-    setCreatingOwner(true);
-    setOwnerError(null);
-    const result = await createOwnerContact(propertyId);
-    setCreatingOwner(false);
-    if (result.error) { setOwnerError(result.error); return; }
-    setContacts((prev) => [
-      ...prev,
-      {
-        id: result.id!,
-        name: ownerName ?? null,
-        email: null, phone: null, mailing_address: ownerMailingAddress ?? null,
-        company: null, role: null, contact_tier: null, next_action_due: null,
-      },
-    ]);
-    setOwnerCreated(true);
-  }
-
-  async function handleSunbizContactCreate(personIndex: number) {
-    setCreatingSunbizIdx(personIndex);
-    setSunbizError(null);
-    const oc = ownerContacts[personIndex];
-    const result = await createContactFromSunbizOwner(propertyId, personIndex);
-    setCreatingSunbizIdx(null);
-    if (result.error) { setSunbizError(result.error); return; }
-    setContacts((prev) => [
-      ...prev,
-      {
-        id: result.id!,
-        name: oc.name,
-        email: null, phone: null, mailing_address: oc.address,
-        company: null, role: oc.title || null, contact_tier: null, next_action_due: null,
-        action_tags: ["sunbiz", "unverified"],
-      },
-    ]);
-    setPromotedSunbiz((prev) => new Set(prev).add(personIndex));
   }
 
   async function handleStartOutreach(c: LinkedContact) {
@@ -385,9 +318,6 @@ export function PropertyContactsSection({
   const btnCls =
     "inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border border-border bg-background hover:bg-muted/60 transition-colors";
 
-  const PORTFOLIO_BTN_CLS =
-    "shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors";
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-3">
@@ -407,92 +337,8 @@ export function PropertyContactsSection({
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {/* One-click owner contact — individual MDPA owners only (entities use Sunbiz) */}
-        {isMdpa && ownerName && !isEntityOwner && !ownerCreated && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Owner from MDPA record</p>
-              <p className="text-sm font-medium mt-0.5 truncate">{ownerName}</p>
-              {ownerMailingAddress && (
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{ownerMailingAddress}</p>
-              )}
-              {ownerError && <p className="text-xs text-destructive mt-1">{ownerError}</p>}
-            </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-              <OwnerPortfolioLink
-                propertyId={propertyId}
-                personIndex={0}
-                label="Portfolio →"
-                className={PORTFOLIO_BTN_CLS}
-              />
-              <button
-                onClick={handleOwnerCreate}
-                disabled={creatingOwner}
-                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
-              >
-                {creatingOwner
-                  ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
-                  : <><UserPlus className="size-3.5" />Create contact</>}
-              </button>
-            </div>
-          </div>
-        )}
-        {isMdpa && ownerName && !isEntityOwner && ownerCreated && (
-          <p className="text-xs text-muted-foreground italic">
-            Owner contact created — tagged <span className="font-mono">mdpa_mailing</span> and <span className="font-mono">unverified</span>.
-          </p>
-        )}
-
-        {/* Optional promote each Sunbiz owner on the property row to a CRM contact */}
-        {isEntityOwner && ownerContacts.map((oc, i) => {
-          if (isSunbizPromoted(i, oc)) return null;
-          return (
-            <div key={i} className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Owner from Sunbiz{ownerContacts.length > 1 ? ` (${i + 1})` : ""}
-                </p>
-                <p className="text-sm font-medium mt-0.5 truncate">{oc.name}</p>
-                {(oc.title || oc.address) && (
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {[oc.title, oc.address].filter(Boolean).join(" · ")}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                <OwnerPortfolioLink
-                  propertyId={propertyId}
-                  personIndex={i}
-                  label="Portfolio →"
-                  className={PORTFOLIO_BTN_CLS}
-                />
-                <button
-                  onClick={() => handleSunbizContactCreate(i)}
-                  disabled={creatingSunbizIdx === i}
-                  className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
-                >
-                  {creatingSunbizIdx === i
-                    ? <><Loader2 className="size-3.5 animate-spin" />Creating…</>
-                    : <><UserPlus className="size-3.5" />Create contact from this owner</>}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-        {sunbizError && (
-          <p className="text-xs text-destructive">{sunbizError}</p>
-        )}
-        {isEntityOwner && ownerContacts.length > 0 && ownerContacts.every((oc, i) => isSunbizPromoted(i, oc)) && (
-          <p className="text-xs text-muted-foreground italic">
-            All Sunbiz owners promoted to contacts — tagged <span className="font-mono">sunbiz</span> and <span className="font-mono">unverified</span>.
-          </p>
-        )}
-
         {/* Empty state */}
-        {contacts.length === 0 && !showForm && !isMdpa && (
-          <p className="text-sm text-muted-foreground">No contacts linked to this property.</p>
-        )}
-        {contacts.length === 0 && !showForm && isMdpa && !ownerName && (
+        {contacts.length === 0 && !showForm && (
           <p className="text-sm text-muted-foreground">No contacts linked to this property.</p>
         )}
 

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, CalendarDays, DollarSign, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin, SlidersHorizontal, Check, Mail } from "lucide-react";
 import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
+import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
 import { interpretSearch, deleteProperty, deleteContact, deleteLease, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { SmartListsBar, BarModeToggle, SearchListActions } from "./smart-lists-bar";
 import { primaryTabForSearch, resolveSavableSearchResult } from "@/lib/crm-search-filters";
@@ -707,6 +708,9 @@ function PropertiesTable({
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  selectedIds,
+  onToggle,
+  onToggleAll,
 }: {
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo[]>;
@@ -718,6 +722,9 @@ function PropertiesTable({
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: (allSelected: boolean) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -741,6 +748,18 @@ function PropertiesTable({
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
+            <th className={cn(thCls, "w-8 pl-3 pr-1")}>
+              <input
+                type="checkbox"
+                aria-label="Select all"
+                checked={rows.length > 0 && rows.every((r) => selectedIds.has(r.id))}
+                ref={(el) => {
+                  if (el) el.indeterminate = rows.some((r) => selectedIds.has(r.id)) && !rows.every((r) => selectedIds.has(r.id));
+                }}
+                onChange={(e) => onToggleAll(e.target.checked)}
+                className="cursor-pointer accent-primary"
+              />
+            </th>
             <th className={cn(thR, "w-12", col("prospect"))} style={colStyle("prospect")}>Prospect #<RH col="prospect" onStart={startResize} /></th>
             <th className={cn(thCls, col("owner"))} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
             <th className={thCls} style={colStyle("address")}>Property Address<RH col="address" onStart={startResize} /></th>
@@ -780,7 +799,17 @@ function PropertiesTable({
               onSave(p.id, "owner_contacts", next.filter((oc) => oc.name.trim()));
             }
             return (
-              <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5")}>
+              <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5", selectedIds.has(p.id) && "bg-primary/5")}>
+                {/* Select */}
+                <td className={cn(tdCls, "w-8 pl-3 pr-1")}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${p.address ?? p.id}`}
+                    checked={selectedIds.has(p.id)}
+                    onChange={() => onToggle(p.id)}
+                    className="cursor-pointer accent-primary"
+                  />
+                </td>
                 {/* Prospect # */}
                 <td className={cn(tdR, "w-12 font-mono", col("prospect"))}>
                   <EditableText
@@ -1490,6 +1519,36 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     } catch { /* ignore malformed payload */ }
   }, []);
 
+  // ── Selection + bulk enrich state ─────────────────────────────────────────
+  const [selectedPropIds, setSelectedPropIds] = useState<Set<string>>(new Set());
+  const [enrichPanelOpen, setEnrichPanelOpen] = useState(false);
+
+  useEffect(() => {
+    setSelectedPropIds(new Set());
+  }, [properties]);
+
+  function togglePropSelection(id: string) {
+    setSelectedPropIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllProps(allSelected: boolean) {
+    setSelectedPropIds(allSelected ? new Set(properties.map((p) => p.id)) : new Set());
+  }
+
+  const selectedProperties: BulkProperty[] = properties
+    .filter((p) => selectedPropIds.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      address: p.address,
+      source: p.source,
+      source_url: p.source_url,
+      owner_name: p.owner_name,
+    }));
+
   // ── Delete state ───────────────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -1889,15 +1948,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         )}
 
         <div className="shrink-0 flex items-center gap-2 ml-auto">
-          <Link href="/contacts/new" className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors">
-            + Contact
-          </Link>
-          <Link href="/abstracts/new" className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors">
-            + Abstract
-          </Link>
-          <Link href="/properties/new" className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors">
-            + Property
-          </Link>
           <a
             href="/api/export/properties"
             download="beacon-properties.xlsx"
@@ -2090,7 +2140,17 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           Clear filters
                         </button>
                       )}
-                      <div className="ml-auto shrink-0">
+                      <div className="ml-auto shrink-0 flex items-center gap-2">
+                        {selectedPropIds.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setEnrichPanelOpen(true)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-primary/40 bg-primary/5 text-primary font-medium hover:bg-primary/10 transition-colors"
+                          >
+                            <Sparkles className="size-3" />
+                            Enrich {selectedPropIds.size} selected
+                          </button>
+                        )}
                         <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} />
                       </div>
                     </>
@@ -2174,6 +2234,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onDeleteRequest={setDeletingId}
                   onDeleteConfirm={handleDeleteConfirm}
                   onDeleteCancel={() => setDeletingId(null)}
+                  selectedIds={selectedPropIds}
+                  onToggle={togglePropSelection}
+                  onToggleAll={toggleAllProps}
                 />
               </div>
             )
@@ -2238,6 +2301,19 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           />
         )}
       </div>
+
+      {/* Bulk enrichment panel */}
+      {enrichPanelOpen && selectedProperties.length > 0 && (
+        <BulkEnrichPanel
+          properties={selectedProperties}
+          onClose={() => setEnrichPanelOpen(false)}
+          onDone={() => {
+            setEnrichPanelOpen(false);
+            setSelectedPropIds(new Set());
+            loadProperties();
+          }}
+        />
+      )}
     </div>
   );
 }

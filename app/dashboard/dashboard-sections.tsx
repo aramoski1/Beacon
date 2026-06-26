@@ -1,12 +1,5 @@
 import Link from "next/link";
 import {
-  Building2,
-  Users,
-  FileText,
-  Link2,
-  Upload,
-  Plus,
-  LayoutGrid,
   ShieldAlert,
   AlertTriangle,
   CalendarClock,
@@ -20,7 +13,6 @@ import {
   TrendingUp,
   MapPin,
   Target,
-  Zap,
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -235,43 +227,6 @@ export function CadencePanel({ cadence }: { cadence: CadenceHealth }) {
             </div>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Quick actions ────────────────────────────────────────────────────────────
-
-const QUICK_ACTIONS = [
-  { href: "/properties/new",              icon: Building2,  label: "Tax roll lookup", desc: "Miami-Dade GIS" },
-  { href: "/properties/new?method=upload", icon: Upload,    label: "Upload file",     desc: "CoStar, PDF, CSV" },
-  { href: "/abstracts/new",               icon: FileText,   label: "Abstract lease",  desc: "AI extraction" },
-  { href: "/contacts/new",                icon: Plus,       label: "Add contact",     desc: "Owner or tenant" },
-  { href: "/crm",                         icon: LayoutGrid, label: "Full CRM",        desc: "All records" },
-  { href: "/properties/new?method=url",   icon: Link2,      label: "From URL",        desc: "Paste listing" },
-];
-
-export function QuickActionsPanel() {
-  return (
-    <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
-          <Zap className="size-3.5 text-muted-foreground" />
-          Launchpad
-        </span>
-      </div>
-      <div className="p-3 grid grid-cols-2 gap-2">
-        {QUICK_ACTIONS.map(({ href, icon: Icon, label, desc }) => (
-          <Link
-            key={href}
-            href={href}
-            className="rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/50"
-          >
-            <Icon className="size-4 text-muted-foreground mb-1.5" />
-            <p className="text-xs font-semibold leading-tight">{label}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{desc}</p>
-          </Link>
-        ))}
       </div>
     </div>
   );
