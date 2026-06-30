@@ -23,15 +23,6 @@ export type RecentActivity = {
   property_address: string | null;
 };
 
-export type ExpiringLease = {
-  id: string;
-  expiration_date: string;
-  source_document: string | null;
-  base_rate: number | null;
-  daysUntilExpiry: number;
-  property_id: string | null;
-  property_address: string | null;
-};
 
 export type UnworkedOpportunity = {
   id: string;
@@ -80,6 +71,24 @@ export type DataHealth = {
   totalProperties: number;
 };
 
+export type StaleTier1Owner = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  company: string | null;
+  daysSince: number;
+  property_id: string | null;
+  property_address: string | null;
+};
+
+export type OwnershipChangedProperty = {
+  id: string;
+  address: string | null;
+  previous_owner: string | null;
+  new_owner: string | null;
+  detected_at: string;
+};
+
 export type BriefingMetrics = {
   overdueOutreach: number;
   dueTodayOutreach: number;
@@ -91,6 +100,7 @@ export type BriefingMetrics = {
   actionItems: number;
   unworkedOpportunities: number;
   coldTier1: number;
+  ownershipChanges: number;
 };
 
 export type CadenceHealth = {
@@ -189,41 +199,6 @@ export async function getRecentActivities(): Promise<RecentActivity[]> {
   }));
 }
 
-export async function getExpiringLeases(): Promise<{ items: ExpiringLease[]; total: number }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { items: [], total: 0 };
-
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const cutoff = new Date(now.getTime() + 90 * 86_400_000).toISOString().slice(0, 10);
-
-  const { data, count } = await supabase
-    .from("lease_abstracts")
-    .select("id, expiration_date, source_document, base_rate, linked_property, properties(address)", { count: "exact" })
-    .eq("owner_id", user.id)
-    .not("expiration_date", "is", null)
-    .gte("expiration_date", today)
-    .lte("expiration_date", cutoff)
-    .order("expiration_date", { ascending: true })
-    .limit(8);
-
-  const items = (data ?? []).map((row) => {
-    const exp = new Date(row.expiration_date!).getTime();
-    const prop = row.properties as unknown as { address: string | null } | null;
-    return {
-      id:               row.id,
-      expiration_date:  row.expiration_date!,
-      source_document:  row.source_document,
-      base_rate:        row.base_rate,
-      daysUntilExpiry:  Math.ceil((exp - now.getTime()) / 86_400_000),
-      property_id:      row.linked_property as string | null,
-      property_address: prop?.address ?? null,
-    };
-  });
-
-  return { items, total: count ?? items.length };
-}
 
 export async function getPortfolioSnapshot(): Promise<PortfolioSnapshot> {
   const supabase = await createClient();
@@ -533,14 +508,86 @@ export async function getDashboardDelta(sinceIso: string): Promise<DashboardDelt
   };
 }
 
+export async function getStaleTier1Owners(limit = 6): Promise<StaleTier1Owner[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
+
+  const { data: contacts } = await supabase
+    .from("contacts")
+    .select("id, name, email, company, contact_tier, contact_type, last_contacted_at, linked_properties")
+    .eq("owner_id", user.id)
+    .eq("contact_tier", 1)
+    .eq("contact_type", "owner")
+    .or(`last_contacted_at.is.null,last_contacted_at.lt.${cutoff}`);
+
+  const sorted = (contacts ?? [])
+    .map((c) => {
+      const daysSince = c.last_contacted_at
+        ? Math.floor((Date.now() - new Date(c.last_contacted_at as string).getTime()) / 86_400_000)
+        : 999;
+      return { ...c, daysSince };
+    })
+    .sort((a, b) => b.daysSince - a.daysSince)
+    .slice(0, limit);
+
+  const propIds = [...new Set(sorted.flatMap((c) => (c.linked_properties as string[] | null) ?? []).slice(0, limit * 2))];
+  const propMap = new Map<string, string | null>();
+  if (propIds.length > 0) {
+    const { data: props } = await supabase.from("properties").select("id, address").in("id", propIds);
+    for (const p of props ?? []) propMap.set(p.id, p.address);
+  }
+
+  return sorted.map((c) => {
+    const pid = ((c.linked_properties as string[] | null) ?? [])[0] ?? null;
+    return {
+      id: c.id,
+      name: c.name,
+      email: c.email,
+      company: c.company,
+      daysSince: c.daysSince,
+      property_id: pid,
+      property_address: pid ? propMap.get(pid) ?? null : null,
+    };
+  });
+}
+
+export async function getOwnershipChangedProperties(): Promise<OwnershipChangedProperty[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("properties")
+    .select("id, address, ownership_change_detected_at, ownership_change_data")
+    .eq("owner_id", user.id)
+    .not("ownership_change_detected_at", "is", null)
+    .order("ownership_change_detected_at", { ascending: false })
+    .limit(10);
+
+  return (data ?? []).map((row) => {
+    const d = row.ownership_change_data as { previous_owner?: string | null; new_owner?: string | null } | null;
+    return {
+      id:             row.id,
+      address:        row.address,
+      previous_owner: d?.previous_owner ?? null,
+      new_owner:      d?.new_owner ?? null,
+      detected_at:    row.ownership_change_detected_at as string,
+    };
+  });
+}
+
 export async function getBriefingMetrics(
   overdueOutreach: number,
   dueTodayOutreach: number,
   followUpsOverdue: number,
   followUpsToday: number,
+  expiringLeasesCount: number,
+  ownershipChangesCount: number,
 ): Promise<BriefingMetrics> {
-  const [expiring, activitiesThisWeek, dataHealth, unworked, coldTier1] = await Promise.all([
-    getExpiringLeases(),
+  const [activitiesThisWeek, dataHealth, unworked, coldTier1] = await Promise.all([
     getActivitiesThisWeek(),
     getDataHealth(),
     getUnworkedOpportunities(20),
@@ -548,19 +595,20 @@ export async function getBriefingMetrics(
   ]);
 
   const actionItems =
-    overdueOutreach + followUpsOverdue + expiring.total + dataHealth.ingestionErrors + dataHealth.flaggedProperties
-    + unworked.length + coldTier1.length;
+    overdueOutreach + followUpsOverdue + expiringLeasesCount + dataHealth.ingestionErrors + dataHealth.flaggedProperties
+    + unworked.length + coldTier1.length + ownershipChangesCount;
 
   return {
     overdueOutreach,
     dueTodayOutreach,
     followUpsOverdue,
     followUpsToday,
-    expiringLeases:    expiring.total,
+    expiringLeases:        expiringLeasesCount,
     activitiesThisWeek,
-    dataIssues:        dataHealth.ingestionErrors + dataHealth.flaggedProperties,
+    dataIssues:            dataHealth.ingestionErrors + dataHealth.flaggedProperties,
     actionItems,
     unworkedOpportunities: unworked.length,
-    coldTier1: coldTier1.length,
+    coldTier1:             coldTier1.length,
+    ownershipChanges:      ownershipChangesCount,
   };
 }

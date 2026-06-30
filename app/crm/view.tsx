@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, CalendarDays, DollarSign, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, MapPin, SlidersHorizontal, Check, Mail } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail } from "lucide-react";
 import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
 import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
@@ -593,6 +593,8 @@ function ColVisPopover({
 
 const thCls = "px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative";
 const tdCls = "px-3 py-2 align-middle border-b border-border/50";
+const thR = cn(thCls, "text-right");
+const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
 
 // ─── Column resize ────────────────────────────────────────────────────────────
 
@@ -738,13 +740,11 @@ function PropertiesTable({
     );
   }
 
-  const thR = cn(thCls, "text-right");
-  const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
   const { startResize, cs: colStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
 
   return (
-    <div className="overflow-x-auto">
+    <div>
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
@@ -1108,7 +1108,7 @@ function ContactsTable({
 
   return (
     <>
-    <div className="overflow-x-auto">
+    <div>
       <Popup popup={cPopup} onClose={() => setCPopup(null)} />
       <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
@@ -1300,7 +1300,7 @@ function LeasesTable({
   const { startResize: lStartResize, cs: lColStyle } = useColResize();
 
   return (
-    <div className="overflow-x-auto">
+    <div>
       <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
@@ -1309,7 +1309,7 @@ function LeasesTable({
             <th className={thCls} style={lColStyle("exec")}>Execution<RH col="exec" onStart={lStartResize} /></th>
             <th className={thCls} style={lColStyle("exp")}>Expiration<RH col="exp" onStart={lStartResize} /></th>
             <th className={thCls} style={lColStyle("term")}>Term<RH col="term" onStart={lStartResize} /></th>
-            <th className={thCls} style={lColStyle("rate")}>Base rate<RH col="rate" onStart={lStartResize} /></th>
+            <th className={thR} style={lColStyle("rate")}>Base rate<RH col="rate" onStart={lStartResize} /></th>
             <th className={thCls} style={lColStyle("added")}>Added<RH col="added" onStart={lStartResize} /></th>
             <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
@@ -1347,14 +1347,8 @@ function LeasesTable({
                 <td className={tdCls}>
                   <span className="text-muted-foreground whitespace-nowrap">{a.term ?? "—"}</span>
                 </td>
-                <td className={tdCls}>
-                  <span className="text-muted-foreground whitespace-nowrap">
-                    {a.base_rate != null ? (
-                      <span className="flex items-center gap-0.5">
-                        <DollarSign className="size-3" />{a.base_rate}/sf
-                      </span>
-                    ) : "—"}
-                  </span>
+                <td className={tdR}>
+                  {a.base_rate != null ? `$${a.base_rate}/sf` : "—"}
                 </td>
                 <td className={tdCls}>
                   <span className="text-muted-foreground text-xs whitespace-nowrap">

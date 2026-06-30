@@ -4,10 +4,11 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   CheckSquare, CheckCircle2, Plus, Loader2, Building2, User,
-  AlertTriangle, X,
+  AlertTriangle, X, CalendarClock, Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ComposeOutreach } from "@/components/compose-outreach";
 import {
   markFollowUpDone,
   createFollowUp,
@@ -37,80 +38,152 @@ function dueBadge(due: string) {
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
 
-function FollowUpRow({
+function FollowUpItemRow({
   row,
   onDone,
+  userEmail,
 }: {
   row: FollowUpRow;
   onDone: (id: string) => void;
+  userEmail: string | null;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [composeOpen, setComposeOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const isOverdue = row.due_date < today;
   const badge = dueBadge(row.due_date);
+  const canCompose = !!row.contact_id;
 
   return (
-    <tr className={cn(
-      "group hover:bg-muted/30 transition-colors",
-      isOverdue && "bg-destructive/5 hover:bg-destructive/10"
-    )}>
-      <td className="px-4 py-3 w-8">
-        <button
-          onClick={() => startTransition(async () => {
-            const res = await markFollowUpDone(row.id);
-            if (!res.error) onDone(row.id);
-          })}
-          disabled={isPending}
-          className={cn(
-            "rounded transition-colors",
-            isPending ? "text-muted-foreground" :
-              isOverdue ? "text-destructive hover:text-destructive/70" :
-              "text-muted-foreground hover:text-primary"
+    <>
+      <tr className={cn(
+        "group hover:bg-muted/30 transition-colors",
+        isOverdue && "bg-destructive/5 hover:bg-destructive/10"
+      )}>
+        {/* Mark done */}
+        <td className="px-4 py-3 w-8">
+          <button
+            onClick={() => startTransition(async () => {
+              const res = await markFollowUpDone(row.id);
+              if (!res.error) onDone(row.id);
+            })}
+            disabled={isPending}
+            className={cn(
+              "rounded transition-colors",
+              isPending ? "text-muted-foreground" :
+                isOverdue ? "text-destructive hover:text-destructive/70" :
+                "text-muted-foreground hover:text-primary"
+            )}
+            title="Mark done"
+          >
+            {isPending
+              ? <Loader2 className="size-4 animate-spin" />
+              : <CheckSquare className="size-4" />}
+          </button>
+        </td>
+
+        {/* Description */}
+        <td className="px-4 py-3">
+          <div className="flex items-start gap-2">
+            <p className={cn("text-sm font-medium", isOverdue && "text-destructive")}>
+              {row.description}
+            </p>
+            {row.source_type === "lease_expiry" && (
+              <span className="inline-flex items-center gap-1 shrink-0 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 mt-0.5">
+                <CalendarClock className="size-2.5" />
+                Lease
+              </span>
+            )}
+          </div>
+        </td>
+
+        {/* Contact */}
+        <td className="px-4 py-3 hidden sm:table-cell">
+          {row.contact_id ? (
+            <Link
+              href={`/contacts/${row.contact_id}`}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
+            >
+              <User className="size-3.5 shrink-0" />
+              {row.contact_name ?? "—"}
+            </Link>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
           )}
-          title="Mark done"
-        >
-          {isPending
-            ? <Loader2 className="size-4 animate-spin" />
-            : <CheckSquare className="size-4" />}
-        </button>
-      </td>
-      <td className="px-4 py-3">
-        <p className={cn("text-sm font-medium", isOverdue && "text-destructive")}>
-          {row.description}
-        </p>
-      </td>
-      <td className="px-4 py-3 hidden sm:table-cell">
-        {row.contact_id ? (
-          <Link
-            href={`/contacts/${row.contact_id}`}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
-          >
-            <User className="size-3.5 shrink-0" />
-            {row.contact_name ?? "—"}
-          </Link>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3 hidden md:table-cell">
-        {row.property_id ? (
-          <Link
-            href={`/properties/${row.property_id}`}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit max-w-[200px]"
-          >
-            <Building2 className="size-3.5 shrink-0" />
-            <span className="truncate">{row.property_address ?? "—"}</span>
-          </Link>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs", badge.cls)}>
-          {badge.label}
-        </span>
-      </td>
-    </tr>
+        </td>
+
+        {/* Property */}
+        <td className="px-4 py-3 hidden md:table-cell">
+          {row.property_id ? (
+            <Link
+              href={`/properties/${row.property_id}`}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit max-w-[200px]"
+            >
+              <Building2 className="size-3.5 shrink-0" />
+              <span className="truncate">{row.property_address ?? "—"}</span>
+            </Link>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
+        </td>
+
+        {/* Due badge */}
+        <td className="px-4 py-3">
+          <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs", badge.cls)}>
+            {badge.label}
+          </span>
+        </td>
+
+        {/* Email action */}
+        <td className="px-4 py-3 w-8">
+          {canCompose && (
+            <button
+              onClick={() => setComposeOpen((v) => !v)}
+              className={cn(
+                "transition-colors opacity-0 group-hover:opacity-100",
+                composeOpen ? "opacity-100 text-primary" : "text-muted-foreground hover:text-primary"
+              )}
+              title={composeOpen ? "Close compose" : "Compose outreach"}
+            >
+              <Mail className="size-4" />
+            </button>
+          )}
+        </td>
+      </tr>
+
+      {/* Inline compose panel */}
+      {composeOpen && row.contact_id && (
+        <tr>
+          <td colSpan={6} className="px-4 pb-4 pt-1">
+            <div className="rounded-lg border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-medium">
+                  Email {row.contact_name ?? "contact"}
+                  {row.contact_email && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">{row.contact_email}</span>
+                  )}
+                </p>
+                <button
+                  onClick={() => setComposeOpen(false)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  title="Close"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <ComposeOutreach
+                contactId={row.contact_id}
+                contactName={row.contact_name}
+                contactEmail={row.contact_email}
+                userEmail={userEmail}
+                onSent={() => {}}
+                onDone={() => setComposeOpen(false)}
+              />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -197,7 +270,13 @@ function AddFollowUpForm({
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 
-export function FollowUpsView({ initialFollowUps }: { initialFollowUps: FollowUpRow[] }) {
+export function FollowUpsView({
+  initialFollowUps,
+  userEmail,
+}: {
+  initialFollowUps: FollowUpRow[];
+  userEmail: string | null;
+}) {
   const [followUps, setFollowUps] = useState<FollowUpRow[]>(initialFollowUps);
   const [showDone, setShowDone]   = useState(false);
   const [showAdd, setShowAdd]     = useState(false);
@@ -247,7 +326,7 @@ export function FollowUpsView({ initialFollowUps }: { initialFollowUps: FollowUp
           <table className="w-full text-sm">
             <tbody className="divide-y">
               {rows.map((r) => (
-                <FollowUpRow key={r.id} row={r} onDone={handleDone} />
+                <FollowUpItemRow key={r.id} row={r} onDone={handleDone} userEmail={userEmail} />
               ))}
             </tbody>
           </table>

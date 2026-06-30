@@ -14,7 +14,10 @@ export type FollowUpRow = {
   done_at: string | null;
   created_at: string;
   contact_name: string | null;
+  contact_email: string | null;
   property_address: string | null;
+  source_type: string;    // 'manual' | 'lease_expiry'
+  lease_id: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -28,9 +31,12 @@ function mapRow(row: {
   done: boolean;
   done_at: string | null;
   created_at: string;
+  source_type: string | null;
+  lease_id: string | null;
   contacts: unknown;
   properties: unknown;
 }): FollowUpRow {
+  const contact = row.contacts as { name: string | null; email: string | null } | null;
   return {
     id:               row.id,
     contact_id:       row.contact_id,
@@ -40,8 +46,11 @@ function mapRow(row: {
     done:             row.done,
     done_at:          row.done_at,
     created_at:       row.created_at,
-    contact_name:     (row.contacts as { name: string | null } | null)?.name ?? null,
+    contact_name:     contact?.name  ?? null,
+    contact_email:    contact?.email ?? null,
     property_address: (row.properties as { address: string | null } | null)?.address ?? null,
+    source_type:      row.source_type ?? "manual",
+    lease_id:         row.lease_id,
   };
 }
 
@@ -114,7 +123,7 @@ export async function getFollowUps(
   let query = supabase
     .from("follow_ups")
     .select(
-      "id, contact_id, property_id, due_date, description, done, done_at, created_at, contacts(name), properties(address)"
+      "id, contact_id, property_id, due_date, description, done, done_at, created_at, source_type, lease_id, contacts(name, email), properties(address)"
     )
     .eq("owner_id", user.id)
     .order("due_date", { ascending: true });
@@ -142,7 +151,7 @@ export async function getFollowUpsDashboard(): Promise<{
   const { data } = await supabase
     .from("follow_ups")
     .select(
-      "id, contact_id, property_id, due_date, description, done, done_at, created_at, contacts(name), properties(address)"
+      "id, contact_id, property_id, due_date, description, done, done_at, created_at, source_type, lease_id, contacts(name, email), properties(address)"
     )
     .eq("owner_id", user.id)
     .eq("done", false)
@@ -168,7 +177,7 @@ export async function getUpcomingFollowUps(limit = 8): Promise<FollowUpRow[]> {
   const { data } = await supabase
     .from("follow_ups")
     .select(
-      "id, contact_id, property_id, due_date, description, done, done_at, created_at, contacts(name), properties(address)"
+      "id, contact_id, property_id, due_date, description, done, done_at, created_at, source_type, lease_id, contacts(name, email), properties(address)"
     )
     .eq("owner_id", user.id)
     .eq("done", false)

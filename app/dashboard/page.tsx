@@ -6,7 +6,6 @@ import { getFollowUpsDashboard, getUpcomingFollowUps } from "@/app/follow-ups/ac
 import {
   getDashboardStats,
   getRecentActivities,
-  getExpiringLeases,
   getPortfolioSnapshot,
   getDataHealth,
   getCadenceHealth,
@@ -14,6 +13,8 @@ import {
   getUnworkedOpportunities,
   getColdTier1Contacts,
   getWeekMomentum,
+  getStaleTier1Owners,
+  getOwnershipChangedProperties,
 } from "./actions";
 import { DashboardSearch } from "./dashboard-search";
 import { NeedsAttentionToday } from "./needs-attention";
@@ -36,7 +37,9 @@ import {
   CadencePanel,
   PortfolioPanel,
   DataHealthPanel,
+  OwnershipChangedPanel,
 } from "./dashboard-sections";
+import { StaleTier1OwnersPanel } from "./stale-owner-panel";
 
 function greeting() {
   const h = new Date().getHours();
@@ -62,7 +65,6 @@ export default async function DashboardPage() {
     recentActivities,
     followUpsDash,
     upcomingFollowUps,
-    expiringLeases,
     leaseRadar,
     portfolio,
     cadence,
@@ -70,13 +72,14 @@ export default async function DashboardPage() {
     unworked,
     coldTier1,
     momentum,
+    staleTier1Owners,
+    ownershipChangedProperties,
   ] = await Promise.all([
     getDueContacts(),
     getDashboardStats(),
     getRecentActivities(),
     getFollowUpsDashboard(),
     getUpcomingFollowUps(8),
-    getExpiringLeases(),
     getLeaseRadarData(),
     getPortfolioSnapshot(),
     getCadenceHealth(),
@@ -84,6 +87,8 @@ export default async function DashboardPage() {
     getUnworkedOpportunities(6),
     getColdTier1Contacts(6),
     getWeekMomentum(),
+    getStaleTier1Owners(5),
+    getOwnershipChangedProperties(),
   ]);
 
   const overdueOutreach = dueContacts.filter((c) => c.daysOverdue > 0).length;
@@ -99,6 +104,8 @@ export default async function DashboardPage() {
     dueTodayOutreach,
     followUpsDash.overdue.length,
     followUpsDash.today.length,
+    leaseRadar.urgentCount,
+    ownershipChangedProperties.length,
   );
 
   const today = new Date().toLocaleDateString("en-US", {
@@ -192,6 +199,22 @@ export default async function DashboardPage() {
             />
             <ColdTier1Panel items={coldTier1} />
           </section>
+
+          {staleTier1Owners.length > 0 && (
+            <section className="space-y-3">
+              <SectionHeader
+                title="Tier-1 owners not contacted"
+                badge={
+                  <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
+                    {staleTier1Owners.length}
+                  </span>
+                }
+                href="/outreach"
+                hrefLabel="Outreach →"
+              />
+              <StaleTier1OwnersPanel items={staleTier1Owners} userEmail={user.email} />
+            </section>
+          )}
         </div>
       </div>
 
@@ -233,7 +256,10 @@ export default async function DashboardPage() {
         </div>
 
         <div className="space-y-4">
-          <ExpiringLeasesPanel items={expiringLeases.items.slice(0, 6)} total={expiringLeases.total} />
+          <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
+          {ownershipChangedProperties.length > 0 && (
+            <OwnershipChangedPanel items={ownershipChangedProperties} />
+          )}
           <PortfolioPanel portfolio={portfolio} />
           <DataHealthPanel health={dataHealth} />
         </div>

@@ -7,7 +7,6 @@ import {
   Building2,
   User,
   Tag,
-  Clock,
   ArrowLeft,
   CalendarDays,
 } from "lucide-react";
@@ -16,20 +15,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
-import { ContactActivitySection } from "./activity-section";
+import { ContactActivitySection, type FollowUpInput, type OutreachEntry } from "./activity-section";
 import { QuickActions } from "./quick-actions";
 import { fetchActivitiesByContact, type Activity } from "@/app/activities/actions";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 import { RelationshipBriefingPanel } from "./relationship-briefing";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type OutreachEntry = {
-  sent_at: string;
-  subject: string;
-  body: string;
-  method?: string;
-};
 
 type Contact = {
   id: string;
@@ -387,84 +379,24 @@ export default async function ContactPage({
         </Card>
       )}
 
-      {/* Follow-ups */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Clock className="size-4" />
-            Follow-ups
-            {contactFollowUps && contactFollowUps.length > 0 && (
-              <span className="text-xs font-normal text-muted-foreground">({contactFollowUps.length})</span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!contactFollowUps || contactFollowUps.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No follow-ups.{" "}
-              <Link href="/follow-ups" className="underline underline-offset-2 hover:text-foreground">
-                Manage follow-ups →
-              </Link>
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {contactFollowUps.map((fu) => {
-                const due = new Date(fu.due_date);
-                const overdue = !fu.done && due < new Date();
-                const propAddress = (fu.properties as { address: string | null }[] | null)?.[0]?.address ?? (fu.properties as unknown as { address: string | null } | null)?.address;
-                return (
-                  <div key={fu.id} className="flex items-start gap-3 rounded-lg border px-3 py-2">
-                    <span className={`shrink-0 mt-0.5 size-3.5 rounded-sm border flex items-center justify-center ${fu.done ? "bg-primary border-primary" : "border-border"}`}>
-                      {fu.done && <span className="text-primary-foreground text-[8px] font-bold">✓</span>}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <span className={`text-sm ${fu.done ? "line-through text-muted-foreground" : ""}`}>{fu.description}</span>
-                      {propAddress && fu.property_id && (
-                        <Link
-                          href={`/properties/${fu.property_id}`}
-                          className="block text-xs text-muted-foreground hover:text-foreground truncate mt-0.5"
-                        >
-                          @ {propAddress}
-                        </Link>
-                      )}
-                    </div>
-                    <span className={`shrink-0 text-xs whitespace-nowrap rounded-full px-2 py-0.5 ${overdue ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
-                      {due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Activity timeline */}
-      <ContactActivitySection contactId={id} contactTier={c.contact_tier} initialActivities={activities as Activity[]} />
-
-      {/* Outreach history */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Clock className="size-4" />
-            Outreach history
-            {outreachHistory.length > 0 && (
-              <span className="text-xs font-normal text-muted-foreground">({outreachHistory.length})</span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {outreachHistory.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No outreach logged yet.</p>
-          ) : (
-            <ol className="space-y-4">
-              {outreachHistory.map((entry, i) => (
-                <OutreachEntryItem key={i} entry={entry} />
-              ))}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
+      {/* Unified timeline: activities + follow-ups + outreach */}
+      <ContactActivitySection
+        contactId={id}
+        contactTier={c.contact_tier}
+        initialActivities={activities as Activity[]}
+        initialFollowUps={(contactFollowUps ?? []).map((fu): FollowUpInput => ({
+          id: fu.id,
+          description: fu.description,
+          due_date: fu.due_date,
+          done: fu.done,
+          property_id: fu.property_id ?? null,
+          property_address:
+            (fu.properties as { address: string | null }[] | null)?.[0]?.address ??
+            (fu.properties as unknown as { address: string | null } | null)?.address ??
+            null,
+        }))}
+        initialOutreach={(c.outreach_history ?? []) as OutreachEntry[]}
+      />
     </main>
   );
 }
@@ -495,15 +427,3 @@ function NextFollowUpBanner({ date }: { date: string }) {
   );
 }
 
-function OutreachEntryItem({ entry }: { entry: OutreachEntry }) {
-  return (
-    <li className="border-l-2 border-border pl-4 space-y-1">
-      <p className="text-xs text-muted-foreground">
-        {new Date(entry.sent_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-        {entry.method && <span className="ml-1.5 capitalize">· {entry.method}</span>}
-      </p>
-      <p className="text-sm font-semibold">{entry.subject}</p>
-      <p className="text-sm text-muted-foreground line-clamp-3">{entry.body}</p>
-    </li>
-  );
-}

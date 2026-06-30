@@ -30,6 +30,7 @@ export type LinkedContact = {
   contact_tier: number | null;
   next_action_due: string | null;
   action_tags?: string[] | null;
+  contact_type?: string | null;
 };
 
 type ContactPhase =
@@ -342,145 +343,163 @@ export function PropertyContactsSection({
           <p className="text-sm text-muted-foreground">No contacts linked to this property.</p>
         )}
 
-        {/* Contact list */}
-        {contacts.length > 0 && (
-          <div className="space-y-3">
-            {contacts.map((c) => {
-              const phase = getPhase(c.id);
-              return (
-                <div key={c.id} className="rounded-lg border px-4 py-3">
-                  {/* Contact header */}
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Link
-                          href={`/contacts/${c.id}`}
-                          className="font-medium text-sm hover:underline underline-offset-2"
-                        >
-                          {c.name ?? "Unknown contact"}
-                        </Link>
-                        {tierLabel(c.contact_tier) && (
-                          <span className={cn("text-xs rounded-full px-2 py-0.5 font-medium", tierCls(c.contact_tier))}>
-                            {tierLabel(c.contact_tier)}
-                          </span>
-                        )}
-                        <FollowUpChip date={c.next_action_due} />
-                        <OwnerPortfolioLink contactId={c.id} />
-                      </div>
+        {/* Contact list — grouped by contact_type when multiple types are present */}
+        {contacts.length > 0 && (() => {
+          const groups: { label: string; items: LinkedContact[] }[] = [
+            { label: "Owners",  items: contacts.filter(c => c.contact_type === "owner") },
+            { label: "Tenants", items: contacts.filter(c => c.contact_type === "tenant") },
+            { label: "Other",   items: contacts.filter(c => !c.contact_type || c.contact_type === "other") },
+          ].filter(g => g.items.length > 0);
+          const multiType = groups.length > 1;
 
-                      {(c.company || c.role) && (
-                        <p className="text-xs text-muted-foreground">
-                          {[c.role, c.company].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
+          return (
+            <div className="space-y-4">
+              {groups.map(({ label, items }) => (
+                <div key={label} className="space-y-2">
+                  {multiType && (
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-0.5">{label}</p>
+                  )}
+                  <div className="space-y-3">
+                    {items.map((c) => {
+                      const phase = getPhase(c.id);
+                      return (
+                        <div key={c.id} className="rounded-lg border px-4 py-3">
+                          {/* Contact header */}
+                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Link
+                                  href={`/contacts/${c.id}`}
+                                  className="font-medium text-sm hover:underline underline-offset-2"
+                                >
+                                  {c.name ?? "Unknown contact"}
+                                </Link>
+                                {tierLabel(c.contact_tier) && (
+                                  <span className={cn("text-xs rounded-full px-2 py-0.5 font-medium", tierCls(c.contact_tier))}>
+                                    {tierLabel(c.contact_tier)}
+                                  </span>
+                                )}
+                                <FollowUpChip date={c.next_action_due} />
+                                <OwnerPortfolioLink contactId={c.id} />
+                              </div>
 
-                      <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-                        {c.email && (
-                          <a href={`mailto:${c.email}`} className="flex items-center gap-1 text-xs text-primary hover:underline underline-offset-2">
-                            <Mail className="size-3 shrink-0" />{c.email}
-                          </a>
-                        )}
-                        {c.phone && (
-                          <a href={`tel:${c.phone}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                            <Phone className="size-3 shrink-0" />{c.phone}
-                          </a>
-                        )}
-                        {c.mailing_address && (
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <MapPin className="size-3 shrink-0" />{c.mailing_address}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                              {(c.company || c.role) && (
+                                <p className="text-xs text-muted-foreground">
+                                  {[c.role, c.company].filter(Boolean).join(" · ")}
+                                </p>
+                              )}
 
-                    {/* Per-contact action buttons (idle or error) */}
-                    {(phase.tag === "idle" || phase.tag === "error") && (
-                      <div className="flex gap-1.5 shrink-0 flex-wrap">
-                        <button
-                          onClick={() => handleStartOutreach(c)}
-                          className={btnCls}
-                        >
-                          <Zap className="size-3 text-primary" />
-                          Start outreach
-                        </button>
-                        <button
-                          onClick={() => setPhase(c.id, { tag: "logging" })}
-                          className={btnCls}
-                        >
-                          <Clock className="size-3" />
-                          Log activity
-                        </button>
-                      </div>
-                    )}
+                              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                                {c.email && (
+                                  <a href={`mailto:${c.email}`} className="flex items-center gap-1 text-xs text-primary hover:underline underline-offset-2">
+                                    <Mail className="size-3 shrink-0" />{c.email}
+                                  </a>
+                                )}
+                                {c.phone && (
+                                  <a href={`tel:${c.phone}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                                    <Phone className="size-3 shrink-0" />{c.phone}
+                                  </a>
+                                )}
+                                {c.mailing_address && (
+                                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <MapPin className="size-3 shrink-0" />{c.mailing_address}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
 
-                    {phase.tag === "outreach_generating" && (
-                      <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
-                        <Loader2 className="size-3.5 animate-spin" />
-                        Drafting…
-                      </span>
-                    )}
+                            {/* Per-contact action buttons (idle or error) */}
+                            {(phase.tag === "idle" || phase.tag === "error") && (
+                              <div className="flex gap-1.5 shrink-0 flex-wrap">
+                                <button
+                                  onClick={() => handleStartOutreach(c)}
+                                  className={btnCls}
+                                >
+                                  <Zap className="size-3 text-primary" />
+                                  Start outreach
+                                </button>
+                                <button
+                                  onClick={() => setPhase(c.id, { tag: "logging" })}
+                                  className={btnCls}
+                                >
+                                  <Clock className="size-3" />
+                                  Log activity
+                                </button>
+                              </div>
+                            )}
 
-                    {phase.tag === "outreach_sending" && (
-                      <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
-                        <Loader2 className="size-3.5 animate-spin" />
-                        Logging…
-                      </span>
-                    )}
+                            {phase.tag === "outreach_generating" && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
+                                <Loader2 className="size-3.5 animate-spin" />
+                                Drafting…
+                              </span>
+                            )}
 
-                    {phase.tag === "outreach_sent" && (
-                      <span className="text-xs text-green-600 flex items-center gap-1.5 shrink-0">
-                        <CheckCircle2 className="size-3.5" />
-                        Sent
-                      </span>
-                    )}
+                            {phase.tag === "outreach_sending" && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
+                                <Loader2 className="size-3.5 animate-spin" />
+                                Logging…
+                              </span>
+                            )}
+
+                            {phase.tag === "outreach_sent" && (
+                              <span className="text-xs text-green-600 flex items-center gap-1.5 shrink-0">
+                                <CheckCircle2 className="size-3.5" />
+                                Sent
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Error */}
+                          {phase.tag === "error" && (
+                            <p className="mt-2 text-xs text-destructive flex items-center gap-1">
+                              <AlertTriangle className="size-3 shrink-0" />
+                              {phase.message}
+                            </p>
+                          )}
+
+                          {/* Outreach draft */}
+                          {phase.tag === "outreach_ready" && (
+                            <InlineDraftPanel
+                              email={c.email}
+                              subject={phase.subject}
+                              body={phase.body}
+                              sending={false}
+                              onSend={(subject, body) => handleSendOutreach(c, subject, body)}
+                              onDiscard={() => setPhase(c.id, { tag: "idle" })}
+                            />
+                          )}
+
+                          {/* Activity log form */}
+                          {phase.tag === "logging" && (
+                            <InlineLogForm
+                              contactId={c.id}
+                              propertyId={propertyId}
+                              onSuccess={() => setPhase(c.id, { tag: "nudging" })}
+                              onCancel={() => setPhase(c.id, { tag: "idle" })}
+                            />
+                          )}
+
+                          {/* Follow-up nudge — shown after activity log or after outreach sent */}
+                          {(phase.tag === "nudging" || phase.tag === "outreach_sent") && (
+                            <div className="mt-2">
+                              <FollowUpNudge
+                                contactId={c.id}
+                                propertyId={propertyId}
+                                suggestedDays={CADENCE_DAYS[c.contact_tier ?? 0] ?? 14}
+                                onDone={() => setPhase(c.id, { tag: "idle" })}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-
-                  {/* Error */}
-                  {phase.tag === "error" && (
-                    <p className="mt-2 text-xs text-destructive flex items-center gap-1">
-                      <AlertTriangle className="size-3 shrink-0" />
-                      {phase.message}
-                    </p>
-                  )}
-
-                  {/* Outreach draft */}
-                  {phase.tag === "outreach_ready" && (
-                    <InlineDraftPanel
-                      email={c.email}
-                      subject={phase.subject}
-                      body={phase.body}
-                      sending={false}
-                      onSend={(subject, body) => handleSendOutreach(c, subject, body)}
-                      onDiscard={() => setPhase(c.id, { tag: "idle" })}
-                    />
-                  )}
-
-                  {/* Activity log form */}
-                  {phase.tag === "logging" && (
-                    <InlineLogForm
-                      contactId={c.id}
-                      propertyId={propertyId}
-                      onSuccess={() => setPhase(c.id, { tag: "nudging" })}
-                      onCancel={() => setPhase(c.id, { tag: "idle" })}
-                    />
-                  )}
-
-                  {/* Follow-up nudge — shown after activity log or after outreach sent */}
-                  {(phase.tag === "nudging" || phase.tag === "outreach_sent") && (
-                    <div className="mt-2">
-                      <FollowUpNudge
-                        contactId={c.id}
-                        propertyId={propertyId}
-                        suggestedDays={CADENCE_DAYS[c.contact_tier ?? 0] ?? 14}
-                        onDone={() => setPhase(c.id, { tag: "idle" })}
-                      />
-                    </div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Inline add-contact form */}
         {showForm && (

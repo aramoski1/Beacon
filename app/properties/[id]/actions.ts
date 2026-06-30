@@ -489,6 +489,83 @@ STRICT RULES — violation is not permitted:
   return { preview: { strap, siteAddress, changes, unchanged, mdpaData, sunbiz_result, sunbiz_error } };
 }
 
+// ─── Ownership-change re-check ────────────────────────────────────────────────
+// Fetches fresh MDPA data for a folio-linked property and flags it when
+// owner_name or last_sale_date differ from what we have on record.
+
+export type OwnershipChangeResult =
+  | { ok: true; changed: false }
+  | {
+      ok: true; changed: true;
+      previousOwner: string | null; newOwner: string | null;
+      previousSaleDate: string | null; newSaleDate: string | null;
+    }
+  | { error: string };
+
+export async function checkOwnershipChange(propertyId: string): Promise<OwnershipChangeResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("owner_name, last_sale_date, source_url")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!prop) return { error: "Property not found." };
+
+  const strap = prop.source_url?.startsWith("mdpa:") ? (prop.source_url as string).replace("mdpa:", "") : null;
+  if (!strap) return { error: "No MDPA folio on record. Run county enhancement first." };
+
+  let detail: unknown;
+  try {
+    detail = await getPropertyDetail(strap);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: `MDPA fetch failed: ${msg}` };
+  }
+
+  const raw = detail as {
+    OwnerInfos?: Array<{ Name?: string }>;
+    SalesInfos?: Array<{ SaleDate?: string }>;
+  };
+
+  const newOwner = raw.OwnerInfos?.[0]?.Name?.trim() ?? null;
+  const latestSale = (raw.SalesInfos ?? [])
+    .filter((s) => s.SaleDate)
+    .sort((a, b) => new Date(b.SaleDate!).getTime() - new Date(a.SaleDate!).getTime())[0];
+  const newSaleDate = latestSale?.SaleDate?.slice(0, 10) ?? null;
+
+  const norm = (s: string | null) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  const ownerChanged = norm(prop.owner_name as string | null) !== norm(newOwner);
+  const saleChanged = (prop.last_sale_date as string | null)?.slice(0, 10) !== newSaleDate;
+
+  if (!ownerChanged && !saleChanged) return { ok: true, changed: false };
+
+  await supabase
+    .from("properties")
+    .update({
+      ownership_change_detected_at: new Date().toISOString(),
+      ownership_change_data: {
+        previous_owner: prop.owner_name,
+        new_owner: newOwner,
+        previous_sale_date: (prop.last_sale_date as string | null) ?? null,
+        new_sale_date: newSaleDate,
+      },
+    })
+    .eq("id", propertyId)
+    .eq("owner_id", user.id);
+
+  return {
+    ok: true, changed: true,
+    previousOwner: prop.owner_name as string | null,
+    newOwner,
+    previousSaleDate: (prop.last_sale_date as string | null) ?? null,
+    newSaleDate,
+  };
+}
+
 // Step 3: Broker confirmed — merge county data and save selected Sunbiz owner fields
 export async function applyCountyEnhancement(
   propertyId: string,

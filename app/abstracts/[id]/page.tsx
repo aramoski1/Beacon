@@ -1,10 +1,12 @@
 import { notFound, redirect } from "next/navigation";
-import { FileText, CalendarDays, Clock, DollarSign, TrendingUp, Key, BookOpen, Quote } from "lucide-react";
+import Link from "next/link";
+import { FileText, CalendarDays, Clock, DollarSign, TrendingUp, Key, BookOpen, Quote, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { TenantSelector } from "./tenant-selector";
 
 // ─── Local types for JSONB fields ─────────────────────────────────────────────
 
@@ -12,6 +14,15 @@ type Escalation = { description: string; rate: string; effective_date?: string }
 type LeaseOption = { type: "renewal" | "termination" | "expansion"; description: string; notice_period?: string };
 type KeyProvision = { provision: string; citation?: string };
 type FieldCitation = { field: string; page: string; text: string };
+
+type TenantContact = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  company: string | null;
+};
 
 type LeaseAbstract = {
   id: string;
@@ -26,6 +37,8 @@ type LeaseAbstract = {
   field_citations: FieldCitation[];
   custom_fields: Record<string, string | number | null> | null;
   created_at: string;
+  tenant_contact_id: string | null;
+  linked_property: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -79,13 +92,37 @@ export default async function AbstractPage({
 
   const abstract = data as LeaseAbstract;
 
-  const { data: fdData } = await supabase
-    .from("field_definitions")
-    .select("*")
-    .eq("entity_type", "lease")
-    .order("created_at", { ascending: true });
+  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }] = await Promise.all([
+    supabase
+      .from("field_definitions")
+      .select("*")
+      .eq("entity_type", "lease")
+      .order("created_at", { ascending: true }),
+    // Fetch the currently linked tenant contact (if any)
+    abstract.tenant_contact_id
+      ? supabase
+          .from("contacts")
+          .select("id, name, email, phone, role, company")
+          .eq("id", abstract.tenant_contact_id)
+          .eq("owner_id", user.id)
+          .single()
+          .then((r) => ({ data: r.data as TenantContact | null }))
+      : Promise.resolve({ data: null }),
+    // Fetch contacts linked to the same property as candidates for tenant
+    abstract.linked_property
+      ? supabase
+          .from("contacts")
+          .select("id, name, role, company")
+          .contains("linked_properties", [abstract.linked_property])
+          .eq("owner_id", user.id)
+          .order("name", { ascending: true })
+      : Promise.resolve({ data: [] }),
+  ]);
+
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = abstract.custom_fields ?? {};
+  const tenantContact = tenantContactData as TenantContact | null;
+  const propertyContacts = (propertyContactsData ?? []) as Pick<TenantContact, "id" | "name" | "role" | "company">[];
 
   // Citation lookup by field name — O(1) access per field display
   const citationMap = new Map<string, FieldCitation>(
@@ -147,6 +184,56 @@ export default async function AbstractPage({
               citation={citationMap.get("base_rate")}
             />
           </dl>
+        </CardContent>
+      </Card>
+
+      {/* Tenant */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <User className="size-4" />
+            Tenant
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {tenantContact && (
+            <div className="flex items-start gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+              <User className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <Link
+                  href={`/contacts/${tenantContact.id}`}
+                  className="text-sm font-medium hover:underline underline-offset-2"
+                >
+                  {tenantContact.name ?? "Unnamed contact"}
+                </Link>
+                {(tenantContact.role || tenantContact.company) && (
+                  <p className="text-xs text-muted-foreground">
+                    {[tenantContact.role, tenantContact.company].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                {tenantContact.email && (
+                  <a href={`mailto:${tenantContact.email}`} className="text-xs text-primary hover:underline block">
+                    {tenantContact.email}
+                  </a>
+                )}
+                {tenantContact.phone && (
+                  <a href={`tel:${tenantContact.phone}`} className="text-xs text-muted-foreground hover:text-foreground block">
+                    {tenantContact.phone}
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1.5">
+              {tenantContact ? "Change tenant contact:" : "Link a tenant contact:"}
+            </p>
+            <TenantSelector
+              leaseId={abstract.id}
+              currentContactId={abstract.tenant_contact_id}
+              contacts={propertyContacts}
+            />
+          </div>
         </CardContent>
       </Card>
 

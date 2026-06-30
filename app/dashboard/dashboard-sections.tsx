@@ -20,10 +20,11 @@ import type {
   BriefingMetrics,
   CadenceHealth,
   DataHealth,
-  ExpiringLease,
   PortfolioSnapshot,
   RecentActivity,
+  OwnershipChangedProperty,
 } from "./actions";
+import type { LeaseRadarEntry } from "@/lib/lease-radar";
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
@@ -240,7 +241,7 @@ function leaseLabel(path: string | null) {
   return name.length > 32 ? name.slice(0, 30) + "…" : name;
 }
 
-export function ExpiringLeasesPanel({ items, total }: { items: ExpiringLease[]; total: number }) {
+export function ExpiringLeasesPanel({ items, total }: { items: LeaseRadarEntry[]; total: number }) {
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center justify-between">
@@ -446,6 +447,7 @@ export function PriorityPills({ metrics }: { metrics: BriefingMetrics }) {
   if (metrics.unworkedOpportunities > 0) items.push({ label: "ready to pursue", value: metrics.unworkedOpportunities, href: "/dashboard#unworked", urgent: true });
   if (metrics.coldTier1 > 0) items.push({ label: "Tier 1 going cold", value: metrics.coldTier1, href: "/outreach", urgent: true });
   if (metrics.expiringLeases > 0) items.push({ label: "lease expirations", value: metrics.expiringLeases, href: "/lease-radar", urgent: true });
+  if (metrics.ownershipChanges > 0) items.push({ label: "ownership changes", value: metrics.ownershipChanges, href: "/crm", urgent: true });
   if (metrics.dataIssues > 0) items.push({ label: "data issues", value: metrics.dataIssues, href: "/properties/audit", urgent: true });
   if (metrics.activitiesThisWeek > 0) items.push({ label: "touchpoints this week", value: metrics.activitiesThisWeek, href: "/dashboard" });
 
@@ -573,6 +575,46 @@ export function ActivityTimeline({ activities }: { activities: RecentActivity[] 
           </ul>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Ownership changes ────────────────────────────────────────────────────────
+
+export function OwnershipChangedPanel({ items }: { items: OwnershipChangedProperty[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <AlertTriangle className="size-3.5 text-amber-600" />
+          Ownership changes
+          <span className="ml-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-bold px-1.5 py-0.5">
+            {items.length}
+          </span>
+        </span>
+      </div>
+      <div className="divide-y">
+        {items.map((p) => (
+          <Link
+            key={p.id}
+            href={`/properties/${p.id}`}
+            className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors group"
+          >
+            <div className="flex-1 min-w-0 space-y-0.5">
+              <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                {p.address ?? "No address"}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                <span className="line-through opacity-60">{p.previous_owner ?? "—"}</span>
+                {" → "}
+                <span className="font-medium text-foreground">{p.new_owner ?? "—"}</span>
+              </p>
+            </div>
+            <ArrowRight className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 transition-opacity mt-0.5" />
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

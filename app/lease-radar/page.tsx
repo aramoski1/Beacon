@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarClock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getLeaseRadarData } from "./actions";
+import { getLeaseRadarData, syncLeaseFollowUps } from "./actions";
 import { LeaseRadarView } from "./lease-radar-view";
 
 export default async function LeaseRadarPage() {
@@ -10,7 +10,10 @@ export default async function LeaseRadarPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const data = await getLeaseRadarData();
+  const [data] = await Promise.all([
+    getLeaseRadarData(),
+    syncLeaseFollowUps(),
+  ]);
 
   return (
     <div className="px-6 py-8 max-w-3xl mx-auto space-y-8">

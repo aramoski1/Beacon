@@ -11,5 +11,5 @@ export default async function FollowUpsPage() {
   if (!user) redirect("/login");
 
   const followUps = await getFollowUps("open");
-  return <FollowUpsView initialFollowUps={followUps} />;
+  return <FollowUpsView initialFollowUps={followUps} userEmail={user.email ?? null} />;
 }

@@ -4,9 +4,14 @@ import { useState, useTransition } from "react";
 import { Clock, Plus, X, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { createActivity, type Activity, type ActivityType } from "@/app/activities/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import {
+  ActivityTimeline,
+  type ActivityEvent,
+  type FollowUpEvent,
+  type TimelineEvent,
+} from "@/components/activity-timeline";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -18,24 +23,19 @@ const ACTIVITY_TYPES: { value: ActivityType; label: string }[] = [
   { value: "note",    label: "Note" },
 ];
 
-const TYPE_CLS: Record<ActivityType, string> = {
-  call:    "bg-blue-100 text-blue-700",
-  email:   "bg-violet-100 text-violet-700",
-  letter:  "bg-amber-100 text-amber-700",
-  meeting: "bg-green-100 text-green-700",
-  note:    "bg-slate-100 text-slate-600",
-};
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "long", day: "numeric", year: "numeric",
-  });
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ActivityContact = {
   id: string;
   name: string | null;
   contact_tier?: number | null;
+};
+
+export type PropertyFollowUpInput = {
+  id: string;
+  description: string;
+  due_date: string;
+  done: boolean;
 };
 
 type Phase = "idle" | "logging" | "nudging";
@@ -46,10 +46,12 @@ export function PropertyActivitySection({
   propertyId,
   linkedContacts,
   initialActivities,
+  initialFollowUps = [],
 }: {
   propertyId: string;
   linkedContacts: ActivityContact[];
   initialActivities: Activity[];
+  initialFollowUps?: PropertyFollowUpInput[];
 }) {
   const [activities, setActivities] = useState<Activity[]>(initialActivities);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -109,15 +111,40 @@ export function PropertyActivitySection({
   const nudgeContact = linkedContacts.find((c) => c.id === nudgeContactId);
   const nudgeCadence = ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[nudgeContact?.contact_tier ?? 0] ?? 14;
 
+  // ─── Build unified timeline ─────────────────────────────────────────────────
+
+  const actEvents: ActivityEvent[] = activities.map((a) => {
+    const contact = linkedContacts.find((c) => c.id === a.contact_id);
+    return {
+      kind: "activity",
+      id: a.id,
+      type: a.activity_type,
+      date: a.activity_date,
+      notes: a.notes,
+      contact_name: contact?.name ?? null,
+    };
+  });
+
+  const fuEvents: FollowUpEvent[] = initialFollowUps.map((fu) => ({
+    kind: "followup",
+    id: fu.id,
+    description: fu.description,
+    due_date: fu.due_date,
+    done: fu.done,
+  }));
+
+  const allEvents: TimelineEvent[] = [...actEvents, ...fuEvents];
+  const totalCount = allEvents.length;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Clock className="size-4" />
-          Activity
-          {activities.length > 0 && (
+          Timeline
+          {totalCount > 0 && (
             <span className="ml-1 text-xs font-normal text-muted-foreground">
-              ({activities.length})
+              ({totalCount})
             </span>
           )}
         </CardTitle>
@@ -238,32 +265,8 @@ export function PropertyActivitySection({
           />
         )}
 
-        {/* Timeline */}
-        {activities.length === 0 && hasContacts && phase === "idle" && (
-          <p className="text-sm text-muted-foreground">No activities logged yet.</p>
-        )}
-        {activities.length > 0 && (
-          <ol className="space-y-3">
-            {activities.map((a) => (
-              <li key={a.id} className="border-l-2 border-border pl-4 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize",
-                      TYPE_CLS[a.activity_type]
-                    )}
-                  >
-                    {a.activity_type}
-                  </span>
-                  <p className="text-xs text-muted-foreground">{fmtDate(a.activity_date)}</p>
-                </div>
-                {a.notes && (
-                  <p className="text-sm text-muted-foreground">{a.notes}</p>
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
+        {/* Unified chronological timeline */}
+        {hasContacts && <ActivityTimeline events={allEvents} />}
       </CardContent>
     </Card>
   );

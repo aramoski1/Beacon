@@ -20,9 +20,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { PropertyContactsSection, type LinkedContact } from "./contacts-section";
-import { PropertyActivitySection, type ActivityContact } from "./activity-section";
+import { PropertyActivitySection, type ActivityContact, type PropertyFollowUpInput } from "./activity-section";
 import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
 import { EnrichPanel } from "./enrich-panel";
+import { OwnershipCheckPanel } from "./ownership-check-panel";
 import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
@@ -63,6 +64,13 @@ type Property = {
   ingested_at: string | null;
   confidence_flags: ConfidenceFlag[];
   custom_fields: Record<string, string | number | null> | null;
+  ownership_change_detected_at: string | null;
+  ownership_change_data: {
+    previous_owner: string | null;
+    new_owner: string | null;
+    previous_sale_date: string | null;
+    new_sale_date: string | null;
+  } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -131,7 +139,7 @@ export default async function PropertyPage({
       .order("created_at", { ascending: true }),
     supabase
       .from("contacts")
-      .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due, action_tags")
+      .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due, action_tags, contact_type")
       .contains("linked_properties", [id])
       .order("created_at", { ascending: true }),
     fetchActivitiesByProperty(id),
@@ -165,6 +173,7 @@ export default async function PropertyPage({
   }));
 
   const folioNumber = folio(p.source_url);
+  const isMdpaSource = !!(folioNumber || p.source === "tax_roll");
 
   // flagMap: field name → reason string (covers both uncertain and not-found)
   const flagMap = new Map((p.confidence_flags ?? []).map((f) => [f.field, f.reason]));
@@ -273,6 +282,41 @@ export default async function PropertyPage({
         </div>
       ) : null}
 
+      {/* Ownership change alert — shown when a re-check found a different owner or sale */}
+      {p.ownership_change_detected_at && (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>Ownership change detected</AlertTitle>
+          <AlertDescription className="space-y-1">
+            {p.ownership_change_data?.previous_owner !== p.ownership_change_data?.new_owner && (
+              <p>
+                <span className="font-medium">Owner:</span>{" "}
+                <span className="line-through text-destructive/70">{p.ownership_change_data?.previous_owner ?? "—"}</span>
+                {" → "}
+                <span className="font-semibold">{p.ownership_change_data?.new_owner ?? "—"}</span>
+              </p>
+            )}
+            {p.ownership_change_data?.previous_sale_date !== p.ownership_change_data?.new_sale_date && (
+              <p>
+                <span className="font-medium">Last sale:</span>{" "}
+                <span className="line-through text-destructive/70">{p.ownership_change_data?.previous_sale_date ?? "—"}</span>
+                {" → "}
+                <span className="font-semibold">{p.ownership_change_data?.new_sale_date ?? "—"}</span>
+              </p>
+            )}
+            <p className="text-xs opacity-70 mt-1">
+              Detected {new Date(p.ownership_change_detected_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.
+              Re-enrich below to update the record.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Re-check ownership against MDPA (only for county-enhanced properties with a folio) */}
+      {folioNumber && (
+        <OwnershipCheckPanel propertyId={id} />
+      )}
+
       {/* Enrich property — county data, Sunbiz owner discovery, owner contact promotion, CoStar upload */}
       <EnrichPanel
         propertyId={id}
@@ -333,6 +377,7 @@ export default async function PropertyPage({
               label="Owner"
               value={p.owner_name ?? "—"}
               flagReason={flagMap.get("owner_name")}
+              source={isMdpaSource ? "county" : undefined}
               action={p.owner_name ? (
                 <OwnerPortfolioLink
                   propertyId={id}
@@ -351,6 +396,7 @@ export default async function PropertyPage({
                     : (displayOwnerContacts.length > 1 ? `Owner contact ${i + 1}` : "Owner contact")
                 }
                 value={[oc.name, oc.title, oc.address].filter(Boolean).join(" · ")}
+                source={storedOwnerContacts.length > 0 ? "sunbiz" : undefined}
                 action={
                   <OwnerPortfolioLink
                     propertyId={id}
@@ -366,29 +412,34 @@ export default async function PropertyPage({
               label="Ownership type"
               value={p.ownership_type ?? "—"}
               flagReason={flagMap.get("ownership_type")}
+              source={isMdpaSource ? "county" : undefined}
             />
             <Field
               icon={<Building2 className="size-4" />}
               label="Property type"
               value={p.property_type ?? "—"}
               flagReason={flagMap.get("property_type")}
+              source={isMdpaSource ? "county" : undefined}
             />
             <Field
               icon={<Ruler className="size-4" />}
               label="Building SF"
               value={p.size_sqft != null ? `${fmt(p.size_sqft)} sqft` : "—"}
               flagReason={flagMap.get("size_sqft")}
+              source={isMdpaSource ? "county" : undefined}
             />
             <Field
               icon={<Ruler className="size-4" />}
               label="Land SF"
               value={p.land_sqft != null ? `${fmt(p.land_sqft)} sqft` : "—"}
+              source={isMdpaSource ? "county" : undefined}
             />
             {p.asset_description && (
               <Field
                 icon={<Building2 className="size-4" />}
                 label="Asset description"
                 value={p.asset_description}
+                source={isMdpaSource ? "county" : undefined}
               />
             )}
             <Field
@@ -396,6 +447,7 @@ export default async function PropertyPage({
               label="Last sale date"
               value={fmtDate(p.last_sale_date)}
               flagReason={flagMap.get("last_sale_date")}
+              source={isMdpaSource ? "county" : undefined}
             />
             <Field
               icon={<DollarSign className="size-4" />}
@@ -410,6 +462,7 @@ export default async function PropertyPage({
                   : "—"
               }
               flagReason={flagMap.get("last_sale_price")}
+              source={isMdpaSource ? "county" : undefined}
             />
           </dl>
         </CardContent>
@@ -498,52 +551,12 @@ export default async function PropertyPage({
         </CardContent>
       </Card>
 
-      {/* Follow-ups */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Calendar className="size-4" />
-            Follow-ups
-            {propFollowUps && propFollowUps.length > 0 && (
-              <span className="text-xs font-normal text-muted-foreground">({propFollowUps.length})</span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!propFollowUps || propFollowUps.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No follow-ups.{" "}
-              <Link href="/follow-ups" className="underline underline-offset-2 hover:text-foreground">
-                Manage follow-ups →
-              </Link>
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {propFollowUps.map((fu) => {
-                const due = new Date(fu.due_date);
-                const overdue = !fu.done && due < new Date();
-                return (
-                  <div key={fu.id} className="flex items-start gap-3 rounded-lg border px-3 py-2">
-                    <span className={`shrink-0 mt-0.5 size-3.5 rounded-sm border flex items-center justify-center ${fu.done ? "bg-primary border-primary" : "border-border"}`}>
-                      {fu.done && <span className="text-primary-foreground text-[8px] font-bold">✓</span>}
-                    </span>
-                    <span className={`flex-1 text-sm ${fu.done ? "line-through text-muted-foreground" : ""}`}>{fu.description}</span>
-                    <span className={`shrink-0 text-xs whitespace-nowrap rounded-full px-2 py-0.5 ${overdue ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
-                      {due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Activity timeline */}
+      {/* Unified timeline: activities + follow-ups */}
       <PropertyActivitySection
         propertyId={id}
         linkedContacts={activityContacts}
         initialActivities={propertyActivities as Activity[]}
+        initialFollowUps={(propFollowUps ?? []) as PropertyFollowUpInput[]}
       />
 
       {/* Building composition */}
@@ -558,27 +571,32 @@ export default async function PropertyPage({
                 label="Year built"
                 value={bc.year_built ? String(bc.year_built) : "—"}
                 flagReason={bcFlagReason("year_built")}
+                source={isMdpaSource ? "county" : undefined}
               />
               <SmallField
                 label="Lot size"
                 value={bc.lot_size_sqft != null ? `${fmt(bc.lot_size_sqft)} sqft` : "—"}
                 flagReason={bcFlagReason("lot_size_sqft")}
+                source={isMdpaSource ? "county" : undefined}
               />
               <SmallField
                 label="Stories"
                 value={bc.stories != null ? String(bc.stories) : "—"}
                 flagReason={bcFlagReason("stories")}
+                source={isMdpaSource ? "county" : undefined}
               />
               <SmallField
                 label="Units"
                 value={bc.units != null ? String(bc.units) : "—"}
                 flagReason={bcFlagReason("units")}
+                source={isMdpaSource ? "county" : undefined}
               />
               {bc.assessed_value != null && (
                 <SmallField
                   label="Assessed value"
                   value={fmt(bc.assessed_value, { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
                   flagReason={bcFlagReason("assessed_value")}
+                  source={isMdpaSource ? "county" : undefined}
                 />
               )}
             </dl>
@@ -613,18 +631,31 @@ export default async function PropertyPage({
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+type FieldSource = "county" | "sunbiz" | "costar" | "manual";
+
+function SourceTag({ source }: { source: FieldSource }) {
+  const label = source === "county" ? "County" : source === "sunbiz" ? "Sunbiz" : source === "costar" ? "CoStar" : "Manual";
+  return (
+    <span className="inline-flex items-center rounded border border-muted-foreground/25 px-1 py-px text-[9px] font-medium normal-case tracking-normal text-muted-foreground/60">
+      {label}
+    </span>
+  );
+}
+
 function Field({
   icon,
   label,
   value,
   flagReason,
   action,
+  source,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   flagReason?: string;
   action?: React.ReactNode;
+  source?: FieldSource;
 }) {
   const isNotFound = flagReason === "not found in source record";
   const isUncertain = !!flagReason && !isNotFound;
@@ -634,6 +665,7 @@ function Field({
       <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {icon}
         {label}
+        {source && <SourceTag source={source} />}
       </dt>
       <dd className={cn("text-sm font-medium flex items-center gap-2 flex-wrap", isUncertain && "text-yellow-700 dark:text-yellow-300")}>
         {isNotFound && value === "—" ? (
@@ -659,17 +691,22 @@ function SmallField({
   label,
   value,
   flagReason,
+  source,
 }: {
   label: string;
   value: string;
   flagReason?: string;
+  source?: FieldSource;
 }) {
   const isNotFound = flagReason === "not found in source record";
   const isUncertain = !!flagReason && !isNotFound;
 
   return (
     <div className="space-y-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="flex items-center gap-1 text-xs text-muted-foreground">
+        {label}
+        {source && <SourceTag source={source} />}
+      </dt>
       <dd className="text-sm font-medium flex items-center gap-1">
         {isNotFound && value === "—" ? (
           <span className="text-xs italic text-muted-foreground/40 font-normal">not in source</span>

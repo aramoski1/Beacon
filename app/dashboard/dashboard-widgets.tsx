@@ -14,8 +14,8 @@ import type {
   ColdTier1Contact,
   UnworkedOpportunity,
   WeekMomentum,
-  ExpiringLease,
 } from "./actions";
+import type { LeaseRadarEntry } from "@/lib/lease-radar";
 
 export function WeekMomentumBar({ momentum }: { momentum: WeekMomentum }) {
   const items = [
@@ -158,7 +158,7 @@ function rolloverAction(days: number): string {
 }
 
 /** Full-width lease rollover queue with property context and suggested action. */
-export function LeaseRolloverQueue({ items, total }: { items: ExpiringLease[]; total: number }) {
+export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[]; total: number }) {
   if (total === 0) {
     return (
       <div className="rounded-xl border bg-card px-4 py-8 text-center text-sm text-muted-foreground">

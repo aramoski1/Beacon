@@ -76,6 +76,18 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-smart-lists-entity-type.ts",
     description: "Smart lists — entity_type column (properties / contacts / leases)",
   },
+  {
+    file: "migrate-lease-tenant.ts",
+    description: "Lease abstracts — tenant_contact_id FK to contacts (CRM tenant link)",
+  },
+  {
+    file: "migrate-followup-source.ts",
+    description: "Follow-ups — source_type, lease_id, lease_bucket columns + dedup index",
+  },
+  {
+    file: "migrate-ownership-change.ts",
+    description: "Properties — ownership_change_detected_at and ownership_change_data columns",
+  },
 ];
 
 const hr = "─".repeat(60);
