@@ -1,11 +1,30 @@
 "use client";
 
 import { useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BeaconBrand } from "@/components/beacon-logo";
 import { signIn, signUp } from "./actions";
+
+function SignInSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" className="w-full" disabled={pending}>
+      {pending ? "Signing in…" : "Sign in"}
+    </Button>
+  );
+}
+
+function SignUpSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" className="w-full" disabled={pending}>
+      {pending ? "Creating account…" : "Create account"}
+    </Button>
+  );
+}
 
 export default function LoginPage() {
   const [tab, setTab] = useState<"signin" | "signup">("signin");
@@ -81,9 +100,7 @@ export default function LoginPage() {
             {signInState && "error" in signInState && (
               <p className="text-sm text-destructive">{signInState.error}</p>
             )}
-            <Button type="submit" className="w-full">
-              Sign in
-            </Button>
+            <SignInSubmitButton />
           </form>
         )}
 
@@ -121,9 +138,7 @@ export default function LoginPage() {
                 {signUpState.message}
               </p>
             )}
-            <Button type="submit" className="w-full">
-              Create account
-            </Button>
+            <SignUpSubmitButton />
           </form>
         )}
       </div>

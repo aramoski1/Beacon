@@ -1,4 +1,4 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button"
+import type { ComponentProps } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
@@ -44,10 +44,14 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  type = "button",
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ComponentProps<"button"> & VariantProps<typeof buttonVariants>) {
+  // Native <button> so type="submit" works in forms. @base-ui/react/button
+  // always merges type="button" after consumer props, which breaks form submission.
   return (
-    <ButtonPrimitive
+    <button
+      type={type}
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
