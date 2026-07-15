@@ -823,7 +823,13 @@ export function EnrichPanel({
                 <>
                   <p className="text-sm text-muted-foreground">
                     Upload a CoStar &ldquo;About the Owner&rdquo; export to extract contact information.
+                    Beacon only uses what&apos;s in the file — no CoStar login.
                   </p>
+                  <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-0.5">
+                    <li>In CoStar, open the property or owner record.</li>
+                    <li>Export &ldquo;About the Owner&rdquo; (PDF, CSV, or screenshot).</li>
+                    <li>Upload that file here and click Parse.</li>
+                  </ol>
                   <div className="flex items-center gap-3">
                     <label className="flex-1 cursor-pointer">
                       <input

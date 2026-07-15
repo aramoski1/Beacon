@@ -330,86 +330,34 @@ function BrokerageSection({
 
 // ─── Data & Sources section ───────────────────────────────────────────────────
 
-function DataSourcesSection({
-  settings,
-  onSaved,
-  errorCount,
-}: {
-  settings: UserSettings;
-  onSaved: (s: UserSettings) => void;
-  errorCount: number;
-}) {
-  const [costar, setCostar] = useState(settings.costar_enabled);
-  const [isPending, startTransition] = useTransition();
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  function handleToggle() {
-    const next = !costar;
-    setCostar(next);
-    setSaved(false);
-    setSaveError(null);
-    startTransition(async () => {
-      const result = await upsertUserSettings({ costar_enabled: next });
-      if (result.error) {
-        setSaveError(result.error);
-        setCostar(!next);
-      } else {
-        setSaved(true);
-        onSaved({ ...settings, costar_enabled: next });
-        setTimeout(() => setSaved(false), 2500);
-      }
-    });
-  }
-
+function DataSourcesSection({ errorCount }: { errorCount: number }) {
   return (
     <div className="space-y-6">
       <SectionHeading title="Data & Sources" description="Connected data sources and ingestion status." />
 
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold">CoStar</h3>
-        <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3 max-w-md">
-          <div>
-            <p className="text-sm font-medium">CoStar enrichment</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Enable CoStar as a data source for property enrichment.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={costar}
-            onClick={handleToggle}
-            disabled={isPending}
-            className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50",
-              costar ? "bg-primary" : "bg-muted"
-            )}
-          >
-            <span
-              className={cn(
-                "inline-block size-3.5 rounded-full bg-background shadow transition-transform",
-                costar ? "translate-x-4" : "translate-x-0.5"
-              )}
-            />
-          </button>
-        </div>
-        <SaveFeedback saved={saved} error={saveError} />
-      </div>
-
-      <div className="space-y-3">
         <h3 className="text-sm font-semibold">Ingestion sources</h3>
         <div className="space-y-2 max-w-md">
           {[
-            { label: "Miami-Dade Property Appraiser", status: "Active" },
-            { label: "Sunbiz (FL Sec. of State)", status: "Active" },
+            { label: "Miami-Dade Property Appraiser", detail: null, status: "Active" },
+            { label: "Sunbiz (FL Sec. of State)", detail: null, status: "Active" },
+            {
+              label: "CoStar",
+              detail: "Export \"About the Owner\" from CoStar, then upload it on a property's Enrich panel. No account login.",
+              status: "Active",
+            },
           ].map((s) => (
             <div
               key={s.label}
-              className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
+              className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3"
             >
-              <p className="text-sm">{s.label}</p>
-              <span className="text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-0.5 rounded-full">
+              <div className="min-w-0">
+                <p className="text-sm">{s.label}</p>
+                {s.detail && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{s.detail}</p>
+                )}
+              </div>
+              <span className="shrink-0 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-0.5 rounded-full">
                 {s.status}
               </span>
             </div>
@@ -778,7 +726,7 @@ export default function SettingsPage() {
             <BrokerageSection settings={settings} onSaved={setSettings} />
           )}
           {section === "data-sources" && settings && (
-            <DataSourcesSection settings={settings} onSaved={setSettings} errorCount={errorCount} />
+            <DataSourcesSection errorCount={errorCount} />
           )}
           {section === "outreach" && settings && (
             <OutreachSection settings={settings} onSaved={setSettings} />
