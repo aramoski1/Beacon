@@ -822,7 +822,7 @@ export function EnrichPanel({
               {costar.tag === "idle" && (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Upload a CoStar &ldquo;About the Owner&rdquo; export to extract contact information.
+                    Upload a CoStar &ldquo;About the Owner&rdquo; export to pull owner contacts onto this property.
                     Beacon only uses what&apos;s in the file — no CoStar login.
                   </p>
                   <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-0.5">
@@ -830,6 +830,13 @@ export function EnrichPanel({
                     <li>Export &ldquo;About the Owner&rdquo; (PDF, CSV, or screenshot).</li>
                     <li>Upload that file here and click Parse.</li>
                   </ol>
+                  <p className="text-xs text-muted-foreground">
+                    To create a new property from a CoStar export, use{" "}
+                    <a href="/properties/new?method=upload" className="underline underline-offset-2 hover:text-foreground">
+                      Add property → Upload file
+                    </a>
+                    {" "}instead.
+                  </p>
                   <div className="flex items-center gap-3">
                     <label className="flex-1 cursor-pointer">
                       <input

@@ -343,7 +343,8 @@ function DataSourcesSection({ errorCount }: { errorCount: number }) {
             { label: "Sunbiz (FL Sec. of State)", detail: null, status: "Active" },
             {
               label: "CoStar",
-              detail: "Export \"About the Owner\" from CoStar, then upload it on a property's Enrich panel. No account login.",
+              detail:
+                "Export from CoStar, then upload: Add property → Upload file (property + contacts), or Enrich on an existing property (owner contacts). No account login.",
               status: "Active",
             },
           ].map((s) => (

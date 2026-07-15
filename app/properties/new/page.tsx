@@ -959,6 +959,9 @@ function AddPropertyInner() {
                     <div>
                       <p className="font-medium text-sm">Drop a file or click to browse</p>
                       <p className="text-xs text-muted-foreground mt-1">PDF · Excel (.xlsx) · CSV · Image (PNG, JPG, WebP) · Text</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        CoStar exports work here — Beacon extracts property (and related) fields from the file.
+                      </p>
                       <p className="text-xs text-muted-foreground mt-0.5">Max 32 MB</p>
                     </div>
                   </>
