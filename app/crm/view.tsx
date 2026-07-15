@@ -2183,7 +2183,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                         </button>
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
-                        <ColVisPopover isVis={leaseColVis.isVis} toggle={leaseColVis.toggle} colDefs={LEASE_COL_DEFS} />
                         <button
                           type="button"
                           onClick={() => setShowFieldsPanel(true)}
@@ -2192,6 +2191,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           <Settings2 className="size-3" />
                           Manage fields
                         </button>
+                        <ColVisPopover isVis={leaseColVis.isVis} toggle={leaseColVis.toggle} colDefs={LEASE_COL_DEFS} />
                       </div>
                     </>
                   )}
@@ -2255,7 +2255,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                         </button>
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
-                        <ColVisPopover isVis={conColVis.isVis} toggle={conColVis.toggle} colDefs={CON_COL_DEFS} />
                         <button
                           type="button"
                           onClick={() => setShowFieldsPanel(true)}
@@ -2264,6 +2263,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           <Settings2 className="size-3" />
                           Manage fields
                         </button>
+                        <ColVisPopover isVis={conColVis.isVis} toggle={conColVis.toggle} colDefs={CON_COL_DEFS} />
                       </div>
                     </>
                   )}
