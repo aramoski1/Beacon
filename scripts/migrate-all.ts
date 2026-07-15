@@ -92,6 +92,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-cre-contact-fields.ts",
     description: "Contacts — CRE-owner fields: title_role, phone_mobile/office, ownership_role, asset_focus, submarket, portfolio_size, relationship_stage, lead_source, notes",
   },
+  {
+    file: "migrate-user-settings.ts",
+    description: "User settings — user_settings table with per-user brokerage profile, outreach prefs, cadence overrides, and CoStar toggle",
+  },
 ];
 
 const hr = "─".repeat(60);

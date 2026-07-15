@@ -29,7 +29,7 @@ const NAV: NavEntry[] = [
   { href: "/lease-radar",     icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
   { href: "/follow-ups",      icon: CheckSquare,     label: "Follow-ups", badge: "followUps" },
   { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
-  { href: "/settings/fields", icon: Settings2,       label: "Settings" },
+  { href: "/settings",        icon: Settings2,       label: "Settings" },
 ];
 
 // ─── Active-path logic ────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ function navActive(href: string, pathname: string): boolean {
       (pathname.startsWith("/abstracts/") && pathname !== "/abstracts/new")
     );
   }
-  if (href === "/settings/fields") {
+  if (href === "/settings") {
     return pathname.startsWith("/settings");
   }
   return pathname === href;

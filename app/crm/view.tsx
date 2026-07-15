@@ -5,7 +5,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2 } from "lucide-react";
+import { CustomFieldsPanel } from "@/components/custom-fields-panel";
+import type { EntityType } from "@/lib/custom-fields";
 import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
 import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
@@ -1569,6 +1571,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       owner_name: p.owner_name,
     }));
 
+  // ── Fields panel ───────────────────────────────────────────────────────────
+  const [showFieldsPanel, setShowFieldsPanel] = useState(false);
+
   // ── Delete state ───────────────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -2142,6 +2147,16 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           Clear filters
                         </button>
                       )}
+                      <div className="ml-auto shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowFieldsPanel(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          <Settings2 className="size-3" />
+                          Manage fields
+                        </button>
+                      </div>
                     </>
                   )}
                   {tab === "properties" && (
@@ -2170,6 +2185,14 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                             Enrich {selectedPropIds.size} selected
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setShowFieldsPanel(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          <Settings2 className="size-3" />
+                          Manage fields
+                        </button>
                         <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} />
                       </div>
                     </>
@@ -2195,6 +2218,16 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           Clear filters
                         </button>
                       )}
+                      <div className="ml-auto shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowFieldsPanel(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          <Settings2 className="size-3" />
+                          Manage fields
+                        </button>
+                      </div>
                     </>
                   )}
                 </>
@@ -2330,6 +2363,16 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
             setSelectedPropIds(new Set());
             loadProperties();
           }}
+        />
+      )}
+
+      {/* Custom fields panel (contextual to active tab) */}
+      {showFieldsPanel && (
+        <CustomFieldsPanel
+          entityType={
+            (tab === "properties" ? "property" : tab === "contacts" ? "contact" : "lease") as EntityType
+          }
+          onClose={() => setShowFieldsPanel(false)}
         />
       )}
     </div>
