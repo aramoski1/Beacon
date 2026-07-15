@@ -168,7 +168,9 @@ const LEAD_SOURCES = [
   { value: "other",                 label: "Other" },
 ];
 
-const PROP_COL_DEFS: { id: string; label: string; alwaysOn?: boolean }[] = [
+type ColDef = { id: string; label: string; alwaysOn?: boolean };
+
+const PROP_COL_DEFS: ColDef[] = [
   { id: "prospect", label: "Prospect #" },
   { id: "owner",    label: "Ownership Entity" },
   { id: "address",  label: "Property Address", alwaysOn: true },
@@ -182,6 +184,29 @@ const PROP_COL_DEFS: { id: string; label: string; alwaysOn?: boolean }[] = [
   { id: "notes",    label: "Notes" },
   { id: "saledate", label: "Last Sale Date" },
   { id: "saleval",  label: "Last Sale Value" },
+];
+
+const CON_COL_DEFS: ColDef[] = [
+  { id: "name",        label: "Name",           alwaysOn: true },
+  { id: "company",     label: "Company" },
+  { id: "type",        label: "Ownership Role" },
+  { id: "tier",        label: "Tier" },
+  { id: "status",      label: "Stage" },
+  { id: "tags",        label: "Asset Focus" },
+  { id: "sizecat",     label: "Portfolio" },
+  { id: "geocat",      label: "Submarket" },
+  { id: "ownership",   label: "Lead Source" },
+  { id: "lastcontact", label: "Last contact" },
+];
+
+const LEASE_COL_DEFS: ColDef[] = [
+  { id: "doc",    label: "Document",   alwaysOn: true },
+  { id: "status", label: "Status" },
+  { id: "exec",   label: "Execution" },
+  { id: "exp",    label: "Expiration" },
+  { id: "term",   label: "Term" },
+  { id: "rate",   label: "Base rate" },
+  { id: "added",  label: "Added" },
 ];
 
 const ACTIVITY_TYPES = [
@@ -539,9 +564,11 @@ function useColVis(storageKey: string) {
 function ColVisPopover({
   isVis,
   toggle,
+  colDefs,
 }: {
   isVis: (id: string) => boolean;
   toggle: (id: string, alwaysOn?: boolean) => void;
+  colDefs: ColDef[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -555,7 +582,7 @@ function ColVisPopover({
     return () => document.removeEventListener("mousedown", handle);
   }, [open]);
 
-  const hiddenCount = PROP_COL_DEFS.filter(({ id, alwaysOn }) => !alwaysOn && !isVis(id)).length;
+  const hiddenCount = colDefs.filter(({ id, alwaysOn }) => !alwaysOn && !isVis(id)).length;
 
   return (
     <div className="relative shrink-0" ref={ref}>
@@ -582,7 +609,7 @@ function ColVisPopover({
           <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 select-none">
             Show / hide columns
           </p>
-          {PROP_COL_DEFS.map(({ id, label, alwaysOn }) => {
+          {colDefs.map(({ id, label, alwaysOn }) => {
             const visible = isVis(id);
             return (
               <button
@@ -1103,6 +1130,7 @@ function ContactsTable({
   onDeleteConfirm,
   onDeleteCancel,
   userEmail,
+  colVis,
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
@@ -1111,8 +1139,10 @@ function ContactsTable({
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
   userEmail?: string | null;
+  colVis: ReturnType<typeof useColVis>;
 }) {
   const { startResize: cStartResize, cs: cColStyle } = useColResize();
+  function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
   const [cPopup, setCPopup] = useState<CellPopup>(null);
   const [composeTarget, setComposeTarget] = useState<{ id: string; name: string | null; email: string | null } | null>(null);
 
@@ -1141,15 +1171,15 @@ function ContactsTable({
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("type")}>Ownership Role<RH col="type" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("tier")}>Tier<RH col="tier" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("status")}>Stage<RH col="status" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("tags")}>Asset Focus<RH col="tags" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("sizecat")}>Portfolio<RH col="sizecat" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("geocat")}>Submarket<RH col="geocat" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("ownership")}>Lead Source<RH col="ownership" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("company"))} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("type"))} style={cColStyle("type")}>Ownership Role<RH col="type" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("tier"))} style={cColStyle("tier")}>Tier<RH col="tier" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("status"))} style={cColStyle("status")}>Stage<RH col="status" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("tags"))} style={cColStyle("tags")}>Asset Focus<RH col="tags" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("sizecat"))} style={cColStyle("sizecat")}>Portfolio<RH col="sizecat" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("geocat"))} style={cColStyle("geocat")}>Submarket<RH col="geocat" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("ownership"))} style={cColStyle("ownership")}>Lead Source<RH col="ownership" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("lastcontact"))} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
             <th className={cn(thCls, "w-8 text-right pr-0")} />
             <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
@@ -1167,44 +1197,44 @@ function ContactsTable({
                   )}
                 </div>
               </td>
-              <td className={tdCls}>
+              <td className={cn(tdCls, col("company"))}>
                 <span title={c.company ?? ""} onClick={(e) => { if (c.company) cShowPopup(c.company, e); }} className="text-muted-foreground block truncate cursor-pointer hover:text-foreground">{c.company ?? "—"}</span>
               </td>
-              <td className={cn(tdCls, "min-w-28")}>
+              <td className={cn(tdCls, "min-w-28", col("type"))}>
                 <OwnershipRoleBadge role={c.ownership_role} onSave={(v) => onSave(c.id, "ownership_role", v)} />
               </td>
-              <td className={cn(tdCls, "min-w-24")}>
+              <td className={cn(tdCls, "min-w-24", col("tier"))}>
                 <TierBadge tier={c.contact_tier} onSave={(v) => onSave(c.id, "contact_tier", v)} />
               </td>
-              <td className={cn(tdCls, "min-w-32")}>
+              <td className={cn(tdCls, "min-w-32", col("status"))}>
                 <StageBadge stage={c.relationship_stage || c.client_status} onSave={(v) => onSave(c.id, "relationship_stage", v)} />
               </td>
-              <td className={cn(tdCls, "min-w-40")}>
+              <td className={cn(tdCls, "min-w-40", col("tags"))}>
                 <EditableTags
                   tags={c.asset_focus ?? []}
                   onSave={(v) => onSave(c.id, "asset_focus", v)}
                 />
               </td>
-              <td className={cn(tdCls, "min-w-28")}>
+              <td className={cn(tdCls, "min-w-28", col("sizecat"))}>
                 <EditableText
                   value={c.portfolio_size}
                   onSave={(v) => onSave(c.id, "portfolio_size", v)}
                 />
               </td>
-              <td className={cn(tdCls, "min-w-28")}>
+              <td className={cn(tdCls, "min-w-28", col("geocat"))}>
                 <EditableText
                   value={c.submarket || c.geographic_category}
                   onSave={(v) => onSave(c.id, "submarket", v)}
                 />
               </td>
-              <td className={cn(tdCls, "min-w-36")}>
+              <td className={cn(tdCls, "min-w-36", col("ownership"))}>
                 <EditableSelect
                   value={c.lead_source}
                   options={LEAD_SOURCES}
                   onSave={(v) => onSave(c.id, "lead_source", v)}
                 />
               </td>
-              <td className={tdCls}>
+              <td className={cn(tdCls, col("lastcontact"))}>
                 <span className="text-muted-foreground whitespace-nowrap text-xs">
                   {fmtDate(c.last_contacted_at) ?? "—"}
                 </span>
@@ -1306,12 +1336,14 @@ function LeasesTable({
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  colVis,
 }: {
   rows: LeaseAbstract[];
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
+  colVis: ReturnType<typeof useColVis>;
 }) {
   if (rows.length === 0) {
     return (
@@ -1326,6 +1358,7 @@ function LeasesTable({
   }
 
   const { startResize: lStartResize, cs: lColStyle } = useColResize();
+  function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
 
   return (
     <div>
@@ -1333,12 +1366,12 @@ function LeasesTable({
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={thCls} style={lColStyle("doc")}>Document<RH col="doc" onStart={lStartResize} /></th>
-            <th className={thCls} style={lColStyle("status")}>Status<RH col="status" onStart={lStartResize} /></th>
-            <th className={thCls} style={lColStyle("exec")}>Execution<RH col="exec" onStart={lStartResize} /></th>
-            <th className={thCls} style={lColStyle("exp")}>Expiration<RH col="exp" onStart={lStartResize} /></th>
-            <th className={thCls} style={lColStyle("term")}>Term<RH col="term" onStart={lStartResize} /></th>
-            <th className={thR} style={lColStyle("rate")}>Base rate<RH col="rate" onStart={lStartResize} /></th>
-            <th className={thCls} style={lColStyle("added")}>Added<RH col="added" onStart={lStartResize} /></th>
+            <th className={cn(thCls, col("status"))} style={lColStyle("status")}>Status<RH col="status" onStart={lStartResize} /></th>
+            <th className={cn(thCls, col("exec"))} style={lColStyle("exec")}>Execution<RH col="exec" onStart={lStartResize} /></th>
+            <th className={cn(thCls, col("exp"))} style={lColStyle("exp")}>Expiration<RH col="exp" onStart={lStartResize} /></th>
+            <th className={cn(thCls, col("term"))} style={lColStyle("term")}>Term<RH col="term" onStart={lStartResize} /></th>
+            <th className={cn(thR, col("rate"))} style={lColStyle("rate")}>Base rate<RH col="rate" onStart={lStartResize} /></th>
+            <th className={cn(thCls, col("added"))} style={lColStyle("added")}>Added<RH col="added" onStart={lStartResize} /></th>
             <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
         </thead>
@@ -1357,28 +1390,28 @@ function LeasesTable({
                     {sourceFileName(a.source_document)}
                   </Link>
                 </td>
-                <td className={tdCls}>
+                <td className={cn(tdCls, col("status"))}>
                   <span className={cn("text-xs font-medium rounded-full px-2 py-0.5", LEASE_STATUS_CLS[status])}>
                     {LEASE_STATUS_LABEL[status]}
                   </span>
                 </td>
-                <td className={tdCls}>
+                <td className={cn(tdCls, col("exec"))}>
                   <span className="text-muted-foreground whitespace-nowrap text-xs">
                     {fmtDate(a.execution_date) ?? "—"}
                   </span>
                 </td>
-                <td className={tdCls}>
+                <td className={cn(tdCls, col("exp"))}>
                   <span className="text-muted-foreground whitespace-nowrap text-xs">
                     {fmtDate(a.expiration_date) ?? "—"}
                   </span>
                 </td>
-                <td className={tdCls}>
+                <td className={cn(tdCls, col("term"))}>
                   <span className="text-muted-foreground whitespace-nowrap">{a.term ?? "—"}</span>
                 </td>
-                <td className={tdR}>
+                <td className={cn(tdR, col("rate"))}>
                   {a.base_rate != null ? `$${a.base_rate}/sf` : "—"}
                 </td>
-                <td className={tdCls}>
+                <td className={cn(tdCls, col("added"))}>
                   <span className="text-muted-foreground text-xs whitespace-nowrap">
                     {fmtDate(a.created_at) ?? "—"}
                   </span>
@@ -1467,7 +1500,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [tab, setTab] = useState<Tab>(
     VALID_TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "properties"
   );
-  const propColVis = useColVis("beacon_crm_col_visibility");
+  const propColVis   = useColVis("beacon_crm_col_visibility");
+  const conColVis    = useColVis("beacon_crm_con_col_visibility");
+  const leaseColVis  = useColVis("beacon_crm_lease_col_visibility");
 
   // ── Data state ─────────────────────────────────────────────────────────────
   const [properties, setProperties] = useState<Property[]>([]);
@@ -2147,7 +2182,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           Clear filters
                         </button>
                       )}
-                      <div className="ml-auto shrink-0">
+                      <div className="ml-auto shrink-0 flex items-center gap-2">
+                        <ColVisPopover isVis={leaseColVis.isVis} toggle={leaseColVis.toggle} colDefs={LEASE_COL_DEFS} />
                         <button
                           type="button"
                           onClick={() => setShowFieldsPanel(true)}
@@ -2193,7 +2229,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           <Settings2 className="size-3" />
                           Manage fields
                         </button>
-                        <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} />
+                        <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} colDefs={PROP_COL_DEFS} />
                       </div>
                     </>
                   )}
@@ -2218,7 +2254,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                           Clear filters
                         </button>
                       )}
-                      <div className="ml-auto shrink-0">
+                      <div className="ml-auto shrink-0 flex items-center gap-2">
+                        <ColVisPopover isVis={conColVis.isVis} toggle={conColVis.toggle} colDefs={CON_COL_DEFS} />
                         <button
                           type="button"
                           onClick={() => setShowFieldsPanel(true)}
@@ -2302,6 +2339,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onDeleteRequest={setDeletingLeaseId}
                   onDeleteConfirm={handleDeleteLeaseConfirm}
                   onDeleteCancel={() => setDeletingLeaseId(null)}
+                  colVis={leaseColVis}
                 />
               </div>
             )
@@ -2318,6 +2356,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onDeleteConfirm={handleDeleteContactConfirm}
                   onDeleteCancel={() => setDeletingContactId(null)}
                   userEmail={userEmail}
+                  colVis={conColVis}
                 />
               </div>
             )
