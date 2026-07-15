@@ -7,45 +7,64 @@ export async function createContact(
   formData: FormData
 ): Promise<{ error?: string; id?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const name = (formData.get("name") as string | null)?.trim();
   if (!name) return { error: "Name is required." };
 
+  const str = (key: string) =>
+    (formData.get(key) as string | null)?.trim() || null;
+
+  const dateStr = (key: string) => {
+    const v = str(key);
+    return v ? new Date(v).toISOString() : null;
+  };
+
   const tierRaw = formData.get("contact_tier") as string | null;
   const contact_tier = tierRaw ? Number(tierRaw) : null;
 
-  // Optional single property ID to link on creation (e.g. from property detail page)
-  const linkedPropId = (formData.get("linked_properties") as string | null)?.trim();
+  const linkedPropId = str("linked_properties");
   const linked_properties = linkedPropId ? [linkedPropId] : [];
 
-  // Collect custom fields — any key starting with "cf_"
+  const asset_focus = (formData.getAll("asset_focus") as string[]).filter(Boolean);
+
+  const tagsRaw = str("tags");
+  const action_tags = tagsRaw
+    ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
+
   const custom_fields: Record<string, string | null> = {};
   for (const [key, value] of formData.entries()) {
     if (key.startsWith("cf_")) {
-      const slug = key.slice(3);
-      custom_fields[slug] = (value as string).trim() || null;
+      custom_fields[key.slice(3)] = (value as string).trim() || null;
     }
   }
 
   const { data, error } = await supabase
     .from("contacts")
     .insert({
-      owner_id: user.id,
+      owner_id:           user.id,
       name,
-      email: (formData.get("email") as string | null)?.trim() || null,
-      phone: (formData.get("phone") as string | null)?.trim() || null,
-      company: (formData.get("company") as string | null)?.trim() || null,
-      role: (formData.get("role") as string | null)?.trim() || null,
-      mailing_address: (formData.get("mailing_address") as string | null)?.trim() || null,
+      company:            str("company"),
+      title_role:         str("title_role"),
+      email:              str("email"),
+      phone_mobile:       str("phone_mobile"),
+      phone_office:       str("phone_office"),
+      mailing_address:    str("mailing_address"),
+      ownership_role:     str("ownership_role"),
+      asset_focus,
+      submarket:          str("submarket"),
+      portfolio_size:     str("portfolio_size"),
       contact_tier,
-      client_status: (formData.get("client_status") as string | null) || null,
+      relationship_stage: str("relationship_stage"),
+      lead_source:        str("lead_source"),
+      last_contacted_at:  dateStr("last_contacted_at"),
+      next_action_due:    dateStr("next_action_due"),
+      notes:              str("notes"),
       linked_properties,
-      action_tags: [],
-      outreach_history: [],
+      action_tags,
+      outreach_history:   [],
       custom_fields,
     })
     .select("id")

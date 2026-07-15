@@ -88,6 +88,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-ownership-change.ts",
     description: "Properties — ownership_change_detected_at and ownership_change_data columns",
   },
+  {
+    file: "migrate-cre-contact-fields.ts",
+    description: "Contacts — CRE-owner fields: title_role, phone_mobile/office, ownership_role, asset_focus, submarket, portfolio_size, relationship_stage, lead_source, notes",
+  },
 ];
 
 const hr = "─".repeat(60);

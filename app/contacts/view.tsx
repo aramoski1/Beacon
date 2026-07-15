@@ -32,16 +32,37 @@ function tierCls(tier: number | null) {
   return "";
 }
 
-function typeCls(t: string | null) {
-  if (t === "owner")  return "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-400";
-  if (t === "tenant") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400";
-  if (t === "other")  return "bg-muted text-muted-foreground";
-  return "";
+const STAGE_LABELS: Record<string, string> = {
+  prospect:    "Prospect",
+  active:      "Active",
+  client:      "Client",
+  past_client: "Past client",
+  dormant:     "Dormant",
+};
+
+function stageLabel(s: string | null): string | null {
+  if (!s) return null;
+  return STAGE_LABELS[s] ?? s;
+}
+
+function stageCls(s: string | null) {
+  if (s === "active" || s === "client")
+    return "bg-green-100 text-green-700 dark:bg-green-950/60 dark:text-green-400";
+  if (s === "prospect")
+    return "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400";
+  if (s === "past_client")
+    return "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400";
+  return "bg-muted text-muted-foreground";
 }
 
 function fmtDate(iso: string | null) {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// Effective stage: prefer relationship_stage, fall back to client_status for legacy rows
+function effectiveStage(c: ContactRow): string | null {
+  return c.relationship_stage || c.client_status || null;
 }
 
 // ─── Filter bar ───────────────────────────────────────────────────────────────
@@ -50,14 +71,13 @@ const selCls =
   "border border-border rounded-md px-3 py-1.5 text-sm bg-background outline-none focus:ring-2 ring-ring";
 
 function FilterBar({
-  q, tier, status, contactType,
-  setQ, setTier, setStatus, setContactType,
+  q, tier, stage,
+  setQ, setTier, setStage,
 }: {
-  q: string; tier: string; status: string; contactType: string;
+  q: string; tier: string; stage: string;
   setQ: (v: string) => void;
   setTier: (v: string) => void;
-  setStatus: (v: string) => void;
-  setContactType: (v: string) => void;
+  setStage: (v: string) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-2 items-center">
@@ -79,18 +99,13 @@ function FilterBar({
         <option value="3">Tier 3</option>
       </select>
 
-      <select value={status} onChange={(e) => setStatus(e.target.value)} className={selCls}>
-        <option value="">All statuses</option>
-        <option value="active client">Active client</option>
-        <option value="past client">Past client</option>
+      <select value={stage} onChange={(e) => setStage(e.target.value)} className={selCls}>
+        <option value="">All stages</option>
         <option value="prospect">Prospect</option>
-      </select>
-
-      <select value={contactType} onChange={(e) => setContactType(e.target.value)} className={selCls}>
-        <option value="">All types</option>
-        <option value="owner">Owner</option>
-        <option value="tenant">Tenant</option>
-        <option value="other">Other</option>
+        <option value="active">Active</option>
+        <option value="client">Client</option>
+        <option value="past_client">Past client</option>
+        <option value="dormant">Dormant</option>
       </select>
     </div>
   );
@@ -99,25 +114,24 @@ function FilterBar({
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
-  const [q, setQ]                   = useState("");
-  const [tier, setTier]             = useState("");
-  const [status, setStatus]         = useState("");
-  const [contactType, setContactType] = useState("");
+  const [q, setQ]       = useState("");
+  const [tier, setTier] = useState("");
+  const [stage, setStage] = useState("");
 
   const filtered = useMemo(() => {
     let list = contacts;
     if (q) {
       const lq = q.toLowerCase();
-      list = list.filter(c =>
-        (c.name ?? "").toLowerCase().includes(lq) ||
-        (c.company ?? "").toLowerCase().includes(lq)
+      list = list.filter(
+        (c) =>
+          (c.name ?? "").toLowerCase().includes(lq) ||
+          (c.company ?? "").toLowerCase().includes(lq)
       );
     }
-    if (tier)        list = list.filter(c => String(c.contact_tier) === tier);
-    if (status)      list = list.filter(c => c.client_status === status);
-    if (contactType) list = list.filter(c => c.contact_type === contactType);
+    if (tier)  list = list.filter((c) => String(c.contact_tier) === tier);
+    if (stage) list = list.filter((c) => effectiveStage(c) === stage);
     return list;
-  }, [contacts, q, tier, status, contactType]);
+  }, [contacts, q, tier, stage]);
 
   return (
     <main className="px-6 py-8 max-w-5xl mx-auto space-y-6">
@@ -126,7 +140,7 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {contacts.length} total · {contacts.filter(c => c.contact_tier != null).length} in cadence
+            {contacts.length} total · {contacts.filter((c) => c.contact_tier != null).length} in cadence
           </p>
         </div>
         <Link
@@ -140,8 +154,8 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
 
       {/* Filters */}
       <FilterBar
-        q={q} tier={tier} status={status} contactType={contactType}
-        setQ={setQ} setTier={setTier} setStatus={setStatus} setContactType={setContactType}
+        q={q} tier={tier} stage={stage}
+        setQ={setQ} setTier={setTier} setStage={setStage}
       />
 
       {/* Table */}
@@ -151,7 +165,9 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
             <Users className="size-10 text-muted-foreground/30" />
             <div>
               <p className="text-sm font-medium">No contacts yet</p>
-              <p className="text-sm text-muted-foreground mt-0.5">Add your first contact to start tracking relationships.</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Add your first contact to start tracking relationships.
+              </p>
             </div>
             <Link
               href="/contacts/new"
@@ -172,7 +188,7 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Company</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Tier</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Type</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Stage</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Properties</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Last contact</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Cadence</th>
@@ -183,12 +199,10 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
                 const d = daysSince(c.last_contacted_at);
                 const overdue = isOverdue(c);
                 const propCount = (c.linked_properties ?? []).length;
+                const es = effectiveStage(c);
 
                 return (
-                  <tr
-                    key={c.id}
-                    className="hover:bg-muted/30 transition-colors"
-                  >
+                  <tr key={c.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3">
                       <Link
                         href={`/contacts/${c.id}`}
@@ -213,9 +227,9 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
                       )}
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      {c.contact_type ? (
-                        <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize", typeCls(c.contact_type))}>
-                          {c.contact_type}
+                      {es ? (
+                        <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", stageCls(es))}>
+                          {stageLabel(es)}
                         </span>
                       ) : (
                         <span className="text-muted-foreground/40 text-xs">—</span>

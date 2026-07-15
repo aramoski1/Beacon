@@ -71,9 +71,16 @@ type Contact = {
   company: string | null;
   email: string | null;
   phone: string | null;
+  phone_mobile: string | null;
   mailing_address: string | null;
   contact_tier: number | null;
-  client_status: string | null;
+  client_status: string | null;        // legacy
+  relationship_stage: string | null;   // new
+  ownership_role: string | null;       // new
+  asset_focus: string[] | null;        // new
+  submarket: string | null;            // new
+  portfolio_size: string | null;       // new
+  lead_source: string | null;          // new
   action_tags: string[];
   size_category: string | null;
   geographic_category: string | null;
@@ -134,16 +141,29 @@ const OWNERSHIP_TYPES = [
   { value: "unknown", label: "Unknown" },
 ];
 
-const CLIENT_STATUSES = [
-  { value: "prospect", label: "Prospect" },
-  { value: "active client", label: "Active client" },
-  { value: "past client", label: "Past client" },
+const RELATIONSHIP_STAGES = [
+  { value: "prospect",    label: "Prospect" },
+  { value: "active",      label: "Active" },
+  { value: "client",      label: "Client" },
+  { value: "past_client", label: "Past client" },
+  { value: "dormant",     label: "Dormant" },
 ];
 
-const CONTACT_TYPES = [
-  { value: "owner", label: "Owner" },
-  { value: "tenant", label: "Tenant" },
-  { value: "other", label: "Other" },
+const OWNERSHIP_ROLES = [
+  { value: "managing_member",   label: "Mng. Member" },
+  { value: "authorized_signer", label: "Auth. Signer" },
+  { value: "registered_agent",  label: "Reg. Agent" },
+  { value: "principal",         label: "Principal" },
+  { value: "other",             label: "Other" },
+];
+
+const LEAD_SOURCES = [
+  { value: "sunbiz",                label: "Sunbiz" },
+  { value: "referral",              label: "Referral" },
+  { value: "cold",                  label: "Cold" },
+  { value: "costar",                label: "CoStar" },
+  { value: "existing_relationship", label: "Existing relationship" },
+  { value: "other",                 label: "Other" },
 ];
 
 const PROP_COL_DEFS: { id: string; label: string; alwaysOn?: boolean }[] = [
@@ -370,66 +390,71 @@ function TierBadge({
   );
 }
 
-function StatusBadge({
-  status,
+function StageBadge({
+  stage,
   onSave,
 }: {
-  status: string | null;
+  stage: string | null;
   onSave: (v: string | null) => void;
 }) {
   const cls =
-    status === "active client"
+    stage === "active" || stage === "client"
       ? "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-300"
-      : status === "prospect"
+      : stage === "prospect"
       ? "bg-purple-100 text-purple-900 dark:bg-purple-900/30 dark:text-purple-300"
-      : status === "past client"
+      : stage === "past_client"
       ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+      : stage === "dormant"
+      ? "bg-muted text-muted-foreground"
       : "border border-dashed border-muted-foreground/40 text-muted-foreground";
 
   return (
     <select
-      value={status ?? ""}
+      value={stage ?? ""}
       onChange={(e) => onSave(e.target.value || null)}
       className={cn(
         "rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border-0 outline-none appearance-none",
         cls
       )}
-      title="Set client status"
+      title="Set relationship stage"
     >
       <option value="">—</option>
-      <option value="prospect">Prospect</option>
-      <option value="active client">Active client</option>
-      <option value="past client">Past client</option>
+      {RELATIONSHIP_STAGES.map((s) => (
+        <option key={s.value} value={s.value}>{s.label}</option>
+      ))}
     </select>
   );
 }
 
-function contactTypeCls(t: string | null) {
-  if (t === "owner") return "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-400";
-  if (t === "tenant") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400";
-  if (t === "other") return "bg-muted text-muted-foreground";
+function ownershipRoleCls(r: string | null) {
+  if (r === "managing_member" || r === "principal")
+    return "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-400";
+  if (r === "authorized_signer")
+    return "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400";
+  if (r === "registered_agent")
+    return "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400";
   return "border border-dashed border-muted-foreground/40 text-muted-foreground";
 }
 
-function ContactTypeBadge({
-  contactType,
+function OwnershipRoleBadge({
+  role,
   onSave,
 }: {
-  contactType: string | null;
+  role: string | null;
   onSave: (v: string | null) => void;
 }) {
   return (
     <select
-      value={contactType ?? ""}
+      value={role ?? ""}
       onChange={(e) => onSave(e.target.value || null)}
       className={cn(
-        "rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border-0 outline-none appearance-none capitalize",
-        contactTypeCls(contactType),
+        "rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border-0 outline-none appearance-none",
+        ownershipRoleCls(role),
       )}
-      title="Set contact type"
+      title="Set ownership role"
     >
       <option value="">—</option>
-      {CONTACT_TYPES.map((o) => (
+      {OWNERSHIP_ROLES.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
     </select>
@@ -1115,13 +1140,13 @@ function ContactsTable({
           <tr>
             <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("type")}>Type<RH col="type" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("type")}>Ownership Role<RH col="type" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("tier")}>Tier<RH col="tier" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("status")}>Status<RH col="status" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("tags")}>Tags<RH col="tags" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("sizecat")}>Size cat<RH col="sizecat" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("geocat")}>Geo cat<RH col="geocat" onStart={cStartResize} /></th>
-            <th className={thCls} style={cColStyle("ownership")}>Ownership<RH col="ownership" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("status")}>Stage<RH col="status" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("tags")}>Asset Focus<RH col="tags" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("sizecat")}>Portfolio<RH col="sizecat" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("geocat")}>Submarket<RH col="geocat" onStart={cStartResize} /></th>
+            <th className={thCls} style={cColStyle("ownership")}>Lead Source<RH col="ownership" onStart={cStartResize} /></th>
             <th className={thCls} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
             <th className={cn(thCls, "w-8 text-right pr-0")} />
             <th className={cn(thCls, "w-8 text-right pr-2")} />
@@ -1143,37 +1168,38 @@ function ContactsTable({
               <td className={tdCls}>
                 <span title={c.company ?? ""} onClick={(e) => { if (c.company) cShowPopup(c.company, e); }} className="text-muted-foreground block truncate cursor-pointer hover:text-foreground">{c.company ?? "—"}</span>
               </td>
-              <td className={cn(tdCls, "min-w-24")}>
-                <ContactTypeBadge contactType={c.contact_type} onSave={(v) => onSave(c.id, "contact_type", v)} />
+              <td className={cn(tdCls, "min-w-28")}>
+                <OwnershipRoleBadge role={c.ownership_role} onSave={(v) => onSave(c.id, "ownership_role", v)} />
               </td>
               <td className={cn(tdCls, "min-w-24")}>
                 <TierBadge tier={c.contact_tier} onSave={(v) => onSave(c.id, "contact_tier", v)} />
               </td>
               <td className={cn(tdCls, "min-w-32")}>
-                <StatusBadge status={c.client_status} onSave={(v) => onSave(c.id, "client_status", v)} />
+                <StageBadge stage={c.relationship_stage || c.client_status} onSave={(v) => onSave(c.id, "relationship_stage", v)} />
               </td>
               <td className={cn(tdCls, "min-w-40")}>
                 <EditableTags
-                  tags={c.action_tags ?? []}
-                  onSave={(v) => onSave(c.id, "action_tags", v)}
+                  tags={c.asset_focus ?? []}
+                  onSave={(v) => onSave(c.id, "asset_focus", v)}
                 />
               </td>
               <td className={cn(tdCls, "min-w-28")}>
                 <EditableText
-                  value={c.size_category}
-                  onSave={(v) => onSave(c.id, "size_category", v)}
+                  value={c.portfolio_size}
+                  onSave={(v) => onSave(c.id, "portfolio_size", v)}
                 />
               </td>
               <td className={cn(tdCls, "min-w-28")}>
                 <EditableText
-                  value={c.geographic_category}
-                  onSave={(v) => onSave(c.id, "geographic_category", v)}
+                  value={c.submarket || c.geographic_category}
+                  onSave={(v) => onSave(c.id, "submarket", v)}
                 />
               </td>
               <td className={cn(tdCls, "min-w-36")}>
-                <EditableText
-                  value={c.ownership_type}
-                  onSave={(v) => onSave(c.id, "ownership_type", v)}
+                <EditableSelect
+                  value={c.lead_source}
+                  options={LEAD_SOURCES}
+                  onSave={(v) => onSave(c.id, "lead_source", v)}
                 />
               </td>
               <td className={tdCls}>
@@ -1554,7 +1580,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     const supabase = createClient();
     const [{ data: pData }, { data: cData }] = await Promise.all([
       supabase.from("properties").select("size_category, geographic_category"),
-      supabase.from("contacts").select("contact_type, size_category, geographic_category, ownership_type, action_tags"),
+      supabase.from("contacts").select("ownership_role, submarket, geographic_category, lead_source, action_tags"),
     ]);
     if (pData) {
       setPropFilterOpts({
@@ -1564,10 +1590,10 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     }
     if (cData) {
       setConFilterOpts({
-        contactTypes: uniq(cData.map((r) => r.contact_type)),
-        sizeCat: uniq(cData.map((r) => r.size_category)),
-        geoCat: uniq(cData.map((r) => r.geographic_category)),
-        ownership: uniq(cData.map((r) => r.ownership_type)),
+        contactTypes: uniq(cData.map((r) => r.ownership_role)),
+        sizeCat: [],
+        geoCat: uniq(cData.map((r) => r.submarket || r.geographic_category)),
+        ownership: uniq(cData.map((r) => r.lead_source)),
         tags: uniq(cData.flatMap((r) => (r.action_tags as string[] | null) ?? [])),
       });
     }
@@ -1704,11 +1730,10 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       }
     } else {
       if (conFilters.tier) q = q.eq("contact_tier", Number(conFilters.tier));
-      if (conFilters.status) q = q.eq("client_status", conFilters.status);
-      if (conFilters.contactType) q = q.eq("contact_type", conFilters.contactType);
-      if (conFilters.sizeCat) q = q.eq("size_category", conFilters.sizeCat);
-      if (conFilters.geoCat) q = q.eq("geographic_category", conFilters.geoCat);
-      if (conFilters.ownership) q = q.eq("ownership_type", conFilters.ownership);
+      if (conFilters.status) q = q.eq("relationship_stage", conFilters.status);
+      if (conFilters.contactType) q = q.eq("ownership_role", conFilters.contactType);
+      if (conFilters.geoCat) q = q.eq("submarket", conFilters.geoCat);
+      if (conFilters.ownership) q = q.eq("lead_source", conFilters.ownership);
       if (conFilters.tag) q = q.contains("action_tags", [conFilters.tag]);
     }
 
@@ -2152,19 +2177,18 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   {tab === "contacts" && (
                     <>
                       <FilterSelect label="Tier" value={conFilters.tier} options={[{ value: "1", label: "Tier 1" }, { value: "2", label: "Tier 2" }, { value: "3", label: "Tier 3" }]} onChange={(v) => updateConFilter("tier", v)} />
-                      <FilterSelect label="Status" value={conFilters.status} options={CLIENT_STATUSES} onChange={(v) => updateConFilter("status", v)} />
-                      <FilterSelect label="Type" value={conFilters.contactType} options={CONTACT_TYPES} onChange={(v) => updateConFilter("contactType", v)} />
-                      {conFilterOpts.tags.length > 0 && (
-                        <FilterSelect label="Tag" value={conFilters.tag} options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("tag", v)} />
-                      )}
-                      {conFilterOpts.sizeCat.length > 0 && (
-                        <FilterSelect label="Size cat" value={conFilters.sizeCat} options={conFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("sizeCat", v)} />
+                      <FilterSelect label="Stage" value={conFilters.status} options={RELATIONSHIP_STAGES} onChange={(v) => updateConFilter("status", v)} />
+                      {conFilterOpts.contactTypes.length > 0 && (
+                        <FilterSelect label="Role" value={conFilters.contactType} options={conFilterOpts.contactTypes.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("contactType", v)} />
                       )}
                       {conFilterOpts.geoCat.length > 0 && (
-                        <FilterSelect label="Geo cat" value={conFilters.geoCat} options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("geoCat", v)} />
+                        <FilterSelect label="Submarket" value={conFilters.geoCat} options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("geoCat", v)} />
                       )}
                       {conFilterOpts.ownership.length > 0 && (
-                        <FilterSelect label="Ownership" value={conFilters.ownership} options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("ownership", v)} />
+                        <FilterSelect label="Lead Source" value={conFilters.ownership} options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("ownership", v)} />
+                      )}
+                      {conFilterOpts.tags.length > 0 && (
+                        <FilterSelect label="Tag" value={conFilters.tag} options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("tag", v)} />
                       )}
                       {conFiltersActive && (
                         <button type="button" onClick={() => { setConFilters(EMPTY_CON_FILTERS); setActiveListId(null); setActiveListName(null); setConPage(0); }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
