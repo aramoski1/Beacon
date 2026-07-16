@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Building2, Users, FileText, CheckSquare, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getDueContacts } from "@/app/outreach/actions";
+import { getEnrichedActionItems } from "./enriched-action-items";
 import { getFollowUpsDashboard, getUpcomingFollowUps } from "@/app/follow-ups/actions";
 import {
   getDashboardStats,
@@ -60,7 +60,7 @@ export default async function DashboardPage() {
   if (!user) redirect("/login");
 
   const [
-    dueContacts,
+    enrichedItems,
     stats,
     recentActivities,
     followUpsDash,
@@ -75,7 +75,7 @@ export default async function DashboardPage() {
     staleTier1Owners,
     ownershipChangedProperties,
   ] = await Promise.all([
-    getDueContacts(),
+    getEnrichedActionItems(),
     getDashboardStats(),
     getRecentActivities(),
     getFollowUpsDashboard(),
@@ -91,8 +91,8 @@ export default async function DashboardPage() {
     getOwnershipChangedProperties(),
   ]);
 
-  const overdueOutreach = dueContacts.filter((c) => c.daysOverdue > 0).length;
-  const dueTodayOutreach = dueContacts.filter((c) => c.daysOverdue === 0).length;
+  const overdueOutreach = enrichedItems.filter((c) => c.daysOverdue > 0).length;
+  const dueTodayOutreach = enrichedItems.filter((c) => c.daysOverdue === 0).length;
   const attentionCount =
     overdueOutreach +
     dueTodayOutreach +
@@ -151,7 +151,7 @@ export default async function DashboardPage() {
               hrefLabel="Outreach →"
             />
             <NeedsAttentionToday
-              dueContacts={dueContacts}
+              enrichedItems={enrichedItems}
               followUpsOverdue={followUpsDash.overdue}
               followUpsToday={followUpsDash.today}
             />

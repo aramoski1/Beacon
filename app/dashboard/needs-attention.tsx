@@ -1,21 +1,21 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import type { DueContact } from "@/app/outreach/actions";
+import type { EnrichedActionItem } from "@/lib/action-item-signals";
 import type { FollowUpRow } from "@/app/follow-ups/actions";
-import { OverdueList } from "./overdue-list";
+import { EnrichedContactList } from "./enriched-contact-list";
 import { DashboardFollowUpList } from "./follow-up-list";
 
 export function NeedsAttentionToday({
-  dueContacts,
+  enrichedItems,
   followUpsOverdue,
   followUpsToday,
 }: {
-  dueContacts: DueContact[];
+  enrichedItems: EnrichedActionItem[];
   followUpsOverdue: FollowUpRow[];
   followUpsToday: FollowUpRow[];
 }) {
-  const hasOutreach = dueContacts.some((c) => c.daysOverdue >= 0);
+  const hasOutreach = enrichedItems.some((c) => c.daysOverdue >= 0);
   const hasFollowUps = followUpsOverdue.length + followUpsToday.length > 0;
 
   if (!hasOutreach && !hasFollowUps) {
@@ -37,7 +37,7 @@ export function NeedsAttentionToday({
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Outreach on cadence
           </p>
-          <OverdueList contacts={dueContacts} mode="attention" limit={8} />
+          <EnrichedContactList items={enrichedItems} limit={8} />
         </div>
       )}
       {hasFollowUps && (
