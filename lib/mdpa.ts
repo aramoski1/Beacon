@@ -49,28 +49,38 @@ const TYPES = new Set([
 // Returns null if a house number cannot be extracted.
 export function parseAddressForGIS(
   raw: string
-): { houseNum: number; streetKeyword: string } | null {
-  // Strip city / state / zip tail
+): { houseNum: number; streetKeyword: string; directional: string | null; streetType: string | null } | null {
   const street = raw.replace(/,.*$/, "").trim();
 
-  // House number must be the first token
   const numMatch = street.match(/^(\d+)/);
   if (!numMatch) return null;
   const houseNum = parseInt(numMatch[1], 10);
 
-  // Remaining words after the number
   const rest = street.slice(numMatch[0].length).trim().toUpperCase();
-  const words = rest
-    .split(/\s+/)
-    .filter((w) => w.length > 0 && !DIRS.has(w) && !TYPES.has(w));
+  const allWords = rest.split(/\s+/).filter((w) => w.length > 0);
 
+  // Peel off a leading directional prefix, if present
+  let directional: string | null = null;
+  const remaining = [...allWords];
+  if (remaining.length > 0 && DIRS.has(remaining[0])) {
+    directional = remaining.shift()!;
+  }
+
+  // Capture a trailing street type suffix (only the last token)
+  let streetType: string | null = null;
+  if (remaining.length > 0 && TYPES.has(remaining[remaining.length - 1])) {
+    streetType = remaining[remaining.length - 1];
+  }
+
+  // Keyword: first remaining word that is neither a directional nor a type suffix
+  const words = remaining.filter((w) => !DIRS.has(w) && !TYPES.has(w));
   if (words.length === 0) return null;
 
   // Keep only alphanumeric chars to avoid SQL injection via the GIS LIKE clause
   const streetKeyword = words[0].replace(/[^A-Z0-9]/g, "");
   if (streetKeyword.length < 2) return null;
 
-  return { houseNum, streetKeyword };
+  return { houseNum, streetKeyword, directional, streetType };
 }
 
 export async function searchByAddressGIS(
@@ -83,8 +93,21 @@ export async function searchByAddressGIS(
     );
   }
 
-  const { houseNum, streetKeyword } = parsed;
-  const where = `hse_num=${houseNum} AND sname LIKE '%${streetKeyword}%'`;
+  const { houseNum, streetKeyword, directional, streetType } = parsed;
+
+  // Numbered street keywords (e.g. "2ND", "91ST") need word-boundary anchoring
+  // to prevent substring false positives: "SW 142ND PL" must not match "2ND".
+  // Named streets (e.g. "BISCAYNE", "LE") keep the simple %keyword% pattern.
+  const isNumbered = /^\d/.test(streetKeyword);
+  const keywordClause = isNumbered
+    ? `(sname LIKE '% ${streetKeyword}%' OR sname LIKE '${streetKeyword} %')`
+    : `sname LIKE '%${streetKeyword}%'`;
+
+  let where = `hse_num=${houseNum} AND ${keywordClause}`;
+  if (directional) {
+    // Eliminates cross-directional matches (NW vs SW, W vs NW, etc.)
+    where += ` AND sname LIKE '${directional} %'`;
+  }
 
   const url = new URL(GIS_ADDRESS_URL);
   url.searchParams.set("where", where);
@@ -106,12 +129,25 @@ export async function searchByAddressGIS(
   if (data.error) throw new Error(`GIS error: ${data.error.message}`);
   if (!data.features || data.features.length === 0) return [];
 
-  return data.features.map((f) => {
+  const parcels = data.features.map((f) => {
     const attr = f.attributes;
     const strap = folioToStrap(attr.FOLIO);
     const address = `${attr.HSE_NUM} ${attr.SNAME}`;
     return { folio: attr.FOLIO, strap, address };
   });
+
+  // When multiple parcels survive the WHERE filter, prefer the one whose street
+  // name ends with the expected type suffix (e.g. "W 33RD ST" before "W 33RD PL").
+  if (streetType && parcels.length > 1) {
+    const typeSuffix = ` ${streetType}`;
+    parcels.sort((a, b) => {
+      const aScore = a.address.endsWith(typeSuffix) ? 1 : 0;
+      const bScore = b.address.endsWith(typeSuffix) ? 1 : 0;
+      return bScore - aScore;
+    });
+  }
+
+  return parcels;
 }
 
 // ─── Folio detail ─────────────────────────────────────────────────────────────

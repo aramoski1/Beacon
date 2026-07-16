@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { folioToStrap, parseAddressForGIS } from "../../lib/mdpa";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { folioToStrap, parseAddressForGIS, searchByAddressGIS } from "../../lib/mdpa";
 
 // ─── folioToStrap ─────────────────────────────────────────────────────────────
 
@@ -44,6 +44,8 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("200 S Biscayne Blvd")).toEqual({
       houseNum: 200,
       streetKeyword: "BISCAYNE",
+      directional: "S",
+      streetType: "BLVD",
     });
   });
 
@@ -51,6 +53,8 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("200 S Biscayne Blvd, Miami FL 33131")).toEqual({
       houseNum: 200,
       streetKeyword: "BISCAYNE",
+      directional: "S",
+      streetType: "BLVD",
     });
   });
 
@@ -58,21 +62,31 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("1221 brickell ave")).toEqual({
       houseNum: 1221,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: "AVE",
     });
   });
 
   it("handles all eight directional prefixes (N S E W NE NW SE SW)", () => {
     for (const dir of ["N", "S", "E", "W", "NE", "NW", "SE", "SW"]) {
       const result = parseAddressForGIS(`100 ${dir} Miami Ave`);
-      expect(result, `direction ${dir}`).toEqual({ houseNum: 100, streetKeyword: "MIAMI" });
+      expect(result, `direction ${dir}`).toEqual({
+        houseNum: 100,
+        streetKeyword: "MIAMI",
+        directional: dir,
+        streetType: "AVE",
+      });
     }
   });
 
   it("skips directionals that appear after the street name", () => {
-    // "500 Brickell Ave SW" — SW at end is still filtered
+    // "500 Brickell Ave SW" — first word BRICKELL is not a dir → directional=null
+    // last word SW is not a TYPES token → streetType=null
     expect(parseAddressForGIS("500 Brickell Ave SW")).toEqual({
       houseNum: 500,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: null,
     });
   });
 
@@ -81,6 +95,8 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("1221 Brickell Ave Apt 4B, Miami FL")).toEqual({
       houseNum: 1221,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: null,
     });
   });
 
@@ -89,14 +105,18 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("3401 NW 12 Ave")).toEqual({
       houseNum: 3401,
       streetKeyword: "12",
+      directional: "NW",
+      streetType: "AVE",
     });
   });
 
   it("strips non-alphanumeric chars from the keyword", () => {
-    // "200 NW 42nd St" — "42ND" has no non-alnum chars, passes through
+    // "200 NW 42nd Ave" — "42ND" has no non-alnum chars, passes through
     expect(parseAddressForGIS("200 NW 42nd Ave")).toEqual({
       houseNum: 200,
       streetKeyword: "42ND",
+      directional: "NW",
+      streetType: "AVE",
     });
   });
 
@@ -104,6 +124,8 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("200   S   Biscayne   Blvd")).toEqual({
       houseNum: 200,
       streetKeyword: "BISCAYNE",
+      directional: "S",
+      streetType: "BLVD",
     });
   });
 
@@ -111,6 +133,8 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("3401 N Miami Ave")).toEqual({
       houseNum: 3401,
       streetKeyword: "MIAMI",
+      directional: "N",
+      streetType: "AVE",
     });
   });
 
@@ -157,6 +181,8 @@ describe("parseAddressForGIS — units and suites", () => {
     expect(parseAddressForGIS("777 Brickell Ave Ste 500")).toEqual({
       houseNum: 777,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: null,
     });
   });
 
@@ -165,6 +191,8 @@ describe("parseAddressForGIS — units and suites", () => {
     expect(parseAddressForGIS("1221 Brickell Ave Suite 200")).toEqual({
       houseNum: 1221,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: null,
     });
   });
 
@@ -173,6 +201,8 @@ describe("parseAddressForGIS — units and suites", () => {
     expect(parseAddressForGIS("1221 Brickell Ave, Suite 200, Miami FL")).toEqual({
       houseNum: 1221,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: "AVE",
     });
   });
 
@@ -181,6 +211,8 @@ describe("parseAddressForGIS — units and suites", () => {
     expect(parseAddressForGIS("100 Brickell Ave #500")).toEqual({
       houseNum: 100,
       streetKeyword: "BRICKELL",
+      directional: null,
+      streetType: null,
     });
   });
 
@@ -190,6 +222,8 @@ describe("parseAddressForGIS — units and suites", () => {
     expect(parseAddressForGIS("3401 N Miami Ave Suite 10, Miami")).toEqual({
       houseNum: 3401,
       streetKeyword: "MIAMI",
+      directional: "N",
+      streetType: null,
     });
   });
 
@@ -198,6 +232,8 @@ describe("parseAddressForGIS — units and suites", () => {
     expect(parseAddressForGIS("100 N Unit, Miami")).toEqual({
       houseNum: 100,
       streetKeyword: "UNIT",
+      directional: "N",
+      streetType: null,
     });
   });
 });
@@ -208,6 +244,8 @@ describe("parseAddressForGIS — directional edge cases", () => {
     expect(parseAddressForGIS("7900 NW 36 St, Miami")).toEqual({
       houseNum: 7900,
       streetKeyword: "36",
+      directional: "NW",
+      streetType: "ST",
     });
   });
 
@@ -215,6 +253,8 @@ describe("parseAddressForGIS — directional edge cases", () => {
     expect(parseAddressForGIS("2000 NE 26 St")).toEqual({
       houseNum: 2000,
       streetKeyword: "26",
+      directional: "NE",
+      streetType: "ST",
     });
   });
 
@@ -228,6 +268,8 @@ describe("parseAddressForGIS — directional edge cases", () => {
     expect(parseAddressForGIS("100 SE Biscayne Blvd")).toEqual({
       houseNum: 100,
       streetKeyword: "BISCAYNE",
+      directional: "SE",
+      streetType: "BLVD",
     });
   });
 
@@ -237,11 +279,14 @@ describe("parseAddressForGIS — directional edge cases", () => {
   });
 
   it("compound directional at end does not become the keyword", () => {
-    // "500 Alhambra Cir NW" → words = ["ALHAMBRA", "NW"] but NW→DIRS so filtered
-    // words = ["ALHAMBRA"]  → keyword = "ALHAMBRA"
+    // "500 Alhambra Cir NW" — first word ALHAMBRA is not a dir → directional=null
+    // last word NW is not a TYPES token → streetType=null
+    // CIR is in TYPES and is filtered from the keyword candidates
     expect(parseAddressForGIS("500 Alhambra Cir NW")).toEqual({
       houseNum: 500,
       streetKeyword: "ALHAMBRA",
+      directional: null,
+      streetType: null,
     });
   });
 });
@@ -268,5 +313,136 @@ describe("parseAddressForGIS — missing or invalid house numbers", () => {
 
   it("returns null for a whitespace-only string", () => {
     expect(parseAddressForGIS("   ")).toBeNull();
+  });
+});
+
+// ─── regression — previously-failing GIS cases ───────────────────────────────
+// Each of the 5 addresses below returned the wrong top-1 folio before the fix.
+// Root causes: directional confusion (NW vs SW) and numbered-street substring
+// false positives ("2ND" matching "142ND", "91ST" matching "191ST", etc.).
+// Fix: (a) extract directional from parse result, add sname LIKE 'NW %' filter;
+//      (b) word-boundary-anchor numbered keywords with a leading-space LIKE;
+//      (c) re-rank results by street type suffix match when type is known.
+
+describe("regression — previously-failing GIS cases", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubFetch(features: { FOLIO: string; SNAME: string; HSE_NUM: number }[] = []) {
+    const capturedUrls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      capturedUrls.push(url);
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+    return capturedUrls;
+  }
+
+  function whereFrom(rawUrl: string): string {
+    return new URL(rawUrl).searchParams.get("where") ?? "";
+  }
+
+  // ── 5110 NW 2nd Ave ──────────────────────────────────────────────────────
+
+  it("5110 NW 2nd Ave — parse extracts NW directional and AVE type", () => {
+    expect(parseAddressForGIS("5110 NW 2nd Ave")).toEqual({
+      houseNum: 5110,
+      streetKeyword: "2ND",
+      directional: "NW",
+      streetType: "AVE",
+    });
+  });
+
+  it("5110 NW 2nd Ave — WHERE anchors 2ND at word boundary and filters to NW", async () => {
+    const urls = stubFetch();
+    await searchByAddressGIS("5110 NW 2nd Ave");
+    const where = whereFrom(urls[0]);
+    expect(where).toContain("% 2ND%");
+    expect(where).toContain("sname LIKE 'NW %'");
+  });
+
+  // ── 8721 NW 91ST ST ───────────────────────────────────────────────────────
+
+  it("8721 NW 91ST ST — parse extracts NW directional and ST type", () => {
+    expect(parseAddressForGIS("8721 NW 91ST ST")).toEqual({
+      houseNum: 8721,
+      streetKeyword: "91ST",
+      directional: "NW",
+      streetType: "ST",
+    });
+  });
+
+  it("8721 NW 91ST ST — WHERE anchors 91ST at word boundary and filters to NW", async () => {
+    const urls = stubFetch();
+    await searchByAddressGIS("8721 NW 91ST ST");
+    const where = whereFrom(urls[0]);
+    expect(where).toContain("% 91ST%");
+    expect(where).toContain("sname LIKE 'NW %'");
+  });
+
+  // ── 9801 NW 106TH ST ──────────────────────────────────────────────────────
+
+  it("9801 NW 106TH ST — parse extracts NW directional and ST type", () => {
+    expect(parseAddressForGIS("9801 NW 106TH ST")).toEqual({
+      houseNum: 9801,
+      streetKeyword: "106TH",
+      directional: "NW",
+      streetType: "ST",
+    });
+  });
+
+  it("9801 NW 106TH ST — WHERE filters to NW streets", async () => {
+    const urls = stubFetch();
+    await searchByAddressGIS("9801 NW 106TH ST");
+    const where = whereFrom(urls[0]);
+    expect(where).toContain("sname LIKE 'NW %'");
+  });
+
+  // ── 1040 W 33RD ST ────────────────────────────────────────────────────────
+
+  it("1040 W 33RD ST — parse extracts W directional and ST type", () => {
+    expect(parseAddressForGIS("1040 W 33RD ST")).toEqual({
+      houseNum: 1040,
+      streetKeyword: "33RD",
+      directional: "W",
+      streetType: "ST",
+    });
+  });
+
+  it("1040 W 33RD ST — WHERE filters to W streets", async () => {
+    const urls = stubFetch();
+    await searchByAddressGIS("1040 W 33RD ST");
+    const where = whereFrom(urls[0]);
+    expect(where).toContain("sname LIKE 'W %'");
+  });
+
+  it("1040 W 33RD ST — type re-ranking puts ST before PL", async () => {
+    stubFetch([
+      { FOLIO: "0100000000001", SNAME: "W 33RD PL", HSE_NUM: 1040 },
+      { FOLIO: "0100000000002", SNAME: "W 33RD ST", HSE_NUM: 1040 },
+    ]);
+    const parcels = await searchByAddressGIS("1040 W 33RD ST");
+    expect(parcels[0].address).toBe("1040 W 33RD ST");
+  });
+
+  // ── 8811 NW 93RD ST ───────────────────────────────────────────────────────
+
+  it("8811 NW 93RD ST — parse extracts NW directional and ST type", () => {
+    expect(parseAddressForGIS("8811 NW 93RD ST")).toEqual({
+      houseNum: 8811,
+      streetKeyword: "93RD",
+      directional: "NW",
+      streetType: "ST",
+    });
+  });
+
+  it("8811 NW 93RD ST — WHERE filters to NW streets", async () => {
+    const urls = stubFetch();
+    await searchByAddressGIS("8811 NW 93RD ST");
+    const where = whereFrom(urls[0]);
+    expect(where).toContain("sname LIKE 'NW %'");
   });
 });
