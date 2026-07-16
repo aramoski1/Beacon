@@ -19,6 +19,8 @@ import { Separator } from "@/components/ui/separator";
 import { abstractLease, saveAbstractLease, type LeasePreview, type AbstractResult } from "./actions";
 import { createClient } from "@/lib/supabase/client";
 import { fetchFieldDefs, fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { BatchUpload } from "./batch-upload";
+import { cn } from "@/lib/utils";
 
 // ─── Preview helpers ──────────────────────────────────────────────────────────
 
@@ -222,6 +224,7 @@ function LeasePreviewCard({
 export default function NewAbstractPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<"single" | "batch">("single");
   const [preview, setPreview] = useState<LeasePreview | null>(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -252,7 +255,7 @@ export default function NewAbstractPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Lease abstraction</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -260,8 +263,31 @@ export default function NewAbstractPage() {
         </p>
       </div>
 
-      {/* Upload zone — shown only when no preview yet */}
+      {/* Single / Batch toggle — hide when previewing a single file */}
       {!preview && (
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          {(["single", "batch"] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={cn(
+                "px-4 py-1.5 text-sm rounded-md transition-colors capitalize",
+                mode === m
+                  ? "bg-background shadow text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m === "single" ? "Single" : "Batch"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Batch mode */}
+      {mode === "batch" && !preview && <BatchUpload />}
+
+      {/* Single mode — upload zone — shown only when no preview yet */}
+      {mode === "single" && !preview && (
         <div className="space-y-4">
           <div
             onClick={() => !isPending && inputRef.current?.click()}

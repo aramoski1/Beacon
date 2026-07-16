@@ -17,6 +17,8 @@ import {
   type FieldCitation, type FieldReview, type FieldReviews, type ReviewStatus,
 } from "./review-utils";
 import { saveFieldReview, acceptAllFields } from "./actions";
+import { ExportMenu } from "./export-menu";
+import type { LeaseAbstractExport } from "@/lib/lease-export";
 
 // ─── Lazy-load PDF viewer (browser only) ─────────────────────────────────────
 
@@ -423,6 +425,7 @@ export function LeaseReviewView({
           {reviewedCount}/{allFieldKeys.length} reviewed
         </span>
         <Badge variant="outline" className="shrink-0 text-[10px]">AI Abstracted</Badge>
+        <ExportMenu abstract={abstract as unknown as LeaseAbstractExport} />
         <button
           onClick={handleAcceptAll}
           disabled={acceptingAll || reviewedCount === allFieldKeys.length}
