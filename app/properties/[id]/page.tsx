@@ -26,6 +26,7 @@ import { EnrichPanel } from "./enrich-panel";
 import { OwnershipCheckPanel } from "./ownership-check-panel";
 import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
+import { getUserSettings } from "@/app/settings/actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ export default async function PropertyPage({
   if (error || !data) notFound();
   const p = data as Property;
 
-  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }] = await Promise.all([
+  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -155,6 +156,7 @@ export default async function PropertyPage({
       .eq("property_id", id)
       .eq("owner_id", user.id)
       .order("due_date", { ascending: true }),
+    getUserSettings(),
   ]);
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = p.custom_fields ?? {};
@@ -325,6 +327,7 @@ export default async function PropertyPage({
         needsCountyEnhancement={p.source !== "tax_roll" && !folioNumber}
         isMdpa={!!folioNumber}
         initialOwnerContacts={storedOwnerContacts}
+        costarEnabled={userSettings.costar_enabled}
       />
 
       {/* Uncertain / ambiguous fields — yellow */}

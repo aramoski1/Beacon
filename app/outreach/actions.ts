@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity-logger";
+import { getUserSettings } from "@/app/settings/actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,15 +39,12 @@ export type EmailDraft = {
 
 // ─── Cadence thresholds ───────────────────────────────────────────────────────
 
-const CADENCE_DAYS: Record<number, number> = { 1: 14, 2: 30, 3: 90 };
-
-function computeDaysOverdue(contact: {
-  contact_tier: number | null;
-  last_contacted_at: string | null;
-}): number {
-  const threshold = CADENCE_DAYS[contact.contact_tier ?? 0] ?? 90;
+function computeDaysOverdue(
+  contact: { contact_tier: number | null; last_contacted_at: string | null },
+  cadence: Record<number, number>
+): number {
+  const threshold = cadence[contact.contact_tier ?? 0] ?? 90;
   if (!contact.last_contacted_at) {
-    // Never contacted — treat as maximally overdue (use threshold days)
     return threshold;
   }
   const daysSince = Math.floor(
@@ -64,21 +62,29 @@ export async function getDueContacts(): Promise<DueContact[]> {
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select(
-      "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
-    )
-    .not("contact_tier", "is", null);
+  const [{ data: contacts }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(
+        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+      )
+      .not("contact_tier", "is", null),
+    getUserSettings(),
+  ]);
 
   if (!contacts) return [];
 
-  // Compute daysOverdue and filter to due/overdue (>= -7)
+  const cadence: Record<number, number> = {
+    1: settings.cadence_tier1_days,
+    2: settings.cadence_tier2_days,
+    3: settings.cadence_tier3_days,
+  };
+
   const dueContacts: DueContact[] = contacts
     .map((c) => ({
       ...c,
       linked_properties: c.linked_properties ?? [],
-      daysOverdue: computeDaysOverdue(c),
+      daysOverdue: computeDaysOverdue(c, cadence),
     }))
     .filter((c) => c.daysOverdue >= -7)
     .sort((a, b) => b.daysOverdue - a.daysOverdue);
@@ -119,20 +125,29 @@ export async function getContactsByIds(ids: string[]): Promise<DueContact[]> {
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select(
-      "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties",
-    )
-    .eq("owner_id", user.id)
-    .in("id", ids);
+  const [{ data: contacts }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(
+        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties",
+      )
+      .eq("owner_id", user.id)
+      .in("id", ids),
+    getUserSettings(),
+  ]);
 
   if (!contacts?.length) return [];
+
+  const cadence: Record<number, number> = {
+    1: settings.cadence_tier1_days,
+    2: settings.cadence_tier2_days,
+    3: settings.cadence_tier3_days,
+  };
 
   const dueContacts: DueContact[] = contacts.map((c) => ({
     ...c,
     linked_properties: c.linked_properties ?? [],
-    daysOverdue: computeDaysOverdue(c),
+    daysOverdue: computeDaysOverdue(c, cadence),
   }));
 
   const allPropIds = [...new Set(dueContacts.flatMap((c) => c.linked_properties))];
@@ -367,12 +382,15 @@ export async function logOutreach(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Fetch current contact to get tier and existing outreach_history
-  const { data: contact, error: fetchErr } = await supabase
-    .from("contacts")
-    .select("contact_tier, outreach_history")
-    .eq("id", contactId)
-    .single();
+  // Fetch current contact and user settings in parallel
+  const [{ data: contact, error: fetchErr }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("contact_tier, outreach_history")
+      .eq("id", contactId)
+      .single(),
+    getUserSettings(),
+  ]);
 
   if (fetchErr || !contact) return { error: "Contact not found." };
 
@@ -383,9 +401,15 @@ export async function logOutreach(
     method: "email",
   };
 
+  const cadence: Record<number, number> = {
+    1: settings.cadence_tier1_days,
+    2: settings.cadence_tier2_days,
+    3: settings.cadence_tier3_days,
+  };
+
   const history = [...((contact.outreach_history as object[]) ?? []), newEntry];
   const now = new Date().toISOString();
-  const cadenceDays = CADENCE_DAYS[contact.contact_tier ?? 0] ?? 90;
+  const cadenceDays = cadence[contact.contact_tier ?? 0] ?? 90;
   const nextActionDue = new Date(
     Date.now() + cadenceDays * 86_400_000
   ).toISOString();

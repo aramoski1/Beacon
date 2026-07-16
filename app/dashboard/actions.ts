@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getUserSettings } from "@/app/settings/actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,8 +112,6 @@ export type CadenceHealth = {
   tierBreakdown: { tier: number; label: string; overdue: number; total: number }[];
 };
 
-const CADENCE_DAYS: Record<number, number> = { 1: 14, 2: 30, 3: 90 };
-
 // ─── Audit classification ─────────────────────────────────────────────────────
 
 const GOVT_PATTERNS = [
@@ -135,9 +134,12 @@ function isFlaggedProperty(p: {
   return (p.confidence_flags ?? []).some((f) => CORE_FIELDS.has(f.field));
 }
 
-function isContactOverdue(c: { contact_tier: number | null; last_contacted_at: string | null }): boolean {
+function isContactOverdue(
+  c: { contact_tier: number | null; last_contacted_at: string | null },
+  cadence: Record<number, number>
+): boolean {
   if (!c.contact_tier) return false;
-  const threshold = CADENCE_DAYS[c.contact_tier] ?? 90;
+  const threshold = cadence[c.contact_tier] ?? 90;
   if (!c.last_contacted_at) return true;
   const daysSince = Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000);
   return daysSince >= threshold;
@@ -256,11 +258,20 @@ export async function getCadenceHealth(): Promise<CadenceHealth> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { compliancePct: 100, onTrack: 0, overdue: 0, neverContacted: 0, tierBreakdown: [] };
 
-  const { data } = await supabase
-    .from("contacts")
-    .select("contact_tier, last_contacted_at")
-    .eq("owner_id", user.id)
-    .not("contact_tier", "is", null);
+  const [{ data }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("contact_tier, last_contacted_at")
+      .eq("owner_id", user.id)
+      .not("contact_tier", "is", null),
+    getUserSettings(),
+  ]);
+
+  const cadence: Record<number, number> = {
+    1: settings.cadence_tier1_days,
+    2: settings.cadence_tier2_days,
+    3: settings.cadence_tier3_days,
+  };
 
   const contacts = data ?? [];
   let overdue = 0;
@@ -276,7 +287,7 @@ export async function getCadenceHealth(): Promise<CadenceHealth> {
       neverContacted++;
       cur.overdue++;
       overdue++;
-    } else if (isContactOverdue(c)) {
+    } else if (isContactOverdue(c, cadence)) {
       cur.overdue++;
       overdue++;
     } else {
@@ -285,7 +296,11 @@ export async function getCadenceHealth(): Promise<CadenceHealth> {
     tierStats.set(tier, cur);
   }
 
-  const tierLabels: Record<number, string> = { 1: "Tier 1 · 14d", 2: "Tier 2 · 30d", 3: "Tier 3 · 90d" };
+  const tierLabels: Record<number, string> = {
+    1: `Tier 1 · ${cadence[1]}d`,
+    2: `Tier 2 · ${cadence[2]}d`,
+    3: `Tier 3 · ${cadence[3]}d`,
+  };
   const tierBreakdown = [1, 2, 3]
     .map((tier) => {
       const s = tierStats.get(tier) ?? { overdue: 0, total: 0 };
@@ -381,15 +396,18 @@ export async function getColdTier1Contacts(limit = 6): Promise<ColdTier1Contact[
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select("id, name, company, contact_tier, last_contacted_at, linked_properties")
-    .eq("owner_id", user.id)
-    .eq("contact_tier", 1);
+  const [{ data: contacts }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("id, name, company, contact_tier, last_contacted_at, linked_properties")
+      .eq("owner_id", user.id)
+      .eq("contact_tier", 1),
+    getUserSettings(),
+  ]);
 
   const cold = (contacts ?? [])
     .map((c) => {
-      const threshold = CADENCE_DAYS[1];
+      const threshold = settings.cadence_tier1_days;
       let daysOverdue = threshold;
       if (c.last_contacted_at) {
         const daysSince = Math.floor(

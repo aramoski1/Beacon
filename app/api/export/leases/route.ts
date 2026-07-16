@@ -11,8 +11,9 @@ export async function GET() {
     supabase
       .from("lease_abstracts")
       .select(
-        "id, source_document, tenant_name, landlord_name, property_address, execution_date, expiration_date, term, base_rate, rent_escalation, security_deposit, custom_fields, created_at"
+        "id, source_document, execution_date, expiration_date, term, base_rate, linked_property, custom_fields, created_at, properties(address, city)"
       )
+      .eq("owner_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("field_definitions")
@@ -27,25 +28,23 @@ export async function GET() {
   const customDefs = (fieldDefs ?? []) as FieldDefinition[];
 
   const baseHeaders = [
-    "id", "source_document", "tenant_name", "landlord_name", "property_address",
-    "execution_date", "expiration_date", "term", "base_rate",
-    "rent_escalation", "security_deposit", "created_at",
+    "id", "source_document", "execution_date", "expiration_date", "term", "base_rate",
+    "property_address", "property_city", "linked_property", "created_at",
   ];
   const headers = [...baseHeaders, ...customDefs.map((d) => d.field_name)];
 
   const rows = (leases ?? []).map((l) => {
+    const prop = (l as Record<string, unknown>).properties as { address: string | null; city: string | null } | null;
     const base = [
       l.id,
       l.source_document,
-      (l as Record<string, unknown>).tenant_name ?? null,
-      (l as Record<string, unknown>).landlord_name ?? null,
-      (l as Record<string, unknown>).property_address ?? null,
       l.execution_date,
       l.expiration_date,
       l.term,
       l.base_rate,
-      (l as Record<string, unknown>).rent_escalation ?? null,
-      (l as Record<string, unknown>).security_deposit ?? null,
+      prop?.address ?? null,
+      prop?.city ?? null,
+      l.linked_property,
       l.created_at,
     ];
     const custom = customDefs.map((d) => {

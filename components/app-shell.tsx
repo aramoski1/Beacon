@@ -213,7 +213,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     const ninetyDays = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
 
-    const [{ data: contactsForBadge }, { count: fuCount }, { count: leaseUrgent }] = await Promise.all([
+    const [{ data: contactsForBadge }, { count: fuCount }, { count: leaseUrgent }, { data: settingsData }] = await Promise.all([
       supabase.from("contacts").select("contact_tier, last_contacted_at"),
       supabase
         .from("follow_ups")
@@ -226,12 +226,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .not("expiration_date", "is", null)
         .gte("expiration_date", today)
         .lte("expiration_date", ninetyDays),
+      supabase
+        .from("user_settings")
+        .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days")
+        .maybeSingle(),
     ]);
+
+    const cadence: Record<number, number> = {
+      1: settingsData?.cadence_tier1_days ?? 14,
+      2: settingsData?.cadence_tier2_days ?? 30,
+      3: settingsData?.cadence_tier3_days ?? 90,
+    };
 
     const overdue =
       contactsForBadge?.filter((c) => {
         if (!c.contact_tier) return false;
-        const threshold = ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[c.contact_tier as 1 | 2 | 3] ?? 90;
+        const threshold = cadence[c.contact_tier as 1 | 2 | 3] ?? 90;
         if (!c.last_contacted_at) return true;
         return Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000) >= threshold;
       }).length ?? 0;

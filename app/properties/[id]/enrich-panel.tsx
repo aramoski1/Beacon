@@ -131,6 +131,7 @@ export function EnrichPanel({
   needsCountyEnhancement,
   isMdpa,
   initialOwnerContacts,
+  costarEnabled,
 }: {
   propertyId: string;
   ownerName: string | null;
@@ -138,6 +139,7 @@ export function EnrichPanel({
   needsCountyEnhancement: boolean;
   isMdpa: boolean;
   initialOwnerContacts: StoredOwnerContact[];
+  costarEnabled: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -321,7 +323,7 @@ export function EnrichPanel({
     const sources = [
       needsCountyEnhancement && "County data",
       isEntityOwner && "Sunbiz owners",
-      "CoStar upload",
+      costarEnabled && "CoStar upload",
     ].filter(Boolean) as string[];
 
     const done: string[] = [];
@@ -807,7 +809,7 @@ export function EnrichPanel({
         </section>
 
         {/* ── CoStar upload (collapsible) ─────────────────────────────── */}
-        <section>
+        {costarEnabled && <section>
           <button
             onClick={() => setCostarOpen((v) => !v)}
             className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
@@ -964,7 +966,7 @@ export function EnrichPanel({
               )}
             </div>
           )}
-        </section>
+        </section>}
 
       </CardContent>
     </Card>

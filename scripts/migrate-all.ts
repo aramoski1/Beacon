@@ -96,6 +96,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-user-settings.ts",
     description: "User settings — user_settings table with per-user brokerage profile, outreach prefs, cadence overrides, and CoStar toggle",
   },
+  {
+    file: "migrate-field-definitions-update-policy.ts",
+    description: "Field definitions — add missing UPDATE RLS policy so editing custom field names works",
+  },
 ];
 
 const hr = "─".repeat(60);
