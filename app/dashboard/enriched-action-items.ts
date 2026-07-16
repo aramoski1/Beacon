@@ -12,8 +12,6 @@ import {
   type EnrichedProperty,
 } from "@/lib/action-item-signals";
 
-export type { EnrichedActionItem };
-
 export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
   const supabase = await createClient();
   const {
