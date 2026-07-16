@@ -1433,6 +1433,24 @@ function LeasesTable({
   );
 }
 
+// ─── Load error ───────────────────────────────────────────────────────────────
+
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+      <AlertCircle className="size-8 text-destructive/50" />
+      <p className="text-sm text-muted-foreground">Failed to load data</p>
+      <p className="text-xs text-muted-foreground/60 max-w-sm">{message}</p>
+      <button
+        onClick={onRetry}
+        className="text-xs underline underline-offset-2 text-primary hover:text-primary/80"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 // ─── Pagination bar ───────────────────────────────────────────────────────────
 
 function PaginationBar({
@@ -1523,6 +1541,11 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [propsLoading, setPropsLoading] = useState(true);
   const [leasesLoading, setLeasesLoading] = useState(true);
   const [contactsLoading, setContactsLoading] = useState(true);
+
+  // ── Load error state ───────────────────────────────────────────────────────
+  const [propsError, setPropsError] = useState<string | null>(null);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+  const [leasesError, setLeasesError] = useState<string | null>(null);
 
   // ── Filter options (full distinct-value scan, loaded once on mount) ────────
   const [propFilterOpts, setPropFilterOpts] = useState<{ sizeCat: string[]; geoCat: string[] }>({
@@ -1619,8 +1642,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const loadFilterOpts = useCallback(async () => {
     const supabase = createClient();
     const [{ data: pData }, { data: cData }] = await Promise.all([
-      supabase.from("properties").select("size_category, geographic_category"),
-      supabase.from("contacts").select("ownership_role, submarket, geographic_category, lead_source, action_tags"),
+      supabase.from("properties").select("size_category, geographic_category").limit(2000),
+      supabase.from("contacts").select("ownership_role, submarket, geographic_category, lead_source, action_tags").limit(2000),
     ]);
     if (pData) {
       setPropFilterOpts({
@@ -1644,6 +1667,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   // ── Load properties (server-filtered + paginated) ──────────────────────────
   const loadProperties = useCallback(async () => {
     setPropsLoading(true);
+    setPropsError(null);
     const supabase = createClient();
     const from = propPage * PAGE_SIZE;
 
@@ -1664,7 +1688,16 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       if (propFilters.geoCat) q = q.eq("geographic_category", propFilters.geoCat);
     }
 
-    const { data, count } = await q;
+    const { data, count, error } = await q;
+    if (error) {
+      setPropsError(error.message);
+      setProperties([]);
+      setTotalProps(0);
+      setPropContacts(new Map());
+      setPropsLoading(false);
+      return;
+    }
+
     const rows: Property[] = data ?? [];
     setProperties(rows);
     setTotalProps(count ?? 0);
@@ -1703,7 +1736,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           .from("activities")
           .select("contact_id, activity_date, activity_type, notes")
           .in("contact_id", contactIds)
-          .order("activity_date", { ascending: false });
+          .order("activity_date", { ascending: false })
+          .limit(200);
         for (const a of (activityData ?? []) as RawActivity[]) {
           if (!activityMap.has(a.contact_id)) {
             activityMap.set(a.contact_id, a);
@@ -1743,6 +1777,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   // ── Load contacts (server-filtered + paginated) ────────────────────────────
   const loadContacts = useCallback(async () => {
     setContactsLoading(true);
+    setContactsError(null);
     const supabase = createClient();
     const from = conPage * PAGE_SIZE;
 
@@ -1777,7 +1812,14 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       if (conFilters.tag) q = q.contains("action_tags", [conFilters.tag]);
     }
 
-    const { data, count } = await q;
+    const { data, count, error } = await q;
+    if (error) {
+      setContactsError(error.message);
+      setContacts([]);
+      setTotalCons(0);
+      setContactsLoading(false);
+      return;
+    }
     setContacts((data ?? []).map((x: Contact) => ({ ...x, action_tags: x.action_tags ?? [] })));
     setTotalCons(count ?? 0);
     setContactsLoading(false);
@@ -1788,6 +1830,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   // ── Load leases (server-filtered + paginated) ─────────────────────────────
   const loadLeases = useCallback(async () => {
     setLeasesLoading(true);
+    setLeasesError(null);
     const supabase = createClient();
     const from = leasePage * PAGE_SIZE;
 
@@ -1810,7 +1853,14 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       }
     }
 
-    const { data, count } = await q;
+    const { data, count, error } = await q;
+    if (error) {
+      setLeasesError(error.message);
+      setLeases([]);
+      setTotalLeases(0);
+      setLeasesLoading(false);
+      return;
+    }
     setLeases((data ?? []) as LeaseAbstract[]);
     setTotalLeases(count ?? 0);
     setLeasesLoading(false);
@@ -2307,7 +2357,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex-1 overflow-auto">
           {tab === "properties" ? (
-            totalProps === null ? (
+            propsError ? (
+              <LoadError message={propsError} onRetry={loadProperties} />
+            ) : totalProps === null ? (
               <TableSkeleton rows={10} cols={8} />
             ) : (
               <div className={cn(propsLoading && "opacity-60 pointer-events-none")}>
@@ -2329,7 +2381,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
               </div>
             )
           ) : tab === "leases" ? (
-            totalLeases === null ? (
+            leasesError ? (
+              <LoadError message={leasesError} onRetry={loadLeases} />
+            ) : totalLeases === null ? (
               <TableSkeleton rows={10} cols={5} />
             ) : (
               <div className={cn(leasesLoading && "opacity-60 pointer-events-none")}>
@@ -2344,7 +2398,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
               </div>
             )
           ) : (
-            totalCons === null ? (
+            contactsError ? (
+              <LoadError message={contactsError} onRetry={loadContacts} />
+            ) : totalCons === null ? (
               <TableSkeleton rows={10} cols={7} />
             ) : (
               <div className={cn(contactsLoading && "opacity-60 pointer-events-none")}>

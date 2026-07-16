@@ -72,7 +72,7 @@ export async function fetchMatchingPropertyIdsFromClient(
   supabase: any,
   filters: PropertySearchFilters,
 ): Promise<string[]> {
-  let q = supabase.from("properties").select("id");
+  let q = supabase.from("properties").select("id").limit(1000);
   q = applyPropertyFilters(q, filters);
   const { data } = await q;
   return (data ?? []).map((r: { id: string }) => r.id);
