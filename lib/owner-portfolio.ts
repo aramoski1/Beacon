@@ -13,6 +13,19 @@ export type OwnerPortfolioProperty = {
   property_type: string | null;
   size_sqft: number | null;
   owner_name: string | null;
+  last_sale_date: string | null;
+  last_sale_price: number | null;
+};
+
+export type OwnerPortfolioRelatedEntity = {
+  name: string;
+  propertyCount: number;
+};
+
+export type OwnerPortfolioRelatedPerson = {
+  name: string;
+  title: string | null;
+  propertyCount: number;
 };
 
 export type OwnerPortfolioContact = {
@@ -73,6 +86,10 @@ export type OwnerPortfolioData = {
   leases: OwnerPortfolioLease[];
   totalSqft: number;
   timeline: OwnerPortfolioTimelineEvent[];
+  /** Unique ownership entities (owner_name values) across portfolio properties. */
+  relatedEntities: OwnerPortfolioRelatedEntity[];
+  /** Unique persons extracted from owner_contacts across portfolio properties. */
+  relatedPersons: OwnerPortfolioRelatedPerson[];
 };
 
 export type PropertyRowForMatch = {

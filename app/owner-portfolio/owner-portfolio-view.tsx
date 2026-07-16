@@ -7,7 +7,10 @@ import {
   Layers,
   Mail,
   MapPin,
+  Network,
   Ruler,
+  Tag,
+  TrendingUp,
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +22,7 @@ import {
 } from "@/lib/owner-portfolio";
 import type { MdpaSearchQuery } from "@/lib/owner-portfolio";
 import { PortfolioMdpaSection } from "./portfolio-mdpa-section";
+import { PortfolioBriefing } from "./portfolio-briefing";
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -33,6 +37,10 @@ function daysUntil(iso: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return Math.ceil((exp - today.getTime()) / 86_400_000);
+}
+
+function daysSince(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
 
 export function OwnerPortfolioView({
@@ -51,6 +59,13 @@ export function OwnerPortfolioView({
     .sort((a, b) => a.days - b.days);
 
   const primaryContact = data.contacts.find((c) => c.id === data.anchorContactId) ?? data.contacts[0];
+
+  const recentSales = data.properties
+    .filter((p) => p.last_sale_date && daysSince(p.last_sale_date) <= 730)
+    .sort((a, b) => daysSince(a.last_sale_date!) - daysSince(b.last_sale_date!));
+
+  // Only show ownership network when there are multiple entities or persons beyond the primary
+  const showOwnershipNetwork = data.relatedEntities.length > 1 || data.relatedPersons.length > 0;
 
   return (
     <div className="space-y-8">
@@ -104,6 +119,9 @@ export function OwnerPortfolioView({
         />
       </div>
 
+      {/* Portfolio intelligence — AI briefing */}
+      <PortfolioBriefing data={data} />
+
       {upcomingLeases.length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-400 flex items-center gap-1.5">
@@ -151,34 +169,102 @@ export function OwnerPortfolioView({
           </p>
         ) : (
           <div className="rounded-xl border bg-card overflow-hidden divide-y">
-            {data.properties.map((p) => (
-              <Link
-                key={p.id}
-                href={`/properties/${p.id}`}
-                className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors group"
-              >
-                <div className="size-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
-                  <Building2 className="size-4 text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                    {p.address ?? "Unknown address"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 truncate">
-                    <MapPin className="size-3 shrink-0" />
-                    {[p.city, p.submarket, p.property_type].filter(Boolean).join(" · ") || "—"}
-                  </p>
-                </div>
-                {p.size_sqft != null && (
-                  <span className="text-xs font-medium tabular-nums text-muted-foreground shrink-0">
-                    {p.size_sqft.toLocaleString()} sf
-                  </span>
-                )}
-              </Link>
-            ))}
+            {data.properties.map((p) => {
+              const soldRecently = p.last_sale_date && daysSince(p.last_sale_date) <= 730;
+              return (
+                <Link
+                  key={p.id}
+                  href={`/properties/${p.id}`}
+                  className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors group"
+                >
+                  <div className="size-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                    <Building2 className="size-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                      {p.address ?? "Unknown address"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 truncate">
+                      <MapPin className="size-3 shrink-0" />
+                      {[p.city, p.submarket, p.property_type].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {soldRecently && (
+                      <span className="hidden sm:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                        <TrendingUp className="size-3" />
+                        Sold {fmtDate(p.last_sale_date!)}
+                      </span>
+                    )}
+                    {p.size_sqft != null && (
+                      <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                        {p.size_sqft.toLocaleString()} sf
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>
+
+      {/* Ownership network — entities and persons */}
+      {showOwnershipNetwork && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Network className="size-4 text-muted-foreground" />
+            Ownership network
+          </h2>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {data.relatedEntities.length > 0 && (
+              <div className="rounded-xl border bg-card px-4 py-3 space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                  <Tag className="size-3" />
+                  Entities / LLCs
+                </p>
+                <ul className="space-y-1.5">
+                  {data.relatedEntities.slice(0, 8).map((e) => (
+                    <li key={e.name} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-medium truncate">{e.name}</span>
+                      {e.propertyCount > 1 && (
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {e.propertyCount} props
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {data.relatedPersons.length > 0 && (
+              <div className="rounded-xl border bg-card px-4 py-3 space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                  <User className="size-3" />
+                  Key persons
+                </p>
+                <ul className="space-y-1.5">
+                  {data.relatedPersons.slice(0, 8).map((person) => (
+                    <li key={person.name} className="flex items-center justify-between gap-2 text-sm">
+                      <div className="min-w-0">
+                        <span className="font-medium truncate block">{person.name}</span>
+                        {person.title && (
+                          <span className="text-xs text-muted-foreground truncate block">{person.title}</span>
+                        )}
+                      </div>
+                      {person.propertyCount > 1 && (
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {person.propertyCount} props
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {data.contacts.length > 0 && (
         <section className="space-y-3">
@@ -202,6 +288,44 @@ export function OwnerPortfolioView({
                     · {fmtDate(c.last_contacted_at)}
                   </span>
                 )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {recentSales.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <TrendingUp className="size-4 text-muted-foreground" />
+            Recent sales
+            <span className="text-xs font-normal text-muted-foreground">(within 2 years)</span>
+          </h2>
+          <div className="rounded-xl border bg-card overflow-hidden divide-y">
+            {recentSales.map((p) => (
+              <Link
+                key={p.id}
+                href={`/properties/${p.id}`}
+                className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                    {p.address ?? "Unknown address"}
+                  </p>
+                  {p.size_sqft != null && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {p.size_sqft.toLocaleString()} sf
+                    </p>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-medium">{fmtDate(p.last_sale_date!)}</p>
+                  {p.last_sale_price != null && (
+                    <p className="text-xs text-muted-foreground">
+                      ${(p.last_sale_price / 1_000_000).toFixed(1)}M
+                    </p>
+                  )}
+                </div>
               </Link>
             ))}
           </div>

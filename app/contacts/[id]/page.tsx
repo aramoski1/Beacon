@@ -290,7 +290,7 @@ export default async function ContactPage({
         )}
 
         {(c.linked_properties?.length ?? 0) > 0 && (
-          <OwnerPortfolioLink contactId={id} className="text-sm" label="View owner portfolio →" />
+          <OwnerPortfolioLink contactId={id} variant="button" label="Ownership portfolio" />
         )}
       </div>
 

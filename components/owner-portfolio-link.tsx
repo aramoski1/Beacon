@@ -9,12 +9,14 @@ export function OwnerPortfolioLink({
   personIndex,
   className,
   label = "View portfolio",
+  variant = "link",
 }: {
   contactId?: string;
   propertyId?: string;
   personIndex?: number;
   className?: string;
   label?: string;
+  variant?: "link" | "button";
 }) {
   const href = contactId
     ? ownerPortfolioHref({ type: "contact", contactId })
@@ -23,6 +25,22 @@ export function OwnerPortfolioLink({
       : null;
 
   if (!href) return null;
+
+  if (variant === "button") {
+    return (
+      <Link
+        href={href}
+        className={cn(
+          "inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium",
+          "bg-primary/10 text-primary hover:bg-primary/15 border border-primary/20 transition-colors",
+          className,
+        )}
+      >
+        <Layers className="size-4 shrink-0" />
+        {label}
+      </Link>
+    );
+  }
 
   return (
     <Link

@@ -16,10 +16,13 @@ import {
   type PropertyRowForMatch,
   leaseLabel,
 } from "@/lib/owner-portfolio";
+import { aggregateRelatedEntities, aggregateRelatedPersons } from "@/lib/portfolio-graph";
 
 type RawProperty = PropertyRowForMatch & {
   owner_contact_name?: string | null;
   owner_contact_address?: string | null;
+  last_sale_date?: string | null;
+  last_sale_price?: number | null;
 };
 
 type RawContact = {
@@ -45,6 +48,8 @@ const EMPTY: OwnerPortfolioData = {
   leases: [],
   totalSqft: 0,
   timeline: [],
+  relatedEntities: [],
+  relatedPersons: [],
 };
 
 function dedupeMdpaQueries(queries: MdpaSearchQuery[]): MdpaSearchQuery[] {
@@ -118,6 +123,8 @@ function toPortfolioProperty(p: RawProperty): OwnerPortfolioProperty {
     property_type: p.property_type,
     size_sqft: p.size_sqft,
     owner_name: p.owner_name,
+    last_sale_date: p.last_sale_date ?? null,
+    last_sale_price: p.last_sale_price ?? null,
   };
 }
 
@@ -240,7 +247,7 @@ async function loadPortfolioForPropertyIds(
   meta: Pick<OwnerPortfolioData, "displayName" | "subtitle" | "source" | "anchorContactId" | "anchorPropertyId" | "mdpaSearch">,
   allProperties: RawProperty[],
 ): Promise<OwnerPortfolioData> {
-  if (propertyIds.length === 0) return { ...EMPTY, ...meta };
+  if (propertyIds.length === 0) return { ...EMPTY, ...meta, relatedEntities: [], relatedPersons: [] };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -312,6 +319,10 @@ async function loadPortfolioForPropertyIds(
     activities: activityRows ?? [],
   });
 
+  const rawPortfolioProps = allProperties.filter((p) => idSet.has(p.id));
+  const relatedEntities = aggregateRelatedEntities(rawPortfolioProps);
+  const relatedPersons = aggregateRelatedPersons(rawPortfolioProps);
+
   return {
     ...meta,
     properties,
@@ -319,6 +330,8 @@ async function loadPortfolioForPropertyIds(
     leases,
     totalSqft,
     timeline,
+    relatedEntities,
+    relatedPersons,
   };
 }
 
@@ -326,7 +339,7 @@ async function fetchAllProperties(userId: string): Promise<RawProperty[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("properties")
-    .select("id, address, city, submarket, property_type, size_sqft, owner_name, owner_mailing_address, owner_contacts, owner_contact_name, owner_contact_address")
+    .select("id, address, city, submarket, property_type, size_sqft, owner_name, owner_mailing_address, owner_contacts, owner_contact_name, owner_contact_address, last_sale_date, last_sale_price")
     .eq("owner_id", userId);
   return (data ?? []) as RawProperty[];
 }
