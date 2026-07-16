@@ -1,196 +1,274 @@
-// GIS accuracy check — verifies that searchByAddressGIS returns the correct
-// parcel as its top result for a set of known Miami-Dade address/folio pairs.
+// GIS accuracy harness — pulls MDPA-sourced properties from the Supabase DB
+// (any row where source_url starts with 'mdpa:' carries a ground-truth folio),
+// re-runs each address through searchByAddressGIS, and reports whether the
+// fresh lookup returns the same folio that is stored on the property row.
 //
-// HOW TO FILL IN expectedFolio:
-//   1. Visit https://www.miamidade.gov/Apps/PA/propertysearch/#/
-//   2. Search the address, copy the 13-digit folio from the result
-//      (the "Folio Number" with dashes removed, e.g. "0131250780010")
-//   3. Paste it as the expectedFolio string below.
+// Measures only — does not touch the database or change any lookup logic.
 //
-// Results where expectedFolio is null are "discovery mode" — the script shows
-// what the GIS returns so you can verify and fill in the folio.
-//
-// Usage:  npx tsx --env-file=.env.local scripts/check-gis-accuracy.ts
+// Usage:  npm run check:gis
+// Env:    DATABASE_URL (from .env.local)
+// Opt:    GIS_LIMIT=50  (default 200; set lower for a quick spot-check)
 
-import { searchByAddressGIS, type GISParcel } from "../lib/mdpa";
+import { Client } from "pg";
+import {
+  searchByAddressGIS,
+  parseAddressForGIS,
+  folioToStrap,
+  type GISParcel,
+} from "../lib/mdpa";
 
-// ─── Test cases ───────────────────────────────────────────────────────────────
-// Real Miami-Dade commercial properties chosen for variety across submarkets.
-// Verify each expectedFolio on the MDPA site before treating results as ground truth.
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL is not set — add it to .env.local");
+  process.exit(1);
+}
 
-type TestCase = {
-  label: string;
+const MAX_ROWS = parseInt(process.env.GIS_LIMIT ?? "200", 10);
+const DELAY_MS = 350; // polite pause between GIS requests
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ResultTag = "match" | "mismatch" | "not_found" | "parse_error" | "api_error";
+
+type Row = {
+  id: string;
   address: string;
-  expectedFolio: string | null; // 13 digits, no dashes — null = discovery mode
+  owner_name: string | null;
+  source_url: string; // "mdpa:XX-XXXX-XXX-XXXX"
 };
 
-const TEST_CASES: TestCase[] = [
-  // Downtown / Brickell ──────────────────────────────────────────────────────
-  {
-    label: "SE Financial Center",
-    address: "200 S Biscayne Blvd, Miami",
-    expectedFolio: null, // verify at MDPA
-  },
-  {
-    label: "1221 Brickell (office tower)",
-    address: "1221 Brickell Ave, Miami",
-    expectedFolio: null,
-  },
-  {
-    label: "701 Brickell (Brickell World Plaza)",
-    address: "701 Brickell Ave, Miami",
-    expectedFolio: null,
-  },
-  // Wynwood / Midtown ────────────────────────────────────────────────────────
-  {
-    label: "Wynwood — 3401 N Miami Ave (used as lib/mdpa.ts example)",
-    address: "3401 N Miami Ave, Miami",
-    expectedFolio: null,
-  },
-  // Airport / Doral industrial ───────────────────────────────────────────────
-  {
-    label: "Doral industrial (NW 36 St corridor)",
-    address: "7900 NW 36 St, Miami",
-    expectedFolio: null,
-  },
-  // Coral Gables ─────────────────────────────────────────────────────────────
-  {
-    label: "Alhambra Plaza (Coral Gables CBD)",
-    address: "1 Alhambra Plaza, Coral Gables",
-    expectedFolio: null,
-  },
-  {
-    label: "Ponce de Leon office (Coral Gables)",
-    address: "355 Alhambra Cir, Coral Gables",
-    expectedFolio: null,
-  },
-  // North Miami ──────────────────────────────────────────────────────────────
-  {
-    label: "Aventura Mall anchor parcel",
-    address: "19501 Biscayne Blvd, Aventura",
-    expectedFolio: null,
-  },
-];
+type Result = {
+  row: Row;
+  storedStrap: string;  // dashed  "01-4137-065-0001"
+  storedFolio: string;  // raw     "0141370650001"
+  tag: ResultTag;
+  parcels: GISParcel[];
+  errorMessage?: string;
+  foundAtRank?: number; // 1-based position of storedFolio if not top-1
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const HR  = "─".repeat(64);
-const HR2 = "·".repeat(64);
+const HR  = "─".repeat(70);
+const HR2 = "·".repeat(70);
 
-function folioMatch(parcels: GISParcel[], expected: string): "TOP" | "FOUND" | "MISS" {
-  if (parcels.length === 0) return "MISS";
-  if (parcels[0].folio === expected) return "TOP";
-  if (parcels.some((p) => p.folio === expected)) return "FOUND";
-  return "MISS";
+const TAG_LABEL: Record<ResultTag, string> = {
+  match:       "✓  match",
+  mismatch:    "✗  mismatch",
+  not_found:   "—  not found (GIS returned 0 results)",
+  parse_error: "⚠  unparseable address",
+  api_error:   "!  API error",
+};
+
+function strapFromSourceUrl(sourceUrl: string): string {
+  return sourceUrl.replace("mdpa:", ""); // "01-4137-065-0001"
 }
 
-function statusBadge(status: "TOP" | "FOUND" | "MISS" | "DISCOVERY"): string {
+function folioFromStrap(strap: string): string {
+  return strap.replace(/-/g, "").padStart(13, "0"); // "0141370650001"
+}
+
+async function checkOne(row: Row): Promise<Result> {
+  const storedStrap = strapFromSourceUrl(row.source_url);
+  const storedFolio = folioFromStrap(storedStrap);
+  const base = { row, storedStrap, storedFolio, parcels: [] as GISParcel[] };
+
+  if (!parseAddressForGIS(row.address)) {
+    return { ...base, tag: "parse_error" };
+  }
+
+  let parcels: GISParcel[];
+  try {
+    parcels = await searchByAddressGIS(row.address);
+  } catch (e) {
+    return {
+      ...base,
+      tag: "api_error",
+      errorMessage: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  if (parcels.length === 0) {
+    return { ...base, tag: "not_found" };
+  }
+
+  if (parcels[0].folio === storedFolio) {
+    return { ...base, tag: "match", parcels };
+  }
+
+  const rank = parcels.findIndex((p) => p.folio === storedFolio);
   return {
-    TOP:       "✓  TOP MATCH",
-    FOUND:     "~  FOUND (not top)",
-    MISS:      "✗  MISS",
-    DISCOVERY: "?  discovery",
-  }[status];
+    ...base,
+    tag: "mismatch",
+    parcels,
+    foundAtRank: rank === -1 ? undefined : rank + 1,
+  };
+}
+
+function ownerTag(name: string | null): string {
+  return name ? `  (${name})` : "";
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const db = new Client({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  await db.connect();
+
+  const { rows } = await db.query<Row>(
+    `SELECT id, address, owner_name, source_url
+     FROM properties
+     WHERE source_url LIKE 'mdpa:%'
+       AND address IS NOT NULL
+       AND address <> ''
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    [MAX_ROWS]
+  );
+
+  await db.end();
+
+  if (rows.length === 0) {
+    console.log("\nNo MDPA-sourced properties found in the database.");
+    console.log("Import properties via the tax roll ingestion flow first.\n");
+    process.exit(0);
+  }
+
   console.log(`\n${HR}`);
-  console.log("  Beacon — GIS accuracy check");
-  console.log(`  ${TEST_CASES.length} test cases\n`);
+  console.log("  Beacon — GIS accuracy harness");
+  console.log(`  Source: live Supabase DB · ${rows.length} MDPA-sourced propert${rows.length === 1 ? "y" : "ies"}`);
+  if (rows.length === MAX_ROWS) {
+    console.log(`  (capped at ${MAX_ROWS} — set GIS_LIMIT=N to change)`);
+  }
+  console.log(HR + "\n");
 
-  let topCount    = 0;
-  let foundCount  = 0;
-  let missCount   = 0;
-  let discCount   = 0;
-  let errorCount  = 0;
-  const evaluated = 0; // cases with expectedFolio set
+  const results: Result[] = [];
 
-  for (const tc of TEST_CASES) {
-    console.log(HR2);
-    console.log(`  ${tc.label}`);
-    console.log(`  Address: ${tc.address}`);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const n = `[${i + 1}/${rows.length}]`;
 
-    let parcels: GISParcel[] = [];
-    let errMsg: string | null = null;
+    console.log(`  ${n} ${row.address}`);
 
-    try {
-      parcels = await searchByAddressGIS(tc.address);
-    } catch (e) {
-      errMsg = e instanceof Error ? e.message : String(e);
-      errorCount++;
-    }
+    const result = await checkOne(row);
+    results.push(result);
 
-    if (errMsg) {
-      console.log(`  ERROR: ${errMsg}`);
-      console.log();
-      continue;
-    }
+    switch (result.tag) {
+      case "parse_error":
+        console.log(`       ${TAG_LABEL.parse_error}`);
+        break;
 
-    if (parcels.length === 0) {
-      console.log("  GIS returned 0 results.");
-      if (tc.expectedFolio) {
-        missCount++;
-        console.log(`  Status: ${statusBadge("MISS")}`);
-      } else {
-        discCount++;
-        console.log(`  Status: ${statusBadge("DISCOVERY")}  (fill in expectedFolio to score)`);
+      case "api_error":
+        console.log(`       ${TAG_LABEL.api_error}: ${result.errorMessage}`);
+        break;
+
+      case "not_found":
+        console.log(`       stored : ${result.storedStrap}${ownerTag(row.owner_name)}`);
+        console.log(`       ${TAG_LABEL.not_found}`);
+        break;
+
+      case "match": {
+        const top = result.parcels[0];
+        console.log(`       stored : ${result.storedStrap}${ownerTag(row.owner_name)}`);
+        console.log(`       GIS[1] : ${folioToStrap(top.folio)}  "${top.address}"`);
+        console.log(`       ${TAG_LABEL.match}`);
+        break;
       }
-      console.log();
-      continue;
-    }
 
-    // Print GIS results table
-    console.log(`  GIS returned ${parcels.length} result(s):`);
-    for (let i = 0; i < parcels.length; i++) {
-      const p = parcels[i];
-      const marker = tc.expectedFolio && p.folio === tc.expectedFolio ? " ← expected" : "";
-      console.log(`    [${i + 1}] folio=${p.folio}  strap=${p.strap}  address="${p.address}"${marker}`);
-    }
-
-    if (tc.expectedFolio) {
-      const result = folioMatch(parcels, tc.expectedFolio);
-      if (result === "TOP")   topCount++;
-      if (result === "FOUND") foundCount++;
-      if (result === "MISS")  missCount++;
-      console.log(`  Expected folio: ${tc.expectedFolio}`);
-      console.log(`  Status: ${statusBadge(result)}`);
-    } else {
-      discCount++;
-      console.log(`  Status: ${statusBadge("DISCOVERY")}  (fill in expectedFolio to score)`);
+      case "mismatch": {
+        const top = result.parcels[0];
+        console.log(`       stored : ${result.storedStrap}${ownerTag(row.owner_name)}`);
+        console.log(`       GIS[1] : ${folioToStrap(top.folio)}  "${top.address}"`);
+        if (result.foundAtRank !== undefined) {
+          console.log(`               stored folio appears at rank ${result.foundAtRank}`);
+        }
+        console.log(`       ${TAG_LABEL.mismatch}`);
+        break;
+      }
     }
 
     console.log();
-    // Small delay between requests so we don't hammer the GIS API
-    await new Promise((r) => setTimeout(r, 300));
+
+    if (i < rows.length - 1) {
+      await new Promise((r) => setTimeout(r, DELAY_MS));
+    }
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────
-  const scored = topCount + foundCount + missCount;
+
+  const c = {
+    match:       results.filter((r) => r.tag === "match").length,
+    mismatch:    results.filter((r) => r.tag === "mismatch").length,
+    not_found:   results.filter((r) => r.tag === "not_found").length,
+    parse_error: results.filter((r) => r.tag === "parse_error").length,
+    api_error:   results.filter((r) => r.tag === "api_error").length,
+  };
+
+  const scored    = c.match + c.mismatch + c.not_found;
+  const matchPct  = scored > 0 ? Math.round((c.match / scored) * 100) : 0;
+
   console.log(HR);
   console.log("  Summary");
   console.log(HR);
-  console.log(`  Scored (expectedFolio set):`);
-  console.log(`    ✓  Top match:           ${topCount}`);
-  console.log(`    ~  Found (not top):     ${foundCount}`);
-  console.log(`    ✗  Miss:                ${missCount}`);
-  if (errorCount > 0)
-    console.log(`    !  Errors:              ${errorCount}`);
+  console.log(`  Tested           : ${rows.length}`);
+  console.log(`  ✓  Match         : ${c.match}`);
+  console.log(`  ✗  Mismatch      : ${c.mismatch}`);
+  console.log(`  —  Not found     : ${c.not_found}`);
+  if (c.parse_error) console.log(`  ⚠  Unparseable   : ${c.parse_error}`);
+  if (c.api_error)   console.log(`  !  API errors    : ${c.api_error}`);
+  console.log();
   if (scored > 0) {
-    const pct = Math.round((topCount / scored) * 100);
-    console.log(`    Top-1 accuracy:        ${pct}%  (${topCount}/${scored})`);
+    console.log(`  Top-1 match rate : ${matchPct}%  (${c.match}/${scored} scored)`);
   }
-  if (discCount > 0) {
+
+  // ── Mismatch detail ────────────────────────────────────────────────────────
+
+  const mismatches = results.filter((r) => r.tag === "mismatch");
+  if (mismatches.length > 0) {
     console.log();
-    console.log(`  Discovery mode (no expectedFolio): ${discCount}`);
-    console.log("  → Look up each address on https://www.miamidade.gov/Apps/PA/propertysearch/");
-    console.log("    then paste the 13-digit folio into expectedFolio above and re-run.");
+    console.log(HR);
+    console.log("  Mismatches — what GIS returned vs. what is stored");
+    console.log(HR);
+
+    for (const r of mismatches) {
+      console.log(`\n  ┌─ ${r.row.address}${ownerTag(r.row.owner_name)}`);
+      console.log(`  │  stored folio : ${r.storedStrap}`);
+      for (let i = 0; i < r.parcels.length; i++) {
+        const p = r.parcels[i];
+        const marker = p.folio === r.storedFolio ? "  ← STORED FOLIO HERE" : "";
+        console.log(`  │  GIS [${i + 1}]       : ${folioToStrap(p.folio)}  "${p.address}"${marker}`);
+      }
+      if (r.foundAtRank !== undefined) {
+        console.log(`  │  → stored folio found at rank ${r.foundAtRank} (not top-1)`);
+      } else {
+        console.log(`  │  → stored folio absent from all GIS results`);
+      }
+      console.log("  └─");
+    }
+    console.log();
   }
-  console.log(`${HR}\n`);
+
+  // ── Not-found summary ──────────────────────────────────────────────────────
+
+  const notFound = results.filter((r) => r.tag === "not_found");
+  if (notFound.length > 0) {
+    console.log();
+    console.log(HR);
+    console.log("  Not found — GIS returned 0 results for these addresses");
+    console.log(HR);
+    for (const r of notFound) {
+      console.log(`  •  ${r.row.address}  (stored: ${r.storedStrap})`);
+    }
+    console.log();
+  }
+
+  console.log(`\n${HR}\n`);
 }
 
 main().catch((err) => {
-  console.error(err.message);
+  console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

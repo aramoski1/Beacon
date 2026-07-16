@@ -145,3 +145,128 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("1 SE 3 Ave")).toBeNull();
   });
 });
+
+// ─── parseAddressForGIS — units, suites, and directional edge cases ───────────
+
+describe("parseAddressForGIS — units and suites", () => {
+  // When a unit/suite appears BEFORE the comma, it is present in the street
+  // string and must not displace the street name as the keyword.
+
+  it("ignores Ste suffix before street type", () => {
+    // words after filter: ["BRICKELL", "STE", "500"]  → first = "BRICKELL"
+    expect(parseAddressForGIS("777 Brickell Ave Ste 500")).toEqual({
+      houseNum: 777,
+      streetKeyword: "BRICKELL",
+    });
+  });
+
+  it("ignores Suite word before street type", () => {
+    // words: ["BRICKELL", "SUITE", "200"]  → first = "BRICKELL"
+    expect(parseAddressForGIS("1221 Brickell Ave Suite 200")).toEqual({
+      houseNum: 1221,
+      streetKeyword: "BRICKELL",
+    });
+  });
+
+  it("ignores suite number when suite appears after the first comma (city tail)", () => {
+    // comma-strip removes ", Suite 200, Miami FL" → street = "1221 Brickell Ave"
+    expect(parseAddressForGIS("1221 Brickell Ave, Suite 200, Miami FL")).toEqual({
+      houseNum: 1221,
+      streetKeyword: "BRICKELL",
+    });
+  });
+
+  it("ignores hash-unit notation — #500 trails the street name", () => {
+    // words: ["BRICKELL", "#500" → cleaned to "500"]  → first = "BRICKELL"
+    expect(parseAddressForGIS("100 Brickell Ave #500")).toEqual({
+      houseNum: 100,
+      streetKeyword: "BRICKELL",
+    });
+  });
+
+  it("unit on named street still extracts the street keyword first", () => {
+    // "3401 N Miami Ave Suite 10, Miami" → street = "3401 N Miami Ave Suite 10"
+    // words: ["MIAMI", "SUITE", "10"]  → first = "MIAMI"
+    expect(parseAddressForGIS("3401 N Miami Ave Suite 10, Miami")).toEqual({
+      houseNum: 3401,
+      streetKeyword: "MIAMI",
+    });
+  });
+
+  it("Unit word does not crash when it is the only non-dir/non-type token", () => {
+    // "100 N Unit, Miami" → words = ["UNIT"] → keyword = "UNIT" (length 4, valid)
+    expect(parseAddressForGIS("100 N Unit, Miami")).toEqual({
+      houseNum: 100,
+      streetKeyword: "UNIT",
+    });
+  });
+});
+
+describe("parseAddressForGIS — directional edge cases", () => {
+  it("NW before two-digit numbered street yields the street number as keyword", () => {
+    // "7900 NW 36 St, Miami" → words = ["36"] (NW→DIRS, ST→TYPES)
+    expect(parseAddressForGIS("7900 NW 36 St, Miami")).toEqual({
+      houseNum: 7900,
+      streetKeyword: "36",
+    });
+  });
+
+  it("NE before two-digit numbered street yields keyword", () => {
+    expect(parseAddressForGIS("2000 NE 26 St")).toEqual({
+      houseNum: 2000,
+      streetKeyword: "26",
+    });
+  });
+
+  it("returns null for SW before single-digit numbered street (keyword too short)", () => {
+    // "355 SW 8 St" → words = ["8"], length 1 < 2 → null
+    expect(parseAddressForGIS("355 SW 8 St, Miami")).toBeNull();
+  });
+
+  it("SE directional before a named street works correctly", () => {
+    // "100 SE Biscayne Blvd" → words = ["BISCAYNE"] (SE→DIRS, BLVD→TYPES)
+    expect(parseAddressForGIS("100 SE Biscayne Blvd")).toEqual({
+      houseNum: 100,
+      streetKeyword: "BISCAYNE",
+    });
+  });
+
+  it("directional-only address without house number returns null", () => {
+    // "N Biscayne Blvd" — no leading digit
+    expect(parseAddressForGIS("N Biscayne Blvd")).toBeNull();
+  });
+
+  it("compound directional at end does not become the keyword", () => {
+    // "500 Alhambra Cir NW" → words = ["ALHAMBRA", "NW"] but NW→DIRS so filtered
+    // words = ["ALHAMBRA"]  → keyword = "ALHAMBRA"
+    expect(parseAddressForGIS("500 Alhambra Cir NW")).toEqual({
+      houseNum: 500,
+      streetKeyword: "ALHAMBRA",
+    });
+  });
+});
+
+describe("parseAddressForGIS — missing or invalid house numbers", () => {
+  it("returns null for a PO Box address (no leading digit)", () => {
+    expect(parseAddressForGIS("PO Box 12345")).toBeNull();
+  });
+
+  it("returns null for a city-only string", () => {
+    // "Miami FL 33131" — no leading digit
+    expect(parseAddressForGIS("Miami FL 33131")).toBeNull();
+  });
+
+  it("returns null for an intersection (no leading number)", () => {
+    // "NW 36 St & NW 79 Ave" — starts with NW, not a digit
+    expect(parseAddressForGIS("NW 36 St & NW 79 Ave")).toBeNull();
+  });
+
+  it("returns null when house number is present but only dirs/types follow", () => {
+    // "100 N AVE" → words after filter = [] → null
+    expect(parseAddressForGIS("100 N AVE")).toBeNull();
+  });
+
+  it("returns null for a whitespace-only string", () => {
+    expect(parseAddressForGIS("   ")).toBeNull();
+  });
+});
