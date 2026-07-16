@@ -100,6 +100,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-field-definitions-update-policy.ts",
     description: "Field definitions — add missing UPDATE RLS policy so editing custom field names works",
   },
+  {
+    file: "migrate-lease-reviews.ts",
+    description: "Lease abstracts — field_reviews JSONB for per-field accept/reject/correct with corrections",
+  },
 ];
 
 const hr = "─".repeat(60);
