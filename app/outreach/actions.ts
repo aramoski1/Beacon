@@ -118,7 +118,67 @@ export async function getDueContacts(): Promise<DueContact[]> {
   return dueContacts;
 }
 
-/** Load specific contacts for smart-list segment outreach (no cadence filter). */
+/** All contacts for batch outreach (no cadence filter). Cadence still computed for display. */
+export async function getAllContactsForOutreach(): Promise<DueContact[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const [{ data: contacts }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(
+        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+      )
+      .eq("owner_id", user.id)
+      .order("name", { ascending: true }),
+    getUserSettings(),
+  ]);
+
+  if (!contacts?.length) return [];
+
+  const cadence: Record<number, number> = {
+    1: settings.cadence_tier1_days,
+    2: settings.cadence_tier2_days,
+    3: settings.cadence_tier3_days,
+  };
+
+  const list: DueContact[] = contacts.map((c) => ({
+    ...c,
+    linked_properties: c.linked_properties ?? [],
+    daysOverdue: computeDaysOverdue(c, cadence),
+  }));
+
+  return attachResolvedProperties(supabase, user.id, list);
+}
+
+async function attachResolvedProperties(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ownerId: string,
+  list: DueContact[]
+): Promise<DueContact[]> {
+  const allPropIds = [...new Set(list.flatMap((c) => c.linked_properties))];
+  if (allPropIds.length === 0) return list;
+
+  const { data: props } = await supabase
+    .from("properties")
+    .select("id, address, city, property_type, size_sqft")
+    .eq("owner_id", ownerId)
+    .in("id", allPropIds);
+
+  const propMap = new Map((props ?? []).map((p) => [p.id, p]));
+
+  return list.map((c) => ({
+    ...c,
+    resolvedProperties: c.linked_properties
+      .map((pid) => propMap.get(pid))
+      .filter(Boolean) as DueContact["resolvedProperties"],
+  }));
+}
+
+/** Load specific contacts for smart-list / CRM selection outreach (no cadence filter). */
 export async function getContactsByIds(ids: string[]): Promise<DueContact[]> {
   if (ids.length === 0) return [];
 
@@ -153,22 +213,7 @@ export async function getContactsByIds(ids: string[]): Promise<DueContact[]> {
     daysOverdue: computeDaysOverdue(c, cadence),
   }));
 
-  const allPropIds = [...new Set(dueContacts.flatMap((c) => c.linked_properties))];
-  if (allPropIds.length === 0) return dueContacts;
-
-  const { data: props } = await supabase
-    .from("properties")
-    .select("id, address, city, property_type, size_sqft")
-    .in("id", allPropIds);
-
-  const propMap = new Map((props ?? []).map((p) => [p.id, p]));
-
-  return dueContacts.map((c) => ({
-    ...c,
-    resolvedProperties: c.linked_properties
-      .map((pid) => propMap.get(pid))
-      .filter(Boolean) as DueContact["resolvedProperties"],
-  }));
+  return attachResolvedProperties(supabase, user.id, dueContacts);
 }
 
 // ─── Template types ───────────────────────────────────────────────────────────

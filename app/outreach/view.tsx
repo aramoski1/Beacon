@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { generateDrafts, logOutreach, getContactsByIds, type DueContact, type EmailDraft, type OutreachTemplate } from "./actions";
+import {
+  generateDrafts,
+  logOutreach,
+  getContactsByIds,
+  getAllContactsForOutreach,
+  type DueContact,
+  type EmailDraft,
+  type OutreachTemplate,
+} from "./actions";
 import { composeUrl, isWebCompose, type EmailProviderSetting } from "@/lib/email-provider";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,6 +47,10 @@ const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] 
   { id: "listing-alert",  label: "Listing alert",  description: "Flag a relevant opportunity or transaction trend for their portfolio." },
 ];
 
+type ListMode = "due" | "all" | "selection";
+
+const MAX_BATCH = 10;
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OutreachView({
@@ -52,7 +64,11 @@ export default function OutreachView({
   emailProvider?: string | null;
   senderName?: string | null;
 }) {
+  const [listMode, setListMode] = useState<ListMode>("due");
+  const [dueContactsCache] = useState<DueContact[]>(initialContacts);
+  const [allContactsCache, setAllContactsCache] = useState<DueContact[] | null>(null);
   const [contacts, setContacts] = useState<DueContact[]>(initialContacts);
+  const [loadingList, setLoadingList] = useState(false);
   const [step, setStep] = useState<"select" | "review">("select");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
@@ -68,9 +84,7 @@ export default function OutreachView({
   const [template, setTemplate] = useState<OutreachTemplate>("check-in");
 
   // ── Safety gates ───────────────────────────────────────────────────────────
-  // testMode: replaces all mailto recipients with userEmail; disables "Mark as sent"
   const [testMode, setTestMode] = useState(false);
-  // confirmingMarkAll: shows a "you're about to log N contacts" panel before bulk-log
   const [confirmingMarkAll, setConfirmingMarkAll] = useState(false);
 
   // Load broker context from localStorage
@@ -79,20 +93,28 @@ export default function OutreachView({
     if (saved) setBrokerContext(saved);
   }, []);
 
-  // Smart-list segment pre-selection from workspace
+  // Smart-list / CRM multi-select / deep-link pre-selection (no cadence filter)
   useEffect(() => {
     const raw = sessionStorage.getItem("beacon_outreach_selection");
-    if (!raw) return;
-    sessionStorage.removeItem("beacon_outreach_selection");
-    try {
-      const ids = JSON.parse(raw) as string[];
-      if (!Array.isArray(ids) || ids.length === 0) return;
-      getContactsByIds(ids).then((segmentContacts) => {
-        if (segmentContacts.length === 0) return;
-        setContacts(segmentContacts);
-        setSelected(new Set(segmentContacts.map((c) => c.id)));
-      });
-    } catch { /* ignore */ }
+    const urlContact = new URLSearchParams(window.location.search).get("contact");
+    let ids: string[] = [];
+    if (raw) {
+      sessionStorage.removeItem("beacon_outreach_selection");
+      try {
+        const parsed = JSON.parse(raw) as string[];
+        if (Array.isArray(parsed)) ids = parsed;
+      } catch { /* ignore */ }
+    }
+    if (urlContact && !ids.includes(urlContact)) ids = [urlContact, ...ids];
+    if (ids.length === 0) return;
+    setLoadingList(true);
+    getContactsByIds(ids).then((segmentContacts) => {
+      setLoadingList(false);
+      if (segmentContacts.length === 0) return;
+      setListMode("selection");
+      setContacts(segmentContacts);
+      setSelected(new Set(segmentContacts.map((c) => c.id)));
+    });
   }, []);
 
   function saveBrokerContext(val: string) {
@@ -100,7 +122,28 @@ export default function OutreachView({
     localStorage.setItem("beacon_broker_context", val);
   }
 
-  const overdueContacts = contacts.filter((c) => c.daysOverdue > 0);
+  async function switchMode(mode: "due" | "all") {
+    if (listMode === mode) return;
+    setError(null);
+    setSelected(new Set());
+    if (mode === "due") {
+      setListMode("due");
+      setContacts(dueContactsCache);
+      return;
+    }
+    setListMode("all");
+    if (allContactsCache) {
+      setContacts(allContactsCache);
+      return;
+    }
+    setLoadingList(true);
+    const all = await getAllContactsForOutreach();
+    setLoadingList(false);
+    setAllContactsCache(all);
+    setContacts(all);
+  }
+
+  const overdueInList = contacts.filter((c) => c.daysOverdue > 0);
   const tier1Contacts   = contacts.filter((c) => c.contact_tier === 1);
   const tier2Contacts   = contacts.filter((c) => c.contact_tier === 2);
   const tier3Contacts   = contacts.filter((c) => c.contact_tier === 3 || c.contact_tier === null);
@@ -114,12 +157,20 @@ export default function OutreachView({
     });
   }
 
+  function selectAllVisible() {
+    setSelected(new Set(contacts.map((c) => c.id)));
+  }
+
   function selectAllOverdue() {
-    setSelected(new Set(overdueContacts.map((c) => c.id)));
+    setSelected(new Set(overdueInList.map((c) => c.id)));
   }
 
   async function handleGenerate() {
     if (selected.size === 0) return;
+    if (selected.size > MAX_BATCH) {
+      setError(`Maximum ${MAX_BATCH} contacts at once. Deselect some, then generate.`);
+      return;
+    }
     setGenerating(true);
     setError(null);
     setStep("review");
@@ -150,7 +201,6 @@ export default function OutreachView({
   }
 
   // Logs outreach in the DB — does NOT send email.
-  // Real sending happens when the broker clicks "Open in email ↗" in their mail client.
   async function handleMarkSent(contactId: string) {
     const subject = editedSubjects[contactId] ?? "";
     const body = editedBodies[contactId] ?? "";
@@ -188,17 +238,69 @@ export default function OutreachView({
     return (
       <div className="max-w-2xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-8">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Suggested outreach</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            {listMode === "selection" ? "Selected contacts" : "Outreach"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Contacts due by cadence.{" "}
-            {overdueContacts.length > 0 && (
-              <span className="text-destructive font-medium">{overdueContacts.length} overdue · </span>
+            {listMode === "due" && (
+              <>
+                Contacts due by cadence.
+                {overdueInList.length > 0 && (
+                  <span className="text-destructive font-medium"> {overdueInList.length} overdue.</span>
+                )}
+                {" "}Each draft becomes a separate email — never a group send.
+              </>
             )}
-            Email any contact from the{" "}
-            <a href="/crm?tab=contacts" className="underline underline-offset-2 hover:text-foreground">Contacts tab</a>{" "}
-            or their profile page at any time.
+            {listMode === "all" && (
+              <>All contacts. Pick anyone, anytime. Each person gets their own separate email.</>
+            )}
+            {listMode === "selection" && (
+              <>
+                {contacts.length} contact{contacts.length !== 1 ? "s" : ""} from CRM.
+                {" "}Each draft is a separate personalized email.
+              </>
+            )}
           </p>
         </div>
+
+        {listMode !== "selection" && (
+          <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
+            <button
+              type="button"
+              onClick={() => switchMode("due")}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                listMode === "due"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Due now
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("all")}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                listMode === "all"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              All contacts
+            </button>
+          </div>
+        )}
+
+        {listMode === "selection" && (
+          <button
+            type="button"
+            onClick={() => switchMode("due")}
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            Clear selection — show due contacts
+          </button>
+        )}
 
         {!senderName && (
           <div className="rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex items-start gap-2">
@@ -256,26 +358,58 @@ export default function OutreachView({
           </p>
         )}
 
-        {contacts.length === 0 ? (
+        {loadingList ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Loading contacts…
+          </div>
+        ) : contacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
-            <CheckCircle2 className="size-10 text-green-500" />
-            <p className="font-medium">All caught up on cadence.</p>
-            <p className="text-sm text-muted-foreground">
-              No contacts are due right now. Email any contact directly from the{" "}
-              <a href="/crm?tab=contacts" className="underline underline-offset-2 hover:text-foreground">Contacts tab</a>{" "}
-              or their profile page.
-            </p>
+            {listMode === "due" ? (
+              <>
+                <CheckCircle2 className="size-10 text-green-500" />
+                <p className="font-medium">All caught up on cadence.</p>
+                <p className="text-sm text-muted-foreground">
+                  Switch to{" "}
+                  <button type="button" onClick={() => switchMode("all")} className="underline underline-offset-2 hover:text-foreground">
+                    All contacts
+                  </button>{" "}
+                  to email anyone anytime, or pick contacts in the{" "}
+                  <a href="/crm?tab=contacts" className="underline underline-offset-2 hover:text-foreground">Contacts tab</a>.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">No contacts yet</p>
+                <p className="text-sm text-muted-foreground">
+                  <a href="/contacts/new" className="underline underline-offset-2 hover:text-foreground">Add a contact</a>
+                  {" "}or import from onboarding.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
-            {overdueContacts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={selectAllOverdue}
+                type="button"
+                onClick={selectAllVisible}
                 className="text-xs text-primary hover:underline underline-offset-2"
               >
-                Select all overdue ({overdueContacts.length})
+                Select all ({contacts.length})
               </button>
-            )}
+              {listMode === "due" && overdueInList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={selectAllOverdue}
+                  className="text-xs text-primary hover:underline underline-offset-2"
+                >
+                  Select all overdue ({overdueInList.length})
+                </button>
+              )}
+              <span className="text-xs text-muted-foreground">
+                Max {MAX_BATCH} drafts per generate — each opens as its own email.
+              </span>
+            </div>
 
             {tier1Contacts.length > 0 && (
               <ContactSection
@@ -299,7 +433,7 @@ export default function OutreachView({
 
             {tier3Contacts.length > 0 && (
               <ContactSection
-                title="Tier 3"
+                title={listMode === "all" || listMode === "selection" ? "Tier 3 / Untiered" : "Tier 3"}
                 contacts={tier3Contacts}
                 selected={selected}
                 onToggle={toggleContact}
@@ -314,13 +448,18 @@ export default function OutreachView({
           <div className="fixed bottom-0 left-52 right-0 border-t bg-background/95 backdrop-blur px-6 py-4 flex items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">
               {selected.size} contact{selected.size !== 1 ? "s" : ""} selected
+              {selected.size > MAX_BATCH && (
+                <span className="text-destructive"> — max {MAX_BATCH} at once</span>
+              )}
             </p>
             <button
               onClick={handleGenerate}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              disabled={selected.size > MAX_BATCH || generating}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               <Zap className="size-4" />
-              Generate drafts for {selected.size} contact{selected.size !== 1 ? "s" : ""} →
+              Generate drafts for {Math.min(selected.size, MAX_BATCH)} contact
+              {Math.min(selected.size, MAX_BATCH) !== 1 ? "s" : ""} →
             </button>
           </div>
         )}

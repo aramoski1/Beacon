@@ -2,10 +2,11 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2 } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap } from "lucide-react";
 import { CustomFieldsPanel } from "@/components/custom-fields-panel";
 import type { EntityType } from "@/lib/custom-fields";
 import { ComposeOutreach } from "@/components/compose-outreach";
@@ -1161,6 +1162,9 @@ function ContactsTable({
   onDeleteCancel,
   userEmail,
   colVis,
+  selectedIds,
+  onToggle,
+  onToggleAll,
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
@@ -1170,6 +1174,9 @@ function ContactsTable({
   onDeleteCancel: () => void;
   userEmail?: string | null;
   colVis: ReturnType<typeof useColVis>;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: (allSelected: boolean) => void;
 }) {
   const { startResize: cStartResize, cs: cColStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
@@ -1200,6 +1207,18 @@ function ContactsTable({
       <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
+            <th className={cn(thCls, "w-8 pl-3 pr-1")}>
+              <input
+                type="checkbox"
+                aria-label="Select all contacts"
+                checked={rows.length > 0 && rows.every((r) => selectedIds.has(r.id))}
+                ref={(el) => {
+                  if (el) el.indeterminate = rows.some((r) => selectedIds.has(r.id)) && !rows.every((r) => selectedIds.has(r.id));
+                }}
+                onChange={(e) => onToggleAll(e.target.checked)}
+                className="size-3.5 rounded border-border accent-primary cursor-pointer"
+              />
+            </th>
             <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("company"))} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("type"))} style={cColStyle("type")}>Ownership Role<RH col="type" onStart={cStartResize} /></th>
@@ -1216,7 +1235,16 @@ function ContactsTable({
         </thead>
         <tbody>
           {rows.map((c) => (
-            <tr key={c.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5")}>
+            <tr key={c.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5", selectedIds.has(c.id) && "bg-primary/5")}>
+              <td className={cn(tdCls, "w-8 pl-3 pr-1")}>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${c.name ?? "contact"}`}
+                  checked={selectedIds.has(c.id)}
+                  onChange={() => onToggle(c.id)}
+                  className="size-3.5 rounded border-border accent-primary cursor-pointer"
+                />
+              </td>
               <td className={tdCls}>
                 <div>
                   <Link href={`/contacts/${c.id}`} className="font-medium hover:underline underline-offset-2">
@@ -1545,6 +1573,7 @@ const SEARCH_PLACEHOLDERS: Record<Tab, string> = {
 };
 
 export default function CRMView({ initialTab, userEmail }: { initialTab?: string; userEmail?: string | null }) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>(
     VALID_TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "properties"
   );
@@ -1631,11 +1660,20 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
   // ── Selection + bulk enrich state ─────────────────────────────────────────
   const [selectedPropIds, setSelectedPropIds] = useState<Set<string>>(new Set());
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [enrichPanelOpen, setEnrichPanelOpen] = useState(false);
 
   useEffect(() => {
     setSelectedPropIds(new Set());
   }, [properties]);
+
+  useEffect(() => {
+    setSelectedContactIds(new Set());
+  }, [contacts]);
+
+  useEffect(() => {
+    setSelectedContactIds(new Set());
+  }, [tab]);
 
   function togglePropSelection(id: string) {
     setSelectedPropIds((prev) => {
@@ -1647,6 +1685,27 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
   function toggleAllProps(allSelected: boolean) {
     setSelectedPropIds(allSelected ? new Set(properties.map((p) => p.id)) : new Set());
+  }
+
+  function toggleContactSelection(id: string) {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllContacts(allSelected: boolean) {
+    setSelectedContactIds(allSelected ? new Set(contacts.map((c) => c.id)) : new Set());
+  }
+
+  function handleOutreachSelected() {
+    if (selectedContactIds.size === 0) return;
+    sessionStorage.setItem(
+      "beacon_outreach_selection",
+      JSON.stringify([...selectedContactIds])
+    );
+    router.push("/outreach");
   }
 
   const selectedProperties: BulkProperty[] = properties
@@ -2335,6 +2394,16 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                         </button>
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
+                        {selectedContactIds.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleOutreachSelected}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-violet-500/40 bg-violet-600 text-white font-medium hover:bg-violet-700 transition-colors"
+                          >
+                            <Zap className="size-3" />
+                            Outreach {selectedContactIds.size} selected
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setShowFieldsPanel(true)}
@@ -2444,6 +2513,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onDeleteCancel={() => setDeletingContactId(null)}
                   userEmail={userEmail}
                   colVis={conColVis}
+                  selectedIds={selectedContactIds}
+                  onToggle={toggleContactSelection}
+                  onToggleAll={toggleAllContacts}
                 />
               </div>
             )
