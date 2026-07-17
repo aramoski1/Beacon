@@ -121,7 +121,7 @@ export default async function DashboardPage() {
     : greeting();
 
   return (
-    <div className="dashboard-page px-6 py-8 max-w-[80rem] mx-auto space-y-8">
+    <div className="dashboard-page px-4 py-6 sm:px-6 sm:py-8 max-w-[80rem] mx-auto space-y-8">
 
       <DashboardHero
         name={heroName}

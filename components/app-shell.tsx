@@ -7,7 +7,7 @@ import type { User } from "@supabase/supabase-js";
 import {
   Briefcase, CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
-  CheckSquare, Settings2, LogOut,
+  CheckSquare, Settings2, LogOut, Menu, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -61,17 +61,19 @@ const NO_SHELL = ["/login", "/auth/"];
 // ─── Nav item ─────────────────────────────────────────────────────────────────
 
 function NavItem({
-  href, icon: Icon, label, active, badgeCount,
+  href, icon: Icon, label, active, badgeCount, onClick,
 }: {
   href: string;
   icon: React.ElementType;
   label: string;
   active: boolean;
   badgeCount?: number;
+  onClick?: () => void;
 }) {
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={cn(
         "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
         active
@@ -90,7 +92,7 @@ function NavItem({
   );
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+// ─── Sidebar contents (shared between desktop + mobile drawer) ────────────────
 
 const NEW_MENU_ITEMS = [
   { href: "/properties/new", label: "Add property" },
@@ -104,15 +106,28 @@ function Sidebar({
   overdueCount,
   followUpsDueCount,
   leaseRadarUrgentCount,
+  mobileOpen,
+  onClose,
 }: {
   user: User | null;
   overdueCount: number;
   followUpsDueCount: number;
   leaseRadarUrgentCount: number;
+  mobileOpen: boolean;
+  onClose: () => void;
 }) {
   const pathname = usePathname();
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const newMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close mobile nav on route change
+  const prevPathRef = useRef(pathname);
+  useEffect(() => {
+    if (prevPathRef.current !== pathname) {
+      prevPathRef.current = pathname;
+      onClose();
+    }
+  }, [pathname, onClose]);
 
   useEffect(() => {
     if (!newMenuOpen) return;
@@ -126,12 +141,31 @@ function Sidebar({
   }, [newMenuOpen]);
 
   return (
-    <aside className="w-52 shrink-0 flex flex-col h-full border-r bg-card">
+    <aside
+      className={cn(
+        // Shared
+        "flex flex-col bg-card border-r h-full",
+        // Mobile: fixed drawer that slides in/out
+        "fixed inset-y-0 left-0 z-50 w-64 transition-transform duration-200 ease-in-out",
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
+        // Desktop: static in flow, always visible, narrower
+        "lg:static lg:translate-x-0 lg:z-auto lg:w-52 lg:shrink-0",
+      )}
+    >
       {/* Logo */}
-      <div className="px-4 py-3.5 border-b">
-        <Link href="/dashboard" className="block rounded-md outline-none focus-visible:ring-2 ring-ring">
+      <div className="px-4 py-3.5 border-b flex items-center justify-between">
+        <Link href="/dashboard" className="block rounded-md outline-none focus-visible:ring-2 ring-ring" onClick={onClose}>
           <BeaconBrand />
         </Link>
+        {/* Close button — mobile only */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="lg:hidden text-muted-foreground hover:text-foreground transition-colors p-0.5"
+          aria-label="Close navigation"
+        >
+          <X className="size-4" />
+        </button>
       </div>
 
       {/* + New button */}
@@ -150,7 +184,7 @@ function Sidebar({
               <Link
                 key={href}
                 href={href}
-                onClick={() => setNewMenuOpen(false)}
+                onClick={() => { setNewMenuOpen(false); onClose(); }}
                 className="flex items-center px-3 py-2 text-sm text-foreground hover:bg-muted/60 transition-colors"
               >
                 {label}
@@ -177,6 +211,7 @@ function Sidebar({
               label={label}
               active={active}
               badgeCount={badgeCount}
+              onClick={onClose}
             />
           );
         })}
@@ -211,6 +246,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [overdueCount, setOverdueCount] = useState(0);
   const [followUpsDueCount, setFollowUpsDueCount] = useState(0);
   const [leaseRadarUrgentCount, setLeaseRadarUrgentCount] = useState(0);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   async function fetchCounts() {
     const supabase = createClient();
@@ -276,8 +312,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar user={user} overdueCount={overdueCount} followUpsDueCount={followUpsDueCount} leaseRadarUrgentCount={leaseRadarUrgentCount} />
-      <main className="flex-1 overflow-auto min-w-0 bg-background">
+      {/* Mobile top bar — hidden on desktop */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-30 flex h-14 items-center justify-between border-b bg-card px-4">
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen(true)}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Open navigation"
+        >
+          <Menu className="size-5" />
+        </button>
+        <BeaconBrand />
+        <div className="w-5" aria-hidden />
+      </div>
+
+      {/* Mobile backdrop — only rendered when drawer is open */}
+      {mobileNavOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      <Sidebar
+        user={user}
+        overdueCount={overdueCount}
+        followUpsDueCount={followUpsDueCount}
+        leaseRadarUrgentCount={leaseRadarUrgentCount}
+        mobileOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+      />
+
+      {/* pt-14 on mobile pushes content below the fixed top bar; lg resets it */}
+      <main className="flex-1 overflow-auto min-w-0 bg-background pt-14 lg:pt-0">
         {children}
       </main>
     </div>

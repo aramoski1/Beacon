@@ -181,7 +181,7 @@ export default function OutreachView({
 
   if (step === "select") {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
+      <div className="max-w-2xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Suggested outreach</h1>
           <p className="mt-1 text-sm text-muted-foreground">

@@ -94,7 +94,7 @@ export default function NewContactPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto px-6 py-8 space-y-8">
+    <div className="max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-8">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Add contact</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -150,7 +150,7 @@ export default function NewContactPage() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="phone_mobile">Phone (mobile)</Label>
             <Input
@@ -291,7 +291,7 @@ export default function NewContactPage() {
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="last_contacted_at">Last contacted</Label>
             <Input

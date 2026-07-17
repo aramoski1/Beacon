@@ -175,7 +175,7 @@ export function CreateDealDialog({
               </div>
 
               {/* Two-column: commission + next action */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-foreground" htmlFor="deal-commission">
                     Est. commission ($)

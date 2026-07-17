@@ -2046,7 +2046,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Header */}
-      <header className="shrink-0 border-b px-6 py-3 flex items-center gap-4 flex-wrap">
+      <header className="shrink-0 border-b px-3 py-3 sm:px-6 flex items-center gap-4 flex-wrap">
         <h1 className="text-lg font-semibold tracking-tight shrink-0">Workspace</h1>
         {(totalProps !== null || totalLeases !== null || totalCons !== null) && (
           <span className="text-xs text-muted-foreground shrink-0">
@@ -2056,7 +2056,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           </span>
         )}
 
-        <div className="shrink-0 flex items-center gap-2 ml-auto">
+        <div className="hidden sm:flex items-center gap-2 ml-auto shrink-0">
           <a
             href="/api/export/properties"
             download="beacon-properties.xlsx"
@@ -2111,7 +2111,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       )}
 
       {/* Tabs */}
-      <div className="shrink-0 border-b px-6 flex gap-0">
+      <div className="shrink-0 border-b px-3 sm:px-6 flex gap-0 overflow-x-auto">
         <button
           onClick={() => setTab("properties")}
           className={cn(
@@ -2163,7 +2163,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       </div>
 
       {/* Filter / search context bar — one search bar + smart lists per entity tab */}
-      <div className="shrink-0 border-b px-6 py-2 flex flex-col gap-2 bg-muted/10">
+      <div className="shrink-0 border-b px-3 py-2 sm:px-6 flex flex-col gap-2 bg-muted/10">
         {searchError && (
           <p className="text-xs text-destructive">{searchError}</p>
         )}
@@ -2173,7 +2173,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
           {barMode === "search" ? (
             <>
-              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-[16rem] max-w-xl">
+              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-0 max-w-xl">
                 <div className="relative flex-1 min-w-0">
                   {searching ? (
                     <Loader2 className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground animate-spin" />

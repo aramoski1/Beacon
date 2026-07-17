@@ -134,7 +134,7 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
   }, [contacts, q, tier, stage]);
 
   return (
-    <main className="px-6 py-8 max-w-5xl mx-auto space-y-6">
+    <main className="px-4 py-6 sm:px-6 sm:py-8 max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
