@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity-logger";
 import { getUserSettings } from "@/app/settings/actions";
+import { validateOutreach } from "@/lib/validation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ export async function getDueContacts(): Promise<DueContact[]> {
       .select(
         "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
       )
+      .eq("owner_id", user.id)
       .not("contact_tier", "is", null),
     getUserSettings(),
   ]);
@@ -98,6 +100,7 @@ export async function getDueContacts(): Promise<DueContact[]> {
     const { data: props } = await supabase
       .from("properties")
       .select("id, address, city, property_type, size_sqft")
+      .eq("owner_id", user.id)
       .in("id", allPropIds);
 
     const propMap = new Map(
@@ -188,12 +191,13 @@ export async function generateDrafts(
   if (contactIds.length === 0) return { error: "No contacts selected." };
   if (contactIds.length > 10) return { error: "Maximum 10 contacts at once." };
 
-  // Fetch the selected contacts
+  // Fetch the selected contacts — must be scoped to this user
   const { data: contacts } = await supabase
     .from("contacts")
     .select(
       "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
     )
+    .eq("owner_id", user.id)
     .in("id", contactIds);
 
   if (!contacts || contacts.length === 0) return { error: "Contacts not found." };
@@ -212,6 +216,7 @@ export async function generateDrafts(
     const { data: props } = await supabase
       .from("properties")
       .select("id, address, city, property_type, size_sqft, last_sale_date, asset_description")
+      .eq("owner_id", user.id)
       .in("id", allPropIds);
     propMap = new Map((props ?? []).map((p) => [p.id, p]));
   }
@@ -382,12 +387,19 @@ export async function logOutreach(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // Fetch current contact and user settings in parallel
+  // Validate inputs before any database access
+  const validationErrors = validateOutreach(subject, body);
+  if (validationErrors.length > 0) {
+    return { error: validationErrors[0].message };
+  }
+
+  // Fetch current contact — scoped to this user to prevent cross-user mutation
   const [{ data: contact, error: fetchErr }, settings] = await Promise.all([
     supabase
       .from("contacts")
       .select("contact_tier, outreach_history")
       .eq("id", contactId)
+      .eq("owner_id", user.id)
       .single(),
     getUserSettings(),
   ]);
@@ -422,7 +434,8 @@ export async function logOutreach(
       next_action_due: nextActionDue,
       updated_at: now,
     })
-    .eq("id", contactId);
+    .eq("id", contactId)
+    .eq("owner_id", user.id);
 
   if (updateErr) return { error: updateErr.message };
 

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { validateRequiredDate } from "@/lib/validation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,9 @@ export async function createFollowUp(params: {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  const dateErr = validateRequiredDate(params.due_date, "due_date");
+  if (dateErr) return { error: dateErr.message };
 
   const { data, error } = await supabase
     .from("follow_ups")

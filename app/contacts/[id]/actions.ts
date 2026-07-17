@@ -1,11 +1,15 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { validateRequiredDate } from "@/lib/validation";
 
 export async function setFollowUp(contactId: string, date: string): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  const dateErr = validateRequiredDate(date, "due_date");
+  if (dateErr) return { error: dateErr.message };
 
   const { error } = await supabase
     .from("contacts")

@@ -13,6 +13,7 @@ export async function GET() {
       .select(
         "id, address, city, submarket, owner_name, ownership_type, property_type, size_sqft, size_category, geographic_category, last_sale_date, last_sale_price, source, ingested_at, custom_fields"
       )
+      .eq("owner_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("field_definitions")

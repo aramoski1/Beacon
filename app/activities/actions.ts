@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 
 export type ActivityType = "letter" | "email" | "call" | "note" | "meeting";
 
+const VALID_ACTIVITY_TYPES: ActivityType[] = ["letter", "email", "call", "note", "meeting"];
+
 export type Activity = {
   id: string;
   contact_id: string;
@@ -26,6 +28,30 @@ export async function createActivity(params: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  if (!VALID_ACTIVITY_TYPES.includes(params.activity_type)) {
+    return { error: "Invalid activity type." };
+  }
+
+  // Verify contact belongs to this user before inserting
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("id")
+    .eq("id", params.contact_id)
+    .eq("owner_id", user.id)
+    .single();
+  if (!contact) return { error: "Contact not found." };
+
+  // If a property is supplied, verify it belongs to this user
+  if (params.property_id) {
+    const { data: property } = await supabase
+      .from("properties")
+      .select("id")
+      .eq("id", params.property_id)
+      .eq("owner_id", user.id)
+      .single();
+    if (!property) return { error: "Property not found." };
+  }
 
   const { data, error } = await supabase
     .from("activities")

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { validateName, validateEmail } from "@/lib/validation";
 
 export async function createContact(
   formData: FormData
@@ -11,10 +12,15 @@ export async function createContact(
   if (!user) redirect("/login");
 
   const name = (formData.get("name") as string | null)?.trim();
-  if (!name) return { error: "Name is required." };
+  const nameErr = validateName(name);
+  if (nameErr) return { error: nameErr.message };
 
   const str = (key: string) =>
     (formData.get(key) as string | null)?.trim() || null;
+
+  const emailRaw = str("email");
+  const emailErr = validateEmail(emailRaw);
+  if (emailErr) return { error: emailErr.message };
 
   const dateStr = (key: string) => {
     const v = str(key);

@@ -13,6 +13,7 @@ export async function GET() {
       .select(
         "id, name, company, role, email, phone, contact_tier, client_status, size_category, geographic_category, ownership_type, action_tags, last_contacted_at, created_at, custom_fields"
       )
+      .eq("owner_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("field_definitions")
