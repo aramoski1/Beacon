@@ -121,6 +121,28 @@ export type ImageContent = {
 };
 export type PipelineContent = TextContent | PdfContent | ImageContent;
 
+// ─── Extraction validation ────────────────────────────────────────────────────
+// Validates the structure of Claude's response before any DB write.
+// Returns an error string if invalid, null if valid.
+
+const VALID_OWNERSHIP_TYPES = ["institutional", "private", "REIT", "owner-occupant", "unknown"];
+const VALID_PROPERTY_TYPES  = ["industrial", "office", "retail", "multifamily", "land", "residential", "mixed-use", "other"];
+
+export function validateExtractedProperty(fields: unknown): string | null {
+  if (!fields || typeof fields !== "object") return "Extraction returned no data.";
+  const f = fields as Record<string, unknown>;
+  if (typeof f.ownership_type !== "string" || !VALID_OWNERSHIP_TYPES.includes(f.ownership_type)) {
+    return `Invalid ownership_type: ${JSON.stringify(f.ownership_type)}`;
+  }
+  if (typeof f.property_type !== "string" || !VALID_PROPERTY_TYPES.includes(f.property_type)) {
+    return `Invalid property_type: ${JSON.stringify(f.property_type)}`;
+  }
+  if (!Array.isArray(f.confidence_flags)) {
+    return "confidence_flags must be an array.";
+  }
+  return null;
+}
+
 // ─── Core extraction ─────────────────────────────────────────────────────────
 // All formats funnel to a single Claude call with the unified tool above.
 
@@ -196,6 +218,11 @@ export async function extractPropertyFields(
   const toolBlock = message.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {
     throw new Error("Could not extract property fields. Try again.");
+  }
+
+  const validationError = validateExtractedProperty(toolBlock.input);
+  if (validationError) {
+    throw new Error(`Extraction validation failed: ${validationError}`);
   }
 
   return toolBlock.input as ExtractedProperty;

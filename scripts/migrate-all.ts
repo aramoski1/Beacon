@@ -108,6 +108,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-deals.ts",
     description: "Deals — pursuit pipeline table with stage, contact/property links, commission, RLS",
   },
+  {
+    file: "migrate-error-logs.ts",
+    description: "Error logs — structured runtime error log table with RLS (server action failures)",
+  },
 ];
 
 const hr = "─".repeat(60);

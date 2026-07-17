@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Loader2,
   User,
@@ -367,13 +368,31 @@ function DataSourcesSection({ errorCount }: { errorCount: number }) {
       </div>
 
       {errorCount > 0 && (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 max-w-md">
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 max-w-md flex items-start justify-between gap-4">
           <p className="text-sm text-amber-700 dark:text-amber-400">
             <strong>{errorCount}</strong> ingestion error{errorCount !== 1 ? "s" : ""} logged.
             Review your data imports for failed records.
           </p>
+          <Link
+            href="/properties/errors"
+            className="shrink-0 text-xs text-amber-700 dark:text-amber-400 underline underline-offset-2 whitespace-nowrap"
+          >
+            View →
+          </Link>
         </div>
       )}
+
+      <div className="pt-2">
+        <Link
+          href="/settings/errors"
+          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+        >
+          View app error log →
+        </Link>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Unexpected server failures logged for debugging.
+        </p>
+      </div>
     </div>
   );
 }

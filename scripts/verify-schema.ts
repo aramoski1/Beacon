@@ -131,6 +131,20 @@ const EXPECTED: TableSpec[] = [
       { col: "updated_at",           from: "migrate-deals.ts" },
     ],
   },
+  {
+    table: "error_logs",
+    cols: [
+      { col: "id",          from: "migrate-error-logs.ts" },
+      { col: "occurred_at", from: "migrate-error-logs.ts" },
+      { col: "owner_id",    from: "migrate-error-logs.ts" },
+      { col: "action",      from: "migrate-error-logs.ts" },
+      { col: "severity",    from: "migrate-error-logs.ts" },
+      { col: "message",     from: "migrate-error-logs.ts" },
+      { col: "stack",       from: "migrate-error-logs.ts" },
+      { col: "context",     from: "migrate-error-logs.ts" },
+      { col: "resolved_at", from: "migrate-error-logs.ts" },
+    ],
+  },
 ];
 
 const EXPECTED_BUCKET = "leases";

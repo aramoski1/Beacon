@@ -1,8 +1,10 @@
 // Server-only ingestion error logger.
-// Writes to the ingestion_errors table. Never throws — logging failures must
-// never crash or alter the result of the ingestion action that calls this.
+// Writes to the ingestion_errors table and fires the external error-reporting
+// hook (if BEACON_ERROR_DSN is configured). Never throws — logging failures
+// must never crash or alter the result of the ingestion action that calls this.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { captureException } from "@/lib/error-reporter";
 
 export type IngestionStage =
   | "gis_fetch"      // Miami-Dade GIS address search
@@ -37,6 +39,8 @@ export async function logIngestionError(
     error_detail?: Record<string, unknown>;
   }
 ): Promise<void> {
+  // DB insert and external reporting run independently so one failure
+  // cannot suppress the other.
   try {
     await supabase.from("ingestion_errors").insert({
       owner_id:      userId,
@@ -47,6 +51,17 @@ export async function logIngestionError(
       error_detail:  opts.error_detail ?? {},
     });
   } catch {
-    // Intentionally swallowed — logging must never affect the caller's result
+    // Intentionally swallowed
   }
+
+  await captureException(new Error(opts.error_message), {
+    action:  `ingestion/${opts.stage}`,
+    userId,
+    context: {
+      source_type: opts.source_type,
+      source_ref:  opts.source_ref ?? null,
+      ...(opts.error_detail ?? {}),
+    },
+    severity: "error",
+  });
 }
