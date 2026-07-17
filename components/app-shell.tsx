@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
-  CalendarClock, Plus,
+  Briefcase, CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
   CheckSquare, Settings2, LogOut,
 } from "lucide-react";
@@ -26,6 +26,7 @@ type NavEntry = {
 const NAV: NavEntry[] = [
   { href: "/dashboard",       icon: LayoutDashboard, label: "Dashboard" },
   { href: "/crm",             icon: LayoutGrid,      label: "Workspace" },
+  { href: "/deals",           icon: Briefcase,       label: "Deals" },
   { href: "/lease-radar",     icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
   { href: "/follow-ups",      icon: CheckSquare,     label: "Follow-ups", badge: "followUps" },
   { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
@@ -48,6 +49,9 @@ function navActive(href: string, pathname: string): boolean {
   }
   if (href === "/settings") {
     return pathname.startsWith("/settings");
+  }
+  if (href === "/deals") {
+    return pathname.startsWith("/deals");
   }
   return pathname === href;
 }
@@ -92,6 +96,7 @@ const NEW_MENU_ITEMS = [
   { href: "/properties/new", label: "Add property" },
   { href: "/contacts/new",   label: "Add contact" },
   { href: "/abstracts/new",  label: "Abstract lease" },
+  { href: "/deals",          label: "New pursuit" },
 ];
 
 function Sidebar({

@@ -26,6 +26,7 @@ import { EnrichPanel } from "./enrich-panel";
 import { OwnershipCheckPanel } from "./ownership-check-panel";
 import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
+import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { getUserSettings } from "@/app/settings/actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -247,6 +248,19 @@ export default async function PropertyPage({
             <RefreshCw className="size-3" />
             Re-ingest
           </Link>
+          <CreateDealDialog
+            propertyId={id}
+            propertyAddress={[p.address, p.city].filter(Boolean).join(", ") || undefined}
+            trigger={
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className="size-3 shrink-0">+</span>
+                New pursuit
+              </button>
+            }
+          />
         </div>
       </div>
 

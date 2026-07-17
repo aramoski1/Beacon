@@ -1,7 +1,10 @@
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
+  Briefcase,
   Building2,
+  ChevronRight,
   Flame,
   Mail,
   UserPlus,
@@ -16,6 +19,8 @@ import type {
   WeekMomentum,
 } from "./actions";
 import type { LeaseRadarEntry } from "@/lib/lease-radar";
+import type { DealsDashboard } from "@/app/deals/actions";
+import { STAGE_LABELS, STAGE_COLORS, isDealStale, daysInStage, fmtCommission, type Deal } from "@/lib/deals";
 
 export function WeekMomentumBar({ momentum }: { momentum: WeekMomentum }) {
   const items = [
@@ -227,6 +232,95 @@ export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[];
           </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
+  if (summary.activeCount === 0) {
+    return (
+      <div className="rounded-xl border bg-card px-4 py-8 text-center">
+        <Briefcase className="size-7 text-muted-foreground/40 mx-auto mb-2" />
+        <p className="text-sm text-muted-foreground">No active pursuits yet.</p>
+        <Link
+          href="/deals"
+          className="text-xs text-primary hover:underline underline-offset-2 mt-1 inline-block"
+        >
+          Open deals →
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <div className="flex items-center gap-2">
+          <Briefcase className="size-3.5 text-muted-foreground" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Active pursuits
+          </span>
+          <span className="text-xs font-bold tabular-nums text-foreground bg-muted rounded-full px-2 py-0.5">
+            {summary.activeCount}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {summary.staleCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+              <AlertTriangle className="size-3" />
+              {summary.staleCount} stale
+            </span>
+          )}
+          <Link href="/deals" className="text-xs text-primary hover:underline underline-offset-2">
+            View all
+            <ChevronRight className="size-3 inline ml-0.5" />
+          </Link>
+        </div>
+      </div>
+      <div className="divide-y">
+        {summary.recentActive.map((deal) => {
+          const stale = isDealStale(deal);
+          const days = daysInStage(deal);
+          return (
+            <div key={deal.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+              <div className="flex-1 min-w-0 space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/deals"
+                    className="text-sm font-medium truncate hover:underline underline-offset-2"
+                  >
+                    {deal.name}
+                  </Link>
+                  {stale && (
+                    <AlertTriangle className="size-3 text-amber-500 shrink-0" />
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium", STAGE_COLORS[deal.stage])}>
+                    {STAGE_LABELS[deal.stage]}
+                  </span>
+                  {deal.contacts?.name && (
+                    <span className="truncate">{deal.contacts.name}</span>
+                  )}
+                  {deal.properties?.address && (
+                    <span className="truncate">{deal.properties.address}</span>
+                  )}
+                </div>
+              </div>
+              <div className="shrink-0 text-right space-y-0.5">
+                {deal.estimated_commission != null && (
+                  <p className="text-xs font-semibold tabular-nums text-foreground">
+                    {fmtCommission(deal.estimated_commission)}
+                  </p>
+                )}
+                <p className={cn("text-[10px] tabular-nums", stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                  {days === 0 ? "today" : `${days}d`}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

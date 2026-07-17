@@ -1,0 +1,270 @@
+"use client";
+
+import { useState, useTransition, useRef, useEffect } from "react";
+import { X, Briefcase, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { DEAL_STAGES, STAGE_LABELS, type DealStage, type Deal } from "@/lib/deals";
+import { createDeal } from "./actions";
+
+type Props = {
+  /** If provided, locks the contact on the new deal. */
+  contactId?: string;
+  contactName?: string | null;
+  /** If provided, locks the property on the new deal. */
+  propertyId?: string;
+  propertyAddress?: string | null;
+  /** Render a custom trigger; if omitted, a default "New pursuit" button is shown. */
+  trigger?: React.ReactNode;
+  onCreated?: (deal: Deal) => void;
+};
+
+export function CreateDealDialog({
+  contactId,
+  contactName,
+  propertyId,
+  propertyAddress,
+  trigger,
+  onCreated,
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) setTimeout(() => nameRef.current?.focus(), 50);
+  }, [open]);
+
+  function defaultName() {
+    if (contactName) return `Pursuit — ${contactName}`;
+    if (propertyAddress) return `Pursuit — ${propertyAddress}`;
+    return "";
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setFieldErrors({});
+
+    const fd = new FormData(e.currentTarget);
+    const name = fd.get("name") as string;
+    const stage = fd.get("stage") as DealStage;
+    const commissionRaw = fd.get("estimated_commission") as string;
+    const estimated_commission = commissionRaw ? parseFloat(commissionRaw) : null;
+    const next_action = fd.get("next_action") as string | null;
+    const notes = fd.get("notes") as string | null;
+
+    startTransition(async () => {
+      const result = await createDeal({
+        name,
+        stage: stage || "prospect",
+        contact_id: contactId ?? null,
+        property_id: propertyId ?? null,
+        estimated_commission: estimated_commission ?? null,
+        next_action: next_action || null,
+        notes: notes || null,
+      });
+
+      if (result.fieldErrors) {
+        const errs: Record<string, string> = {};
+        for (const e of result.fieldErrors) errs[e.field] = e.message;
+        setFieldErrors(errs);
+        return;
+      }
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setOpen(false);
+      onCreated?.(result.deal!);
+    });
+  }
+
+  return (
+    <>
+      <span onClick={() => setOpen(true)}>
+        {trigger ?? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Briefcase className="size-4" />
+            New pursuit
+          </button>
+        )}
+      </span>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => !isPending && setOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-xl border bg-card shadow-xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b">
+              <div className="flex items-center gap-2">
+                <Briefcase className="size-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">New pursuit</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isPending && setOpen(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+              {/* Context badges — pre-filled contact / property */}
+              {(contactName || propertyAddress) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {contactName && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20 rounded-full px-2.5 py-0.5">
+                      Contact: {contactName}
+                    </span>
+                  )}
+                  {propertyAddress && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-violet-500/10 text-violet-700 dark:text-violet-400 border border-violet-500/20 rounded-full px-2.5 py-0.5">
+                      {propertyAddress}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground" htmlFor="deal-name">
+                  Deal name <span className="text-destructive">*</span>
+                </label>
+                <input
+                  ref={nameRef}
+                  id="deal-name"
+                  name="name"
+                  type="text"
+                  defaultValue={defaultName()}
+                  placeholder="e.g. Pursuit — 100 Brickell Ave"
+                  className={cn(
+                    "w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                    fieldErrors.name && "border-destructive focus:ring-destructive/50"
+                  )}
+                />
+                {fieldErrors.name && (
+                  <p className="text-xs text-destructive">{fieldErrors.name}</p>
+                )}
+              </div>
+
+              {/* Stage */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground" htmlFor="deal-stage">
+                  Stage
+                </label>
+                <select
+                  id="deal-stage"
+                  name="stage"
+                  defaultValue="prospect"
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {DEAL_STAGES.map((s) => (
+                    <option key={s} value={s}>{STAGE_LABELS[s]}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Two-column: commission + next action */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground" htmlFor="deal-commission">
+                    Est. commission ($)
+                  </label>
+                  <input
+                    id="deal-commission"
+                    name="estimated_commission"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 25000"
+                    className={cn(
+                      "w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+                      fieldErrors.estimated_commission && "border-destructive"
+                    )}
+                  />
+                  {fieldErrors.estimated_commission && (
+                    <p className="text-xs text-destructive">{fieldErrors.estimated_commission}</p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground" htmlFor="deal-next-action-due">
+                    Next action due
+                  </label>
+                  <input
+                    id="deal-next-action-due"
+                    name="next_action_due"
+                    type="date"
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+
+              {/* Next action */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground" htmlFor="deal-next-action">
+                  Next action
+                </label>
+                <input
+                  id="deal-next-action"
+                  name="next_action"
+                  type="text"
+                  placeholder="e.g. Send tour proposal by Friday"
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground" htmlFor="deal-notes">
+                  Notes
+                </label>
+                <textarea
+                  id="deal-notes"
+                  name="notes"
+                  rows={2}
+                  placeholder="Any context for this pursuit…"
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                />
+              </div>
+
+              {error && (
+                <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  {error}
+                </p>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => !isPending && setOpen(false)}
+                  className="h-9 px-4 rounded-lg text-sm font-medium border border-border bg-background hover:bg-muted/60 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {isPending && <Loader2 className="size-4 animate-spin" />}
+                  Create pursuit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

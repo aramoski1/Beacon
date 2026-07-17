@@ -114,6 +114,23 @@ const EXPECTED: TableSpec[] = [
       { col: "created_at",     from: "migrate-custom-fields.ts" },
     ],
   },
+  {
+    table: "deals",
+    cols: [
+      { col: "id",                   from: "migrate-deals.ts" },
+      { col: "owner_id",             from: "migrate-deals.ts" },
+      { col: "name",                 from: "migrate-deals.ts" },
+      { col: "stage",                from: "migrate-deals.ts" },
+      { col: "contact_id",           from: "migrate-deals.ts" },
+      { col: "property_id",          from: "migrate-deals.ts" },
+      { col: "estimated_commission", from: "migrate-deals.ts" },
+      { col: "notes",                from: "migrate-deals.ts" },
+      { col: "next_action",          from: "migrate-deals.ts" },
+      { col: "next_action_due",      from: "migrate-deals.ts" },
+      { col: "created_at",           from: "migrate-deals.ts" },
+      { col: "updated_at",           from: "migrate-deals.ts" },
+    ],
+  },
 ];
 
 const EXPECTED_BUCKET = "leases";

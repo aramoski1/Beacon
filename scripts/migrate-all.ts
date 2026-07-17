@@ -104,6 +104,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-lease-reviews.ts",
     description: "Lease abstracts — field_reviews JSONB for per-field accept/reject/correct with corrections",
   },
+  {
+    file: "migrate-deals.ts",
+    description: "Deals — pursuit pipeline table with stage, contact/property links, commission, RLS",
+  },
 ];
 
 const hr = "─".repeat(60);

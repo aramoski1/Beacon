@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Building2, Users, FileText, CheckSquare, Zap } from "lucide-react";
+import { Briefcase, Building2, Users, FileText, CheckSquare, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getEnrichedActionItems } from "./enriched-action-items";
 import { getFollowUpsDashboard, getUpcomingFollowUps } from "@/app/follow-ups/actions";
@@ -26,7 +26,9 @@ import {
   WeekMomentumBar,
   UnworkedOpportunitiesPanel,
   ColdTier1Panel,
+  DealsDashboardPanel,
 } from "./dashboard-widgets";
+import { getDealsDashboard } from "@/app/deals/actions";
 import {
   DashboardHero,
   ActivityTimeline,
@@ -74,6 +76,7 @@ export default async function DashboardPage() {
     momentum,
     staleTier1Owners,
     ownershipChangedProperties,
+    dealsDashboard,
   ] = await Promise.all([
     getEnrichedActionItems(),
     getDashboardStats(),
@@ -89,6 +92,7 @@ export default async function DashboardPage() {
     getWeekMomentum(),
     getStaleTier1Owners(5),
     getOwnershipChangedProperties(),
+    getDealsDashboard(),
   ]);
 
   const overdueOutreach = enrichedItems.filter((c) => c.daysOverdue > 0).length;
@@ -238,12 +242,13 @@ export default async function DashboardPage() {
         <LeaseRadarView data={leaseRadar} compact />
       </section>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <StatCard href="/crm" icon={<Building2 className="size-4" />} label="Properties" value={stats.properties} />
         <StatCard href="/crm?tab=contacts" icon={<Users className="size-4" />} label="Contacts" value={stats.contacts} />
         <StatCard href="/crm?tab=leases" icon={<FileText className="size-4" />} label="Leases" value={stats.leases} />
         <StatCard href="/follow-ups" icon={<CheckSquare className="size-4" />} label="Follow-ups due" value={stats.followUpsDue} highlight={stats.followUpsDue > 0} />
         <StatCard href="/outreach" icon={<Zap className="size-4" />} label="Outreach overdue" value={overdueOutreach} highlight={overdueOutreach > 0} />
+        <StatCard href="/deals" icon={<Briefcase className="size-4" />} label="Active pursuits" value={dealsDashboard.activeCount} />
       </div>
 
       <div className="grid xl:grid-cols-[1fr_300px] gap-6 items-start">
@@ -256,6 +261,7 @@ export default async function DashboardPage() {
         </div>
 
         <div className="space-y-4">
+          <DealsDashboardPanel summary={dealsDashboard} />
           <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
           {ownershipChangedProperties.length > 0 && (
             <OwnershipChangedPanel items={ownershipChangedProperties} />

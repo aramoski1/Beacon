@@ -21,6 +21,7 @@ import { ContactActivitySection, type FollowUpInput, type OutreachEntry } from "
 import { QuickActions } from "./quick-actions";
 import { fetchActivitiesByContact, type Activity } from "@/app/activities/actions";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
+import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { RelationshipBriefingPanel } from "./relationship-briefing";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -292,6 +293,19 @@ export default async function ContactPage({
         {(c.linked_properties?.length ?? 0) > 0 && (
           <OwnerPortfolioLink contactId={id} variant="button" label="Ownership portfolio" />
         )}
+        <CreateDealDialog
+          contactId={id}
+          contactName={c.name ?? undefined}
+          trigger={
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/15 border border-primary/20"
+            >
+              <Briefcase className="size-3.5" />
+              New pursuit
+            </button>
+          }
+        />
       </div>
 
       {/* Next follow-up — prominent */}
