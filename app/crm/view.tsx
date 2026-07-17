@@ -2262,8 +2262,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
           {barMode === "search" ? (
             <>
-              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-0 max-w-xl">
-                <div className="relative flex-1 min-w-0">
+              {/* min-w keeps the input from collapsing to 0 and overlapping the mode toggle */}
+              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-[12rem] max-w-md">
+                <div className="relative flex-1 min-w-[8rem]">
                   {searching ? (
                     <Loader2 className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground animate-spin" />
                   ) : (
@@ -2378,12 +2379,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                       <FilterSelect label="Stage" value={conFilters.status} options={RELATIONSHIP_STAGES} onChange={(v) => updateConFilter("status", v)} />
                       {conFilterOpts.contactTypes.length > 0 && (
                         <FilterSelect label="Role" value={conFilters.contactType} options={conFilterOpts.contactTypes.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("contactType", v)} />
-                      )}
-                      {conFilterOpts.geoCat.length > 0 && (
-                        <FilterSelect label="Submarket" value={conFilters.geoCat} options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("geoCat", v)} />
-                      )}
-                      {conFilterOpts.ownership.length > 0 && (
-                        <FilterSelect label="Lead Source" value={conFilters.ownership} options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("ownership", v)} />
                       )}
                       {conFilterOpts.tags.length > 0 && (
                         <FilterSelect label="Tag" value={conFilters.tag} options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("tag", v)} />
