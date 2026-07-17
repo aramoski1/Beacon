@@ -1,0 +1,402 @@
+"use server";
+
+import Anthropic from "@anthropic-ai/sdk";
+import { createClient } from "@/lib/supabase/server";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type CopilotMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+// ─── Tools ───────────────────────────────────────────────────────────────────
+
+const COPILOT_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "search_properties",
+    description:
+      "Search the broker's tracked properties by location, type, size, owner name, etc. Call this for any question about properties in the book.",
+    input_schema: {
+      type: "object",
+      properties: {
+        city:           { type: "string",  description: "Filter by city (partial match)" },
+        property_type:  { type: "string",  description: "Filter by type (e.g. Industrial, Office, Retail, Multifamily)" },
+        ownership_type: { type: "string",  description: "Filter by ownership structure" },
+        owner_name:     { type: "string",  description: "Filter by listed owner name (partial match)" },
+        min_sqft:       { type: "number",  description: "Minimum building size in sq ft" },
+        max_sqft:       { type: "number",  description: "Maximum building size in sq ft" },
+        limit:          { type: "number",  description: "Max results to return (default 25, max 50)" },
+      },
+    },
+  },
+  {
+    name: "search_contacts",
+    description:
+      "Search the broker's contacts by name, company, tier, or days since last contact. Use this for relationship, outreach, or cadence questions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name:                    { type: "string",  description: "Filter by contact name (partial match)" },
+        company:                 { type: "string",  description: "Filter by company (partial match)" },
+        contact_tier:            { type: "number",  description: "Filter by tier: 1=highest priority, 2=warm, 3=periodic" },
+        client_status:           { type: "string",  description: "Filter by status (e.g. active, prospect, past)" },
+        min_days_since_contact:  { type: "number",  description: "Only include contacts not touched in at least this many days" },
+        limit:                   { type: "number",  description: "Max results (default 25)" },
+      },
+    },
+  },
+  {
+    name: "search_leases",
+    description:
+      "Search lease abstracts in the book. Use this for expiry timelines, rollover risk, or lease rate questions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        days_until_expiry: { type: "number", description: "Only return leases expiring within this many days (e.g. 365)" },
+        limit:             { type: "number", description: "Max results (default 25)" },
+      },
+    },
+  },
+  {
+    name: "search_deals",
+    description:
+      "Search the broker's pursuit pipeline. Use this for deal stage, commission, or active pursuit questions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        stage: { type: "string", description: "Filter by stage: prospect, contacted, meeting, requirement, proposal, under_contract, won, closed, lost" },
+        limit: { type: "number", description: "Max results (default 20)" },
+      },
+    },
+  },
+  {
+    name: "search_follow_ups",
+    description:
+      "Search pending follow-up tasks. Use this when asked what's overdue, coming up, or what the broker needs to do.",
+    input_schema: {
+      type: "object",
+      properties: {
+        overdue_only:   { type: "boolean", description: "If true, return only past-due incomplete tasks" },
+        upcoming_days:  { type: "number",  description: "Return tasks due within this many days" },
+      },
+    },
+  },
+  {
+    name: "get_dashboard_metrics",
+    description:
+      "Get a real-time portfolio snapshot: property count, contacts, overdue outreach, expiring leases, pending follow-ups. Use this for 'what should I focus on today?' or overview questions.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_recent_activities",
+    description:
+      "Get the most recently logged CRM activities (calls, emails, meetings, notes).",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max results (default 15)" },
+      },
+    },
+  },
+];
+
+// ─── Tool runner ──────────────────────────────────────────────────────────────
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+async function runTool(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string,
+  input: Record<string, unknown>
+): Promise<unknown> {
+  const limit = (typeof input.limit === "number" ? Math.min(input.limit, 50) : 25);
+
+  switch (name) {
+    case "search_properties": {
+      let q = supabase
+        .from("properties")
+        .select("id, address, city, property_type, size_sqft, owner_name, ownership_type, last_sale_date, asset_description")
+        .eq("owner_id", userId);
+      if (input.city)           q = q.ilike("city",           `%${input.city}%`);
+      if (input.property_type)  q = q.ilike("property_type",  `%${input.property_type}%`);
+      if (input.ownership_type) q = q.ilike("ownership_type", `%${input.ownership_type}%`);
+      if (input.owner_name)     q = q.ilike("owner_name",     `%${input.owner_name}%`);
+      if (input.min_sqft)       q = q.gte("size_sqft", input.min_sqft);
+      if (input.max_sqft)       q = q.lte("size_sqft", input.max_sqft);
+      q = q.order("size_sqft", { ascending: false, nullsFirst: false }).limit(limit);
+      const { data, error } = await q;
+      if (error) return { error: error.message };
+      return { count: data?.length ?? 0, properties: data ?? [] };
+    }
+
+    case "search_contacts": {
+      let q = supabase
+        .from("contacts")
+        .select("id, name, email, company, role, contact_tier, client_status, last_contacted_at, geographic_category, size_category")
+        .eq("owner_id", userId);
+      if (input.name)         q = q.ilike("name",    `%${input.name}%`);
+      if (input.company)      q = q.ilike("company", `%${input.company}%`);
+      if (input.contact_tier) q = q.eq("contact_tier", input.contact_tier);
+      if (input.client_status) q = q.eq("client_status", input.client_status);
+      const { data, error } = await q.limit(limit);
+      if (error) return { error: error.message };
+      let contacts = data ?? [];
+      if (typeof input.min_days_since_contact === "number") {
+        contacts = contacts.filter((c) => {
+          if (!c.last_contacted_at) return true;
+          const days = Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000);
+          return days >= (input.min_days_since_contact as number);
+        });
+      }
+      const enriched = contacts.map((c) => ({
+        ...c,
+        days_since_contact: c.last_contacted_at
+          ? Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000)
+          : null,
+      }));
+      return { count: enriched.length, contacts: enriched };
+    }
+
+    case "search_leases": {
+      const today = new Date().toISOString().slice(0, 10);
+      let q = supabase
+        .from("lease_abstracts")
+        .select("id, linked_property, expiration_date, execution_date, base_rate, term, source_document")
+        .eq("owner_id", userId)
+        .not("expiration_date", "is", null)
+        .gte("expiration_date", today)
+        .order("expiration_date", { ascending: true });
+      if (typeof input.days_until_expiry === "number") {
+        const cutoff = new Date(Date.now() + (input.days_until_expiry as number) * 86_400_000)
+          .toISOString().slice(0, 10);
+        q = q.lte("expiration_date", cutoff);
+      }
+      const { data: leases, error } = await q.limit(limit);
+      if (error) return { error: error.message };
+
+      const propIds = [...new Set((leases ?? []).map((l) => l.linked_property).filter(Boolean))];
+      let propMap = new Map<string, string>();
+      if (propIds.length > 0) {
+        const { data: props } = await supabase
+          .from("properties")
+          .select("id, address, city")
+          .in("id", propIds);
+        propMap = new Map((props ?? []).map((p) => [p.id, [p.address, p.city].filter(Boolean).join(", ")]));
+      }
+
+      const enriched = (leases ?? []).map((l) => ({
+        ...l,
+        property_address: l.linked_property ? propMap.get(l.linked_property) ?? null : null,
+        days_until_expiry: l.expiration_date
+          ? Math.ceil((new Date(l.expiration_date).getTime() - Date.now()) / 86_400_000)
+          : null,
+      }));
+      return { count: enriched.length, leases: enriched };
+    }
+
+    case "search_deals": {
+      let q = supabase
+        .from("deals")
+        .select("id, name, stage, estimated_commission, notes, next_action, next_action_due, created_at")
+        .eq("owner_id", userId);
+      if (input.stage) q = q.eq("stage", input.stage);
+      const { data, error } = await q.order("updated_at", { ascending: false }).limit(limit);
+      if (error) return { error: error.message };
+      return { count: data?.length ?? 0, deals: data ?? [] };
+    }
+
+    case "search_follow_ups": {
+      const today = new Date().toISOString().slice(0, 10);
+      let q = supabase
+        .from("follow_ups")
+        .select("id, description, due_date, done, contact_id, property_id, created_at")
+        .eq("owner_id", userId);
+      if (input.overdue_only) {
+        q = q.lte("due_date", today).eq("done", false);
+      } else if (typeof input.upcoming_days === "number") {
+        const cutoff = new Date(Date.now() + (input.upcoming_days as number) * 86_400_000)
+          .toISOString().slice(0, 10);
+        q = q.gte("due_date", today).lte("due_date", cutoff).eq("done", false);
+      } else {
+        q = q.eq("done", false);
+      }
+      const { data, error } = await q.order("due_date", { ascending: true }).limit(25);
+      if (error) return { error: error.message };
+      return { count: data?.length ?? 0, follow_ups: data ?? [] };
+    }
+
+    case "get_dashboard_metrics": {
+      const today = new Date().toISOString().slice(0, 10);
+      const ninetyDays = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+      const [
+        { count: propCount },
+        { count: contactCount },
+        { count: leaseCount },
+        { count: followUpsDue },
+        { count: urgentLeases },
+        { count: activeDeals },
+        { data: contactsRaw },
+        { data: settingsRaw },
+      ] = await Promise.all([
+        supabase.from("properties").select("*", { count: "exact", head: true }).eq("owner_id", userId),
+        supabase.from("contacts").select("*", { count: "exact", head: true }).eq("owner_id", userId),
+        supabase.from("lease_abstracts").select("*", { count: "exact", head: true }).eq("owner_id", userId),
+        supabase.from("follow_ups").select("*", { count: "exact", head: true }).eq("owner_id", userId).eq("done", false).lte("due_date", today),
+        supabase.from("lease_abstracts").select("*", { count: "exact", head: true }).eq("owner_id", userId).not("expiration_date", "is", null).gte("expiration_date", today).lte("expiration_date", ninetyDays),
+        supabase.from("deals").select("*", { count: "exact", head: true }).eq("owner_id", userId).not("stage", "in", '("won","closed","lost")'),
+        supabase.from("contacts").select("contact_tier, last_contacted_at").eq("owner_id", userId).not("contact_tier", "is", null),
+        supabase.from("user_settings").select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days").eq("owner_id", userId).maybeSingle(),
+      ]);
+      const cadence: Record<number, number> = {
+        1: settingsRaw?.cadence_tier1_days ?? 14,
+        2: settingsRaw?.cadence_tier2_days ?? 30,
+        3: settingsRaw?.cadence_tier3_days ?? 90,
+      };
+      const overdueOutreach = (contactsRaw ?? []).filter((c) => {
+        const threshold = cadence[c.contact_tier as 1 | 2 | 3] ?? 90;
+        if (!c.last_contacted_at) return true;
+        return Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000) >= threshold;
+      }).length;
+      return {
+        properties: propCount ?? 0,
+        contacts: contactCount ?? 0,
+        leases: leaseCount ?? 0,
+        active_deals: activeDeals ?? 0,
+        follow_ups_due_today: followUpsDue ?? 0,
+        leases_expiring_90_days: urgentLeases ?? 0,
+        overdue_outreach_contacts: overdueOutreach,
+        today: today,
+      };
+    }
+
+    case "get_recent_activities": {
+      const { data, error } = await supabase
+        .from("activities")
+        .select("id, activity_type, activity_date, notes, contact_id, property_id")
+        .eq("owner_id", userId)
+        .order("activity_date", { ascending: false })
+        .limit(limit);
+      if (error) return { error: error.message };
+      return { count: data?.length ?? 0, activities: data ?? [] };
+    }
+
+    default:
+      return { error: `Unknown tool: ${name}` };
+  }
+}
+
+// ─── askCopilot ───────────────────────────────────────────────────────────────
+
+export async function askCopilot(
+  history: CopilotMessage[]
+): Promise<{ reply?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  if (history.length === 0) return { error: "No message provided." };
+
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+
+  const systemPrompt = `You are Beacon Copilot, the AI assistant built into Beacon — a CRM platform for commercial real estate brokers.
+
+You have access to this broker's complete book of business through the tools below. Always call the appropriate tool before answering any data question — never guess at numbers or names.
+
+## What you can help with
+- Finding and analyzing properties, contacts, leases, deals, and activities in the book
+- Surfacing insights ("what should I focus on today?", "who haven't I called in 90 days?")
+- Answering product/navigation questions about Beacon
+- Recommending next steps based on data patterns
+
+## Beacon platform knowledge
+
+### Features & navigation
+- **Dashboard** (/dashboard) — Daily briefing: overdue outreach, expiring leases, follow-ups due, momentum
+- **Workspace / CRM** (/crm) — Properties tab, Contacts tab, Lease Abstracts tab; AI-powered search bar
+- **Outreach** (/outreach) — Select overdue contacts, generate AI email drafts, log sends
+- **Lease Radar** (/lease-radar) — Visual expiry tracker for leases within 3/6/12 months
+- **Follow-ups** (/follow-ups) — Task list with due dates; create from contact, property, or deal pages
+- **Deals** (/deals) — Pursuit pipeline: prospect → contacted → meeting → requirement → proposal → under_contract → won / closed / lost
+- **Settings** (/settings) — Cadence days per tier, outreach sender profile, email provider override
+
+### How to do common things
+- **Import contacts/properties**: Go to /onboarding or click "Import from spreadsheet" on the Contacts page
+- **Abstract a lease**: /abstracts/new — upload a PDF, AI extracts key fields automatically
+- **Add a property or contact**: /properties/new or /contacts/new, or use "+ New" in the sidebar
+- **Start outreach**: /outreach → pick contacts → Generate drafts → Open in email
+- **Set outreach cadence**: Settings → Outreach → Tier 1 / 2 / 3 cadence days
+- **Set sender name (email signature)**: Settings → Outreach → Sender name
+- **Log an activity**: Open any contact or property page → Activity tab → Log
+
+### Contact tiers
+- Tier 1: Highest-priority relationships. Default cadence 14 days.
+- Tier 2: Warm prospects. Default cadence 30 days.
+- Tier 3: Periodic outreach. Default cadence 90 days.
+
+## Response style
+- Be concise and direct. Skip preamble ("Great question!").
+- Use **bold** for names, addresses, and key terms.
+- Use bullet lists for multiple items; tables only when comparing values.
+- When tools return data, highlight the most important items first.
+- For navigation questions, give the exact path (e.g. "Go to **Settings → Outreach**").
+- If you can't find something, say so and suggest an alternative.
+
+Today is ${today}.`;
+
+  const messages: Anthropic.MessageParam[] = history.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  const anthropic = new Anthropic();
+  const MAX_ITERATIONS = 6;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    let response: Anthropic.Message;
+    try {
+      response = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2048,
+        system: systemPrompt,
+        tools: COPILOT_TOOLS,
+        messages,
+      });
+    } catch (e) {
+      return { error: `AI error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+    );
+
+    if (response.stop_reason === "end_turn" || toolUseBlocks.length === 0) {
+      const text = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+      return {
+        reply: text || "I couldn't find a clear answer. Try asking something more specific about your book or Beacon.",
+      };
+    }
+
+    // Execute all tool calls in parallel
+    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+      toolUseBlocks.map(async (tu) => ({
+        type: "tool_result" as const,
+        tool_use_id: tu.id,
+        content: JSON.stringify(await runTool(supabase, user.id, tu.name, tu.input as Record<string, unknown>)),
+      }))
+    );
+
+    messages.push({ role: "assistant", content: response.content });
+    messages.push({ role: "user",      content: toolResults });
+  }
+
+  return { reply: "I wasn't able to complete that analysis. Try a more focused question." };
+}

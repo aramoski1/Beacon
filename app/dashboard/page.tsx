@@ -16,7 +16,7 @@ import {
   getStaleTier1Owners,
   getOwnershipChangedProperties,
 } from "./actions";
-import { DashboardSearch } from "./dashboard-search";
+import { BeaconCopilot } from "@/components/beacon-copilot";
 import { NeedsAttentionToday } from "./needs-attention";
 import { UpcomingFollowUpList } from "./follow-up-list";
 import { SinceLastVisit } from "./since-last-visit";
@@ -136,7 +136,7 @@ export default async function DashboardPage() {
         briefing={briefing}
         portfolio={portfolio}
         cadence={cadence}
-        search={<DashboardSearch />}
+        search={<BeaconCopilot />}
       />
 
       <PriorityPills metrics={briefing} />
