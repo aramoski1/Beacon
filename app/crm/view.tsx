@@ -767,6 +767,7 @@ function PropertiesTable({
   selectedIds,
   onToggle,
   onToggleAll,
+  totalInDb,
 }: {
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo[]>;
@@ -781,15 +782,44 @@ function PropertiesTable({
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: (allSelected: boolean) => void;
+  totalInDb?: number;
 }) {
   if (rows.length === 0) {
+    const isFirstTime = totalInDb === 0;
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
         <Building2 className="size-10 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">No properties match these filters.</p>
-        <Link href="/properties/new" className="text-xs underline underline-offset-2 text-primary">
-          Look up a property →
-        </Link>
+        {isFirstTime ? (
+          <>
+            <div>
+              <p className="text-sm font-medium">No properties yet</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Import a spreadsheet to populate your workspace fast, or look up properties one by one.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <Link
+                href="/onboarding"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Import from spreadsheet
+              </Link>
+              <Link
+                href="/properties/new"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border hover:bg-muted/50 transition-colors"
+              >
+                Look up a property
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">No properties match these filters.</p>
+            <Link href="/properties/new" className="text-xs underline underline-offset-2 text-primary">
+              Look up a property →
+            </Link>
+          </>
+        )}
       </div>
     );
   }
@@ -2377,6 +2407,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   selectedIds={selectedPropIds}
                   onToggle={togglePropSelection}
                   onToggleAll={toggleAllProps}
+                  totalInDb={totalProps ?? undefined}
                 />
               </div>
             )

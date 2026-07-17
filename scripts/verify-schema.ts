@@ -145,6 +145,31 @@ const EXPECTED: TableSpec[] = [
       { col: "resolved_at", from: "migrate-error-logs.ts" },
     ],
   },
+  {
+    table: "user_settings",
+    cols: [
+      { col: "id",                       from: "migrate-user-settings.ts" },
+      { col: "owner_id",                 from: "migrate-user-settings.ts" },
+      { col: "display_name",             from: "migrate-user-settings.ts" },
+      { col: "broker_name",              from: "migrate-user-settings.ts" },
+      { col: "company",                  from: "migrate-user-settings.ts" },
+      { col: "license_number",           from: "migrate-user-settings.ts" },
+      { col: "default_market",           from: "migrate-user-settings.ts" },
+      { col: "default_submarket",        from: "migrate-user-settings.ts" },
+      { col: "phone",                    from: "migrate-user-settings.ts" },
+      { col: "website",                  from: "migrate-user-settings.ts" },
+      { col: "email_signature",          from: "migrate-user-settings.ts" },
+      { col: "sender_name",              from: "migrate-user-settings.ts" },
+      { col: "sender_email",             from: "migrate-user-settings.ts" },
+      { col: "cadence_tier1_days",       from: "migrate-user-settings.ts" },
+      { col: "cadence_tier2_days",       from: "migrate-user-settings.ts" },
+      { col: "cadence_tier3_days",       from: "migrate-user-settings.ts" },
+      { col: "costar_enabled",           from: "migrate-user-settings.ts" },
+      { col: "created_at",               from: "migrate-user-settings.ts" },
+      { col: "updated_at",               from: "migrate-user-settings.ts" },
+      { col: "onboarding_completed_at",  from: "migrate-onboarding.ts" },
+    ],
+  },
 ];
 
 const EXPECTED_BUCKET = "leases";

@@ -61,6 +61,13 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: obSettings } = await supabase
+    .from("user_settings")
+    .select("onboarding_completed_at")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (!obSettings?.onboarding_completed_at) redirect("/onboarding");
+
   const [
     enrichedItems,
     stats,

@@ -166,16 +166,24 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
             <div>
               <p className="text-sm font-medium">No contacts yet</p>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Add your first contact to start tracking relationships.
+                Add contacts one by one or import a spreadsheet to get started fast.
               </p>
             </div>
-            <Link
-              href="/contacts/new"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors mt-1"
-            >
-              <UserPlus className="size-3.5" />
-              Add first contact
-            </Link>
+            <div className="flex items-center gap-2 mt-1">
+              <Link
+                href="/onboarding"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Import from spreadsheet
+              </Link>
+              <Link
+                href="/contacts/new"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border hover:bg-muted/50 transition-colors"
+              >
+                <UserPlus className="size-3.5" />
+                Add manually
+              </Link>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground py-6">No contacts match the current filters.</p>

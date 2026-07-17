@@ -1,0 +1,21 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { OnboardingWizard } from "./wizard";
+
+export const metadata = { title: "Welcome to Beacon" };
+
+export default async function OnboardingPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: settings } = await supabase
+    .from("user_settings")
+    .select("onboarding_completed_at")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  if (settings?.onboarding_completed_at) redirect("/dashboard");
+
+  return <OnboardingWizard />;
+}

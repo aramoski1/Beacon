@@ -56,7 +56,7 @@ function navActive(href: string, pathname: string): boolean {
   return pathname === href;
 }
 
-const NO_SHELL = ["/login", "/auth/"];
+const NO_SHELL = ["/login", "/auth/", "/onboarding"];
 
 // ─── Nav item ─────────────────────────────────────────────────────────────────
 

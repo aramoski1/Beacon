@@ -112,6 +112,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-error-logs.ts",
     description: "Error logs — structured runtime error log table with RLS (server action failures)",
   },
+  {
+    file: "migrate-onboarding.ts",
+    description: "User settings — onboarding_completed_at timestamptz column (first-run flow tracking)",
+  },
 ];
 
 const hr = "─".repeat(60);

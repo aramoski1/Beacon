@@ -49,7 +49,7 @@ export async function signUp(
     email: formData.get("email") as string,
     password: formData.get("password") as string,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/onboarding`,
     },
   });
 
