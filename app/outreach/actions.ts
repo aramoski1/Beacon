@@ -181,7 +181,7 @@ export async function generateDrafts(
   contactIds: string[],
   brokerContext: string,
   template: OutreachTemplate = "check-in"
-): Promise<{ drafts?: EmailDraft[]; error?: string }> {
+): Promise<{ drafts?: EmailDraft[]; error?: string; senderNameMissing?: boolean }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -191,34 +191,57 @@ export async function generateDrafts(
   if (contactIds.length === 0) return { error: "No contacts selected." };
   if (contactIds.length > 10) return { error: "Maximum 10 contacts at once." };
 
-  // Fetch the selected contacts — must be scoped to this user
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select(
-      "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
-    )
-    .eq("owner_id", user.id)
-    .in("id", contactIds);
+  // Fetch contacts + broker settings in parallel
+  const [{ data: contacts }, settings] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(
+        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+      )
+      .eq("owner_id", user.id)
+      .in("id", contactIds),
+    getUserSettings(),
+  ]);
 
   if (!contacts || contacts.length === 0) return { error: "Contacts not found." };
 
-  // Fetch linked properties with richer detail
+  // Build broker signature from profile settings
+  const senderName = settings.sender_name || settings.display_name;
+  const senderNameMissing = !senderName;
+  const signatureLines = [senderName, settings.company, settings.phone].filter(Boolean);
+  const brokerSignature = signatureLines.length > 0 ? signatureLines.join("\n") : null;
+
+  // Fetch linked properties + lease abstracts in parallel
   const allPropIds = [...new Set(contacts.flatMap((c) => c.linked_properties ?? []))];
-  let propMap = new Map<string, {
-    address: string | null;
-    city: string | null;
-    property_type: string | null;
-    size_sqft: number | null;
-    last_sale_date: string | null;
-    asset_description: string | null;
-  }>();
+  type PropRecord = {
+    address: string | null; city: string | null; property_type: string | null;
+    size_sqft: number | null; last_sale_date: string | null; asset_description: string | null;
+    ownership_change_detected_at: string | null; ownership_change_data: unknown;
+  };
+  let propMap = new Map<string, PropRecord>();
+  let leaseMap = new Map<string, Array<{ expiration_date: string | null; base_rate: number | null }>>();
   if (allPropIds.length > 0) {
-    const { data: props } = await supabase
-      .from("properties")
-      .select("id, address, city, property_type, size_sqft, last_sale_date, asset_description")
-      .eq("owner_id", user.id)
-      .in("id", allPropIds);
+    const [{ data: props }, { data: abstracts }] = await Promise.all([
+      supabase
+        .from("properties")
+        .select("id, address, city, property_type, size_sqft, last_sale_date, asset_description, ownership_change_detected_at, ownership_change_data")
+        .eq("owner_id", user.id)
+        .in("id", allPropIds),
+      supabase
+        .from("lease_abstracts")
+        .select("linked_property, expiration_date, base_rate")
+        .eq("owner_id", user.id)
+        .in("linked_property", allPropIds)
+        .not("expiration_date", "is", null)
+        .order("expiration_date", { ascending: true }),
+    ]);
     propMap = new Map((props ?? []).map((p) => [p.id, p]));
+    for (const a of abstracts ?? []) {
+      if (!a.linked_property) continue;
+      const bucket = leaseMap.get(a.linked_property) ?? [];
+      bucket.push({ expiration_date: a.expiration_date, base_rate: a.base_rate });
+      leaseMap.set(a.linked_property, bucket);
+    }
   }
 
   // Fetch recent activities per contact (up to 4 each)
@@ -250,14 +273,25 @@ export async function generateDrafts(
       "Flag a relevant opportunity or market movement tied to their ownership type or portfolio. Frame it as something they should know about and invite them to discuss.",
   };
 
-  const contactSummaries = contacts.map((c) => {
-    const props = (c.linked_properties ?? [])
-      .map((pid: string) => propMap.get(pid))
-      .filter(Boolean) as Array<{
-        address: string | null; city: string | null; property_type: string | null;
-        size_sqft: number | null; last_sale_date: string | null; asset_description: string | null;
-      }>;
+  function relativeMonths(dateStr: string | null): string | null {
+    if (!dateStr) return null;
+    const months = Math.round((Date.now() - new Date(dateStr).getTime()) / (30 * 86_400_000));
+    if (months <= 0) return "less than a month ago";
+    if (months === 1) return "1 month ago";
+    return `${months} months ago`;
+  }
 
+  function monthsUntil(dateStr: string | null): string | null {
+    if (!dateStr) return null;
+    const ms = new Date(dateStr).getTime() - Date.now();
+    if (ms < 0) return null;
+    const months = Math.round(ms / (30 * 86_400_000));
+    if (months <= 0) return "this month";
+    if (months === 1) return "in 1 month";
+    return `in ${months} months`;
+  }
+
+  const contactSummaries = contacts.map((c) => {
     const activities = activityMap.get(c.id) ?? [];
 
     const tierTone =
@@ -271,22 +305,39 @@ export async function generateDrafts(
       ? Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000)
       : null;
 
+    const linkedProperties = (c.linked_properties ?? []).flatMap((pid: string) => {
+      const p = propMap.get(pid);
+      if (!p) return [];
+      const leases = (leaseMap.get(pid) ?? [])
+        .map((l) => ({
+          expires: monthsUntil(l.expiration_date),
+          rate_per_sf: l.base_rate ? `$${l.base_rate}/sf` : null,
+        }))
+        .filter((l) => l.expires !== null);
+      return [{
+        address: p.address,
+        city: p.city,
+        type: p.property_type,
+        sqft: p.size_sqft,
+        sold: relativeMonths(p.last_sale_date),
+        asset_description: p.asset_description,
+        ownership_change: p.ownership_change_detected_at
+          ? { detected: relativeMonths(p.ownership_change_detected_at) }
+          : null,
+        leases,
+      }];
+    });
+
     return {
       id: c.id,
       name: c.name ?? "Contact",
       email: c.email,
       company: c.company,
       role: c.role,
+      client_status: c.client_status,
       tier_tone: tierTone,
       days_since_contact: daysSince,
-      linked_properties: props.map((p) => ({
-        address: p.address,
-        city: p.city,
-        type: p.property_type,
-        sqft: p.size_sqft,
-        last_sale_date: p.last_sale_date,
-        asset_description: p.asset_description,
-      })),
+      linked_properties: linkedProperties,
       recent_activities: activities.map((a) => ({
         type: a.activity_type,
         date: new Date(a.activity_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
@@ -330,22 +381,32 @@ export async function generateDrafts(
       messages: [
         {
           role: "user",
-          content: `You are helping a real estate broker write personalized outreach emails.
+          content: `You are a real estate broker's writing assistant. Generate concise, personalized outreach emails.
 
-Broker context: ${brokerContext || "A commercial real estate broker."}
+BROKER SIGNATURE (use this verbatim at the end of every email body):
+${brokerSignature ?? "[Your Name]"}
+${brokerContext ? `\nBROKER CONTEXT: ${brokerContext}` : ""}
 
-Template type: ${template.replace(/-/g, " ")}
-Template instruction: ${TEMPLATE_INSTRUCTIONS[template]}
+TEMPLATE: ${template.replace(/-/g, " ")}
+INSTRUCTION: ${TEMPLATE_INSTRUCTIONS[template]}
 
-Rules for all emails:
-- 3-5 sentences. Concise, specific, human.
-- Do NOT start with "I hope this email finds you well" or generic filler.
-- Reference specific property addresses, asset descriptions, or activity notes where available — make it clear this is not a mass email.
-- Match tone to the tier (indicated in tier_tone).
-- If recent_activities exist, weave them in naturally (e.g., "Following up on our call in March…").
-- End with a low-friction ask (e.g., "Worth a quick call?" or "Happy to share more details.").
+RULES — every rule is mandatory:
+1. 3–5 sentences. No filler openers, no padding.
+2. Never open with "I hope this email finds you well" or any generic phrase.
+3. REQUIRED: Every email must include at least one specific real fact from the contact data — a property address, lease expiration timing, ownership change event, exact days since last contact, or activity note. This is what makes it personal.
+4. Match tone exactly to tier_tone.
+5. If recent_activities exist, reference the most recent one naturally (e.g., "Following up on our March call…").
+6. End with one short, low-friction ask (e.g., "Worth a quick call?" or "Happy to share more details.").
+7. SIGNATURE: End every email body with a blank line, then the BROKER SIGNATURE exactly as provided above. Never write "[Broker Name]" — use the text given.
 
-Contacts:
+FACT PRIORITY — use the highest-priority fact available for each contact:
+- linked_properties[].leases[].expires → strongest hook: e.g. "your lease at 123 Main expires in 8 months"
+- linked_properties[].ownership_change.detected → timely hook: e.g. "following the ownership change at [address] 3 months ago"
+- linked_properties[].sold → market hook: e.g. "you picked up [address] about 14 months ago"
+- days_since_contact → relationship hook: e.g. "it's been 45 days since we last connected"
+- recent_activities → warmest personal hook: reference the activity type and date
+
+CONTACT DATA:
 ${JSON.stringify(contactSummaries, null, 2)}`,
         },
       ],
@@ -371,7 +432,7 @@ ${JSON.stringify(contactSummaries, null, 2)}`,
     body: e.body,
   }));
 
-  return { drafts };
+  return { drafts, senderNameMissing };
 }
 
 // ─── logOutreach ──────────────────────────────────────────────────────────────

@@ -45,10 +45,12 @@ export default function OutreachView({
   initialContacts,
   userEmail,
   emailProvider = null,
+  senderName = null,
 }: {
   initialContacts: DueContact[];
   userEmail: string | null;
   emailProvider?: string | null;
+  senderName?: string | null;
 }) {
   const [contacts, setContacts] = useState<DueContact[]>(initialContacts);
   const [step, setStep] = useState<"select" | "review">("select");
@@ -197,6 +199,19 @@ export default function OutreachView({
             or their profile page at any time.
           </p>
         </div>
+
+        {!senderName && (
+          <div className="rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex items-start gap-2">
+            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800 dark:text-amber-300">
+              Add your name in{" "}
+              <a href="/settings" className="font-medium underline underline-offset-2 hover:text-amber-900">
+                Settings → Outreach
+              </a>{" "}
+              so drafts include your real signature instead of a placeholder.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-sm font-medium">About you</label>

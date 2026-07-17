@@ -14,16 +14,20 @@ export default async function OutreachPage() {
     getDueContacts(),
     supabase
       .from("user_settings")
-      .select("email_provider")
+      .select("email_provider, sender_name, display_name")
       .eq("owner_id", user.id)
       .maybeSingle(),
   ]);
+
+  const senderName =
+    ((settingsRow?.sender_name || settingsRow?.display_name) as string | null) ?? null;
 
   return (
     <OutreachView
       initialContacts={initialContacts}
       userEmail={user.email ?? null}
       emailProvider={(settingsRow?.email_provider as string | null) ?? null}
+      senderName={senderName}
     />
   );
 }
