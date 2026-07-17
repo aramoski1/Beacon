@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { generateDrafts, logOutreach, type OutreachTemplate } from "@/app/outreach/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail, type EmailProviderSetting } from "@/lib/email-provider";
 
 const TEMPLATES: { id: OutreachTemplate; label: string }[] = [
   { id: "intro",          label: "Intro" },
@@ -23,6 +24,7 @@ export function ComposeOutreach({
   contactName,
   contactEmail,
   userEmail,
+  emailProvider = null,
   onSent,
   onDone,
 }: {
@@ -30,6 +32,7 @@ export function ComposeOutreach({
   contactName: string | null;
   contactEmail: string | null;
   userEmail?: string | null;
+  emailProvider?: string | null;
   onSent?: () => void;
   onDone?: () => void;
 }) {
@@ -81,9 +84,13 @@ export function ComposeOutreach({
 
   const toEmail = testMode ? userEmail : contactEmail;
   const toSubject = testMode ? `[TEST] ${subject}` : subject;
-  const mailtoHref =
+  // Resolve provider: prefer the explicit prop, fall back to localStorage (for when
+  // this component is embedded in contexts that can't thread the setting as a prop).
+  const resolvedProvider = (emailProvider ?? readStoredProvider()) as EmailProviderSetting;
+  const resolvedSender   = userEmail ?? readStoredUserEmail();
+  const composeHref =
     toEmail && subject
-      ? `mailto:${toEmail}?subject=${encodeURIComponent(toSubject)}&body=${encodeURIComponent(body)}`
+      ? composeUrl(toEmail, toSubject, body, resolvedSender, resolvedProvider)
       : null;
 
   // ── Sent ──────────────────────────────────────────────────────────────────────
@@ -207,9 +214,11 @@ export function ComposeOutreach({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {mailtoHref ? (
+        {composeHref ? (
           <a
-            href={mailtoHref}
+            href={composeHref}
+            target={isWebCompose(composeHref) ? "_blank" : undefined}
+            rel={isWebCompose(composeHref) ? "noopener noreferrer" : undefined}
             className={cn(
               "inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border transition-colors",
               testMode

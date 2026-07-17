@@ -10,7 +10,20 @@ export default async function OutreachPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const initialContacts = await getDueContacts();
+  const [initialContacts, { data: settingsRow }] = await Promise.all([
+    getDueContacts(),
+    supabase
+      .from("user_settings")
+      .select("email_provider")
+      .eq("owner_id", user.id)
+      .maybeSingle(),
+  ]);
 
-  return <OutreachView initialContacts={initialContacts} userEmail={user?.email ?? null} />;
+  return (
+    <OutreachView
+      initialContacts={initialContacts}
+      userEmail={user.email ?? null}
+      emailProvider={(settingsRow?.email_provider as string | null) ?? null}
+    />
+  );
 }

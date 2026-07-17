@@ -6,6 +6,7 @@ import { Loader2, Mail, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Ext
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { generateDrafts, logOutreach, type DueContact } from "@/app/outreach/actions";
+import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -275,7 +276,13 @@ function DraftPanel({
   const [subject, setSubject] = useState(initSubject);
   const [body, setBody]       = useState(initBody);
 
-  const mailtoHref = `mailto:${email ?? ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const composeHref = composeUrl(
+    email,
+    subject,
+    body,
+    readStoredUserEmail(),
+    readStoredProvider()
+  );
 
   return (
     <div className="border-t px-4 py-3 space-y-2 bg-muted/20">
@@ -293,9 +300,11 @@ function DraftPanel({
         placeholder="Email body"
       />
       <div className="flex gap-2 pt-1 flex-wrap">
-        {email ? (
+        {email && composeHref ? (
           <a
-            href={mailtoHref}
+            href={composeHref}
+            target={isWebCompose(composeHref) ? "_blank" : undefined}
+            rel={isWebCompose(composeHref) ? "noopener noreferrer" : undefined}
             onClick={() => onSend(subject, body)}
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >

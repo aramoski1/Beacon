@@ -413,7 +413,13 @@ function OutreachSection({
     cadence_tier1_days: String(settings.cadence_tier1_days),
     cadence_tier2_days: String(settings.cadence_tier2_days),
     cadence_tier3_days: String(settings.cadence_tier3_days),
+    email_provider:     settings.email_provider ?? "auto",
   });
+
+  // Keep localStorage in sync so inline compose panels pick it up immediately.
+  useEffect(() => {
+    localStorage.setItem("beacon_email_provider", settings.email_provider ?? "auto");
+  }, [settings.email_provider]);
   const [isPending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -434,6 +440,7 @@ function OutreachSection({
       setSaveError("Cadence days must be positive whole numbers.");
       return;
     }
+    const providerValue = form.email_provider === "auto" ? null : form.email_provider;
     const partial: Partial<UserSettings> = {
       sender_name:        form.sender_name.trim() || null,
       sender_email:       form.sender_email.trim() || null,
@@ -441,7 +448,9 @@ function OutreachSection({
       cadence_tier1_days: t1,
       cadence_tier2_days: t2,
       cadence_tier3_days: t3,
+      email_provider:     providerValue,
     };
+    localStorage.setItem("beacon_email_provider", form.email_provider);
     startTransition(async () => {
       const result = await upsertUserSettings(partial);
       if (result.error) {
@@ -470,6 +479,26 @@ function OutreachSection({
           <div className="space-y-1.5">
             <Label htmlFor="sender_email">Sender email</Label>
             <Input id="sender_email" type="email" value={form.sender_email} onChange={set("sender_email")} placeholder="jane@yourbrokerage.com" disabled={isPending} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="email_provider">Email client</Label>
+            <select
+              id="email_provider"
+              value={form.email_provider}
+              onChange={(e) => setForm((f) => ({ ...f, email_provider: e.target.value }))}
+              disabled={isPending}
+              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 ring-ring disabled:opacity-60"
+            >
+              <option value="auto">Auto-detect from my email</option>
+              <option value="gmail">Gmail (mail.google.com)</option>
+              <option value="outlook">Outlook / Hotmail (outlook.live.com)</option>
+              <option value="outlook365">Microsoft 365 (outlook.office.com)</option>
+              <option value="mailto">Default mail app</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Controls where &ldquo;Open in email&rdquo; links open. Auto-detect works for
+              @gmail.com, @outlook.com, and @hotmail.com accounts.
+            </p>
           </div>
         </div>
 

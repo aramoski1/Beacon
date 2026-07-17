@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generateDrafts, logOutreach, getContactsByIds, type DueContact, type EmailDraft, type OutreachTemplate } from "./actions";
+import { composeUrl, isWebCompose, type EmailProviderSetting } from "@/lib/email-provider";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,9 +44,11 @@ const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] 
 export default function OutreachView({
   initialContacts,
   userEmail,
+  emailProvider = null,
 }: {
   initialContacts: DueContact[];
   userEmail: string | null;
+  emailProvider?: string | null;
 }) {
   const [contacts, setContacts] = useState<DueContact[]>(initialContacts);
   const [step, setStep] = useState<"select" | "review">("select");
@@ -456,9 +459,13 @@ export default function OutreachView({
               const toEmail = testMode ? (userEmail ?? null) : realEmail;
               const toSubject = testMode ? `[TEST] ${subject}` : subject;
 
-              const mailtoHref = toEmail
-                ? `mailto:${toEmail}?subject=${encodeURIComponent(toSubject)}&body=${encodeURIComponent(body)}`
-                : null;
+              const composeHref = composeUrl(
+                toEmail,
+                toSubject,
+                body,
+                userEmail,
+                emailProvider as EmailProviderSetting
+              );
 
               return (
                 <div
@@ -536,9 +543,11 @@ export default function OutreachView({
 
                   {/* Draft card footer */}
                   <div className="px-4 py-3 border-t bg-muted/10 flex items-center justify-end gap-2">
-                    {mailtoHref ? (
+                    {composeHref ? (
                       <a
-                        href={mailtoHref}
+                        href={composeHref}
+                        target={isWebCompose(composeHref) ? "_blank" : undefined}
+                        rel={isWebCompose(composeHref) ? "noopener noreferrer" : undefined}
                         className={cn(
                           "inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border transition-colors",
                           testMode

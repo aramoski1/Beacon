@@ -116,6 +116,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-onboarding.ts",
     description: "User settings — onboarding_completed_at timestamptz column (first-run flow tracking)",
   },
+  {
+    file: "migrate-email-provider.ts",
+    description: "User settings — email_provider text column (gmail / outlook / outlook365 / mailto override)",
+  },
 ];
 
 const hr = "─".repeat(60);

@@ -20,6 +20,7 @@ export type UserSettings = {
   cadence_tier3_days: number;
   costar_enabled: boolean;
   onboarding_completed_at: string | null;
+  email_provider: string | null;
 };
 
 const DEFAULTS: UserSettings = {
@@ -39,6 +40,7 @@ const DEFAULTS: UserSettings = {
   cadence_tier3_days: 90,
   costar_enabled: false,
   onboarding_completed_at: null,
+  email_provider: null,
 };
 
 export async function getUserSettings(): Promise<UserSettings> {

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { createContact } from "@/app/contacts/new/actions";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
+import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
@@ -196,7 +197,13 @@ function InlineDraftPanel({
   const [subject, setSubject] = useState(initSubject);
   const [body, setBody] = useState(initBody);
 
-  const mailtoHref = `mailto:${email ?? ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const composeHref = composeUrl(
+    email,
+    subject,
+    body,
+    readStoredUserEmail(),
+    readStoredProvider()
+  );
 
   return (
     <div className="mt-2 rounded-lg border bg-muted/10 px-3 py-3 space-y-2">
@@ -216,9 +223,11 @@ function InlineDraftPanel({
         placeholder="Email body"
       />
       <div className="flex gap-2 flex-wrap pt-1">
-        {email ? (
+        {email && composeHref ? (
           <a
-            href={mailtoHref}
+            href={composeHref}
+            target={isWebCompose(composeHref) ? "_blank" : undefined}
+            rel={isWebCompose(composeHref) ? "noopener noreferrer" : undefined}
             onClick={() => onSend(subject, body)}
             className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >

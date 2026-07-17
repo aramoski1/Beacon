@@ -168,6 +168,7 @@ const EXPECTED: TableSpec[] = [
       { col: "created_at",               from: "migrate-user-settings.ts" },
       { col: "updated_at",               from: "migrate-user-settings.ts" },
       { col: "onboarding_completed_at",  from: "migrate-onboarding.ts" },
+      { col: "email_provider",           from: "migrate-email-provider.ts" },
     ],
   },
 ];

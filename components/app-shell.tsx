@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/login/actions";
 import { BeaconBrand } from "@/components/beacon-logo";
+import { LS_USER_EMAIL } from "@/lib/email-provider";
 
 // ─── Nav entries ──────────────────────────────────────────────────────────────
 
@@ -296,10 +297,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user ?? null);
+      if (data.user?.email) localStorage.setItem(LS_USER_EMAIL, data.user.email);
       if (data.user) fetchCounts();
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null);
+      if (session?.user?.email) localStorage.setItem(LS_USER_EMAIL, session.user.email);
       if (session?.user) fetchCounts();
       else { setOverdueCount(0); setFollowUpsDueCount(0); setLeaseRadarUrgentCount(0); }
     });
