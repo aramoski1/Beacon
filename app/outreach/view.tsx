@@ -49,7 +49,7 @@ const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] 
 
 type ListMode = "due" | "all" | "selection";
 
-const MAX_BATCH = 10;
+const MAX_BATCH = 25;
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -168,7 +168,7 @@ export default function OutreachView({
   async function handleGenerate() {
     if (selected.size === 0) return;
     if (selected.size > MAX_BATCH) {
-      setError(`Maximum ${MAX_BATCH} contacts at once. Deselect some, then generate.`);
+      setError(`Select up to ${MAX_BATCH} contacts at once. Deselect some, then generate.`);
       return;
     }
     setGenerating(true);

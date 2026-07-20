@@ -100,6 +100,8 @@ export async function deleteAllData(): Promise<{ error?: string }> {
     "follow_ups",
     "activities",
     "ingestion_errors",
+    "error_logs",
+    "deals",
     "smart_lists",
     "lease_abstracts",
     "contacts",
@@ -114,6 +116,15 @@ export async function deleteAllData(): Promise<{ error?: string }> {
       .delete()
       .eq("owner_id", user.id);
     if (error) return { error: `Failed to delete ${table}: ${error.message}` };
+  }
+
+  // Delete all lease storage objects for this user
+  const { data: storageObjects } = await supabase.storage
+    .from("leases")
+    .list(user.id, { limit: 1000 });
+  if (storageObjects && storageObjects.length > 0) {
+    const paths = storageObjects.map((o) => `${user.id}/${o.name}`);
+    await supabase.storage.from("leases").remove(paths);
   }
 
   return {};

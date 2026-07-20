@@ -234,7 +234,7 @@ export async function generateDrafts(
   if (!user) return { error: "Not authenticated." };
 
   if (contactIds.length === 0) return { error: "No contacts selected." };
-  if (contactIds.length > 10) return { error: "Maximum 10 contacts at once." };
+  if (contactIds.length > 25) return { error: "Maximum 25 contacts at once." };
 
   // Fetch contacts + broker settings in parallel
   const [{ data: contacts }, settings] = await Promise.all([
@@ -416,17 +416,24 @@ export async function generateDrafts(
   };
 
   const anthropic = new Anthropic();
-  let message: Anthropic.Message;
-  try {
-    message = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4096,
-      tools: [GENERATE_TOOL],
-      tool_choice: { type: "tool", name: "generate_outreach_emails" },
-      messages: [
-        {
-          role: "user",
-          content: `You are a real estate broker's writing assistant. Generate concise, personalized outreach emails.
+
+  // Claude processes at most 10 contacts per call — chunk and merge for larger batches.
+  const CLAUDE_CHUNK = 10;
+  const allDrafts: EmailDraft[] = [];
+
+  for (let i = 0; i < contactSummaries.length; i += CLAUDE_CHUNK) {
+    const chunk = contactSummaries.slice(i, i + CLAUDE_CHUNK);
+    let message: Anthropic.Message;
+    try {
+      message = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
+        tools: [GENERATE_TOOL],
+        tool_choice: { type: "tool", name: "generate_outreach_emails" },
+        messages: [
+          {
+            role: "user",
+            content: `You are a real estate broker's writing assistant. Generate concise, personalized outreach emails.
 
 BROKER SIGNATURE (use this verbatim at the end of every email body):
 ${brokerSignature ?? "[Your Name]"}
@@ -452,32 +459,30 @@ FACT PRIORITY — use the highest-priority fact available for each contact:
 - recent_activities → warmest personal hook: reference the activity type and date
 
 CONTACT DATA:
-${JSON.stringify(contactSummaries, null, 2)}`,
-        },
-      ],
-    });
-  } catch (e) {
-    return {
-      error: `AI generation failed: ${e instanceof Error ? e.message : String(e)}`,
+${JSON.stringify(chunk, null, 2)}`,
+          },
+        ],
+      });
+    } catch (e) {
+      return {
+        error: `AI generation failed: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+
+    const toolBlock = message.content.find((b) => b.type === "tool_use");
+    if (!toolBlock || toolBlock.type !== "tool_use") {
+      return { error: "Could not generate drafts. Try again." };
+    }
+
+    const chunkResult = toolBlock.input as {
+      emails: { contact_id: string; subject: string; body: string }[];
     };
+    for (const e of chunkResult.emails) {
+      allDrafts.push({ contactId: e.contact_id, subject: e.subject, body: e.body });
+    }
   }
 
-  const toolBlock = message.content.find((b) => b.type === "tool_use");
-  if (!toolBlock || toolBlock.type !== "tool_use") {
-    return { error: "Could not generate drafts. Try again." };
-  }
-
-  const result = toolBlock.input as {
-    emails: { contact_id: string; subject: string; body: string }[];
-  };
-
-  const drafts: EmailDraft[] = result.emails.map((e) => ({
-    contactId: e.contact_id,
-    subject: e.subject,
-    body: e.body,
-  }));
-
-  return { drafts, senderNameMissing };
+  return { drafts: allDrafts, senderNameMissing };
 }
 
 // ─── logOutreach ──────────────────────────────────────────────────────────────
