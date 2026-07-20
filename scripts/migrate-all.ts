@@ -124,6 +124,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-email-provider.ts",
     description: "User settings — email_provider text column (gmail / outlook / outlook365 / mailto override)",
   },
+  {
+    file: "migrate-entities.ts",
+    description: "Entities — durable legal entities + entity_properties/entity_contacts + properties.entity_id backfill",
+  },
 ];
 
 const hr = "─".repeat(60);

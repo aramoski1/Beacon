@@ -1,6 +1,7 @@
 // Shared dedup + upsert logic used by every property ingestion path.
 
 import type { StoredOwnerContact } from "./owner-contacts";
+import { syncPropertyEntity } from "./entities";
 
 // ─── Address normalisation ────────────────────────────────────────────────────
 
@@ -100,6 +101,11 @@ export async function upsertProperty(
       .update({ ...payload, updated_at: new Date().toISOString() })
       .eq("id", existingId);
     if (error) throw new Error(`DB update failed: ${error.message}`);
+    try {
+      await syncPropertyEntity(supabase, userId, existingId, payload.owner_name);
+    } catch {
+      // Entity sync is best-effort — property row is already saved.
+    }
     return existingId;
   }
 
@@ -109,5 +115,11 @@ export async function upsertProperty(
     .select("id")
     .single();
   if (error) throw new Error(`DB insert failed: ${error.message}`);
-  return data.id as string;
+  const id = data.id as string;
+  try {
+    await syncPropertyEntity(supabase, userId, id, payload.owner_name);
+  } catch {
+    // Entity sync is best-effort — property row is already saved.
+  }
+  return id;
 }

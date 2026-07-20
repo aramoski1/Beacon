@@ -79,6 +79,8 @@ export type OwnerPortfolioData = {
   source: OwnerPortfolioSource;
   anchorContactId: string | null;
   anchorPropertyId: string | null;
+  /** Durable legal-entity id when portfolio is keyed off entities table. */
+  entityId: string | null;
   /** Tax roll owner searches for county-wide portfolio discovery. */
   mdpaSearch: { queries: MdpaSearchQuery[] } | null;
   properties: OwnerPortfolioProperty[];
@@ -102,6 +104,7 @@ export type PropertyRowForMatch = {
   owner_name: string | null;
   owner_mailing_address: string | null;
   owner_contacts: unknown;
+  entity_id?: string | null;
 };
 
 export function normalizePersonKey(name: string): string {

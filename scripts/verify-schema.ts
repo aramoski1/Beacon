@@ -47,6 +47,7 @@ const EXPECTED: TableSpec[] = [
       { col: "updated_at",            from: "migrate.ts" },
       // migrate-custom-fields.ts
       { col: "custom_fields",         from: "migrate-custom-fields.ts" },
+      { col: "entity_id",             from: "migrate-entities.ts" },
     ],
   },
   {
@@ -169,6 +170,40 @@ const EXPECTED: TableSpec[] = [
       { col: "updated_at",               from: "migrate-user-settings.ts" },
       { col: "onboarding_completed_at",  from: "migrate-onboarding.ts" },
       { col: "email_provider",           from: "migrate-email-provider.ts" },
+    ],
+  },
+  {
+    table: "entities",
+    cols: [
+      { col: "id",                from: "migrate-entities.ts" },
+      { col: "owner_id",          from: "migrate-entities.ts" },
+      { col: "name",              from: "migrate-entities.ts" },
+      { col: "name_normalized",   from: "migrate-entities.ts" },
+      { col: "kind",              from: "migrate-entities.ts" },
+      { col: "sunbiz_doc_number", from: "migrate-entities.ts" },
+      { col: "created_at",        from: "migrate-entities.ts" },
+      { col: "updated_at",        from: "migrate-entities.ts" },
+    ],
+  },
+  {
+    table: "entity_properties",
+    cols: [
+      { col: "id",          from: "migrate-entities.ts" },
+      { col: "owner_id",    from: "migrate-entities.ts" },
+      { col: "entity_id",   from: "migrate-entities.ts" },
+      { col: "property_id", from: "migrate-entities.ts" },
+      { col: "created_at",  from: "migrate-entities.ts" },
+    ],
+  },
+  {
+    table: "entity_contacts",
+    cols: [
+      { col: "id",         from: "migrate-entities.ts" },
+      { col: "owner_id",   from: "migrate-entities.ts" },
+      { col: "entity_id",  from: "migrate-entities.ts" },
+      { col: "contact_id", from: "migrate-entities.ts" },
+      { col: "role",       from: "migrate-entities.ts" },
+      { col: "created_at", from: "migrate-entities.ts" },
     ],
   },
 ];

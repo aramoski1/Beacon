@@ -17,6 +17,7 @@ import {
   leaseLabel,
 } from "@/lib/owner-portfolio";
 import { aggregateRelatedEntities, aggregateRelatedPersons } from "@/lib/portfolio-graph";
+import { mergeEntityPropertyIds, propertyIdsForEntity, syncPropertyEntity } from "@/lib/entities";
 
 type RawProperty = PropertyRowForMatch & {
   owner_contact_name?: string | null;
@@ -42,6 +43,7 @@ const EMPTY: OwnerPortfolioData = {
   source: "property_entity",
   anchorContactId: null,
   anchorPropertyId: null,
+  entityId: null,
   mdpaSearch: null,
   properties: [],
   contacts: [],
@@ -244,7 +246,7 @@ function buildTimeline(params: {
 
 async function loadPortfolioForPropertyIds(
   propertyIds: string[],
-  meta: Pick<OwnerPortfolioData, "displayName" | "subtitle" | "source" | "anchorContactId" | "anchorPropertyId" | "mdpaSearch">,
+  meta: Pick<OwnerPortfolioData, "displayName" | "subtitle" | "source" | "anchorContactId" | "anchorPropertyId" | "mdpaSearch" | "entityId">,
   allProperties: RawProperty[],
 ): Promise<OwnerPortfolioData> {
   if (propertyIds.length === 0) return { ...EMPTY, ...meta, relatedEntities: [], relatedPersons: [] };
@@ -339,9 +341,25 @@ async function fetchAllProperties(userId: string): Promise<RawProperty[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("properties")
-    .select("id, address, city, submarket, property_type, size_sqft, owner_name, owner_mailing_address, owner_contacts, owner_contact_name, owner_contact_address, last_sale_date, last_sale_price")
+    .select("id, address, city, submarket, property_type, size_sqft, owner_name, owner_mailing_address, owner_contacts, owner_contact_name, owner_contact_address, last_sale_date, last_sale_price, entity_id")
     .eq("owner_id", userId);
   return (data ?? []) as RawProperty[];
+}
+
+/** Resolve entity_id for a property, syncing from owner_name if the FK is missing. */
+async function resolveEntityIdForProperty(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  prop: RawProperty,
+): Promise<string | null> {
+  if (prop.entity_id) return prop.entity_id;
+  if (!prop.owner_name?.trim()) return null;
+  try {
+    return await syncPropertyEntity(supabase, userId, prop.id, prop.owner_name);
+  } catch {
+    return null;
+  }
 }
 
 export async function getOwnerPortfolioForContact(contactId: string): Promise<OwnerPortfolioData | null> {
@@ -361,6 +379,27 @@ export async function getOwnerPortfolioForContact(contactId: string): Promise<Ow
   const allProperties = await fetchAllProperties(user.id);
   const seedIds = new Set<string>(contact.linked_properties ?? []);
 
+  // Prefer durable entity links from linked properties + entity_contacts
+  const entityIds = new Set<string>();
+  for (const pid of seedIds) {
+    const prop = allProperties.find((p) => p.id === pid);
+    if (prop?.entity_id) entityIds.add(prop.entity_id);
+  }
+  const { data: entityContactRows } = await supabase
+    .from("entity_contacts")
+    .select("entity_id")
+    .eq("owner_id", user.id)
+    .eq("contact_id", contactId);
+  for (const row of entityContactRows ?? []) {
+    if (row.entity_id) entityIds.add(row.entity_id as string);
+  }
+
+  let entityLinkedIds: string[] = [];
+  for (const eid of entityIds) {
+    const ids = await propertyIdsForEntity(supabase, user.id, eid);
+    entityLinkedIds = mergeEntityPropertyIds(entityLinkedIds, ids);
+  }
+
   const entityKeys = new Set<string>();
   const linkedEntityNames: string[] = [];
   for (const pid of seedIds) {
@@ -375,13 +414,21 @@ export async function getOwnerPortfolioForContact(contactId: string): Promise<Ow
 
   const personKey = contact.name ? normalizePersonKey(contact.name) : "";
 
-  const propertyIds = collectPropertyIds(allProperties, seedIds, (prop) => {
-    if (entityKeys.size > 0 && prop.owner_name && entityKeys.has(normalizeOwnerName(prop.owner_name))) {
-      return true;
-    }
-    if (personKey && contact.name && personMatchesProperty(contact.name, prop)) return true;
-    return false;
-  });
+  // Start from entity join + seeds; expand with string matching as fallback for unlinked rows
+  const propertyIds = collectPropertyIds(
+    allProperties,
+    new Set(mergeEntityPropertyIds(seedIds, entityLinkedIds)),
+    (prop) => {
+      if (prop.entity_id && entityIds.has(prop.entity_id)) return true;
+      if (entityKeys.size > 0 && prop.owner_name && entityKeys.has(normalizeOwnerName(prop.owner_name))) {
+        return true;
+      }
+      if (personKey && contact.name && personMatchesProperty(contact.name, prop)) return true;
+      return false;
+    },
+  );
+
+  const primaryEntityId = entityIds.size === 1 ? [...entityIds][0] : null;
 
   return loadPortfolioForPropertyIds(propertyIds, {
     displayName: contact.name ?? "Unknown contact",
@@ -389,6 +436,7 @@ export async function getOwnerPortfolioForContact(contactId: string): Promise<Ow
     source: "contact",
     anchorContactId: contact.id,
     anchorPropertyId: seedIds.size > 0 ? [...seedIds][0] : null,
+    entityId: primaryEntityId,
     mdpaSearch: mdpaSearchForContact(contact.name, linkedEntityNames),
   }, allProperties);
 }
@@ -427,6 +475,7 @@ export async function getOwnerPortfolioForProperty(
       source: "property_person",
       anchorContactId: null,
       anchorPropertyId: propertyId,
+      entityId: anchor.entity_id ?? null,
       mdpaSearch: mdpaSearchForPerson(person.name.trim(), anchor.owner_name),
     }, allProperties);
   }
@@ -438,16 +487,31 @@ export async function getOwnerPortfolioForProperty(
       source: "property_entity",
       anchorContactId: null,
       anchorPropertyId: propertyId,
+      entityId: null,
       mdpaSearch: null,
     }, allProperties);
   }
 
   const entityName = anchor.owner_name.trim();
-  const propertyIds = collectPropertyIds(
-    allProperties,
-    new Set([propertyId]),
-    (prop) => entityMatchesProperty(entityName, prop),
-  );
+  const entityId = await resolveEntityIdForProperty(supabase, user.id, anchor);
+
+  let propertyIds: string[];
+  if (entityId) {
+    const linked = await propertyIdsForEntity(supabase, user.id, entityId);
+    // Union entity links with fuzzy name match for pre-backfill / variant rows
+    propertyIds = collectPropertyIds(
+      allProperties,
+      new Set(mergeEntityPropertyIds([propertyId], linked)),
+      (prop) =>
+        prop.entity_id === entityId || entityMatchesProperty(entityName, prop),
+    );
+  } else {
+    propertyIds = collectPropertyIds(
+      allProperties,
+      new Set([propertyId]),
+      (prop) => entityMatchesProperty(entityName, prop),
+    );
+  }
 
   return loadPortfolioForPropertyIds(propertyIds, {
     displayName: entityName,
@@ -455,6 +519,7 @@ export async function getOwnerPortfolioForProperty(
     source: "property_entity",
     anchorContactId: null,
     anchorPropertyId: propertyId,
+    entityId,
     mdpaSearch: mdpaSearchForEntity(entityName),
   }, allProperties);
 }

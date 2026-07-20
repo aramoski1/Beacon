@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { syncPropertyEntity } from "@/lib/entities";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap } from "lucide-react";
 import { CustomFieldsPanel } from "@/components/custom-fields-panel";
@@ -1978,6 +1979,16 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       .from("properties")
       .update({ [field]: value, updated_at: new Date().toISOString() })
       .eq("id", id);
+    if (field === "owner_name") {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        try {
+          await syncPropertyEntity(supabase, user.id, id, typeof value === "string" ? value : null);
+        } catch {
+          // Property saved; entity sync is best-effort.
+        }
+      }
+    }
   }, []);
 
   const saveContact = useCallback(async (id: string, field: string, value: unknown) => {

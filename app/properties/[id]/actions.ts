@@ -12,6 +12,7 @@ import { logIngestionError } from "@/lib/ingestion-logger";
 import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFileContent } from "@/lib/costar";
 import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
+import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 
 export async function createOwnerContact(
   propertyId: string
@@ -145,7 +146,7 @@ export async function createContactFromSunbizOwner(
 
   const { data: prop, error: propErr } = await supabase
     .from("properties")
-    .select("owner_contacts, owner_name, owner_mailing_address")
+    .select("owner_contacts, owner_name, owner_mailing_address, entity_id")
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
@@ -174,6 +175,23 @@ export async function createContactFromSunbizOwner(
     .single();
 
   if (error) return { error: error.message };
+
+  let entityId = prop.entity_id as string | null;
+  if (!entityId && prop.owner_name?.trim()) {
+    try {
+      entityId = await syncPropertyEntity(supabase, user.id, propertyId, prop.owner_name);
+    } catch {
+      entityId = null;
+    }
+  }
+  if (entityId) {
+    try {
+      await linkContactToEntity(supabase, user.id, entityId, data.id, person.title || null);
+    } catch {
+      // Contact exists; entity link is best-effort.
+    }
+  }
+
   return { id: data.id };
 }
 
@@ -616,6 +634,12 @@ export async function applyCountyEnhancement(
     .eq("owner_id", user.id);
 
   if (error) return { error: error.message };
+
+  try {
+    await syncPropertyEntity(supabase, user.id, propertyId, mdpaData.owner_name);
+  } catch {
+    // Property update succeeded; entity sync is best-effort.
+  }
 
   let owner_contacts_saved = 0;
   const owner_contacts = sunbizPersons?.length
