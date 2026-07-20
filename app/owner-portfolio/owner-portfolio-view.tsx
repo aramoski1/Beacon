@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import {
   ArrowLeft,
   Building2,
@@ -11,6 +14,7 @@ import {
   Ruler,
   Tag,
   TrendingUp,
+  TriangleAlert,
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,8 +25,10 @@ import {
   type OwnerPortfolioData,
 } from "@/lib/owner-portfolio";
 import type { MdpaSearchQuery } from "@/lib/owner-portfolio";
+import { buildPortfolioAttentionFlags } from "@/lib/portfolio-attention";
 import { PortfolioMdpaSection } from "./portfolio-mdpa-section";
 import { PortfolioBriefing } from "./portfolio-briefing";
+import { ComposeOutreach } from "@/components/compose-outreach";
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -52,6 +58,8 @@ export function OwnerPortfolioView({
   backHref: string;
   backLabel: string;
 }) {
+  const [composeOpen, setComposeOpen] = useState(false);
+
   const upcomingLeases = data.leases
     .filter((l) => l.expiration_date)
     .map((l) => ({ ...l, days: daysUntil(l.expiration_date!) }))
@@ -63,6 +71,12 @@ export function OwnerPortfolioView({
   const recentSales = data.properties
     .filter((p) => p.last_sale_date && daysSince(p.last_sale_date) <= 730)
     .sort((a, b) => daysSince(a.last_sale_date!) - daysSince(b.last_sale_date!));
+
+  const attention = buildPortfolioAttentionFlags({
+    properties: data.properties,
+    leases: data.leases,
+    contacts: data.contacts,
+  });
 
   // Only show ownership network when there are multiple entities or persons beyond the primary
   const showOwnershipNetwork = data.relatedEntities.length > 1 || data.relatedPersons.length > 0;
@@ -88,17 +102,73 @@ export function OwnerPortfolioView({
               <p className="text-sm text-muted-foreground mt-0.5">{data.subtitle}</p>
             )}
           </div>
-          {primaryContact && (
-            <Link
-              href={`/contacts/${primaryContact.id}`}
-              className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted/60 transition-colors"
-            >
-              <User className="size-3.5" />
-              CRM contact
-            </Link>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {primaryContact && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setComposeOpen(true)}
+                  className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  <Mail className="size-3.5" />
+                  Compose outreach
+                </button>
+                <Link
+                  href={`/contacts/${primaryContact.id}`}
+                  className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted/60 transition-colors"
+                >
+                  <User className="size-3.5" />
+                  CRM contact
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </div>
+
+      {composeOpen && primaryContact && (
+        <div className="rounded-xl border bg-card p-4">
+          <ComposeOutreach
+            contactId={primaryContact.id}
+            contactName={primaryContact.name}
+            contactEmail={primaryContact.email}
+            onDone={() => setComposeOpen(false)}
+          />
+        </div>
+      )}
+
+      {attention.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-400 flex items-center gap-1.5">
+            <TriangleAlert className="size-3.5" />
+            Needs attention
+          </p>
+          <ul className="space-y-1.5">
+            {attention.slice(0, 6).map((f, i) => (
+              <li key={`${f.kind}-${i}`}>
+                {f.href ? (
+                  <Link
+                    href={f.href}
+                    className="text-sm hover:underline underline-offset-2 block"
+                  >
+                    <span className="font-medium">{f.title}</span>
+                    {f.subtitle && (
+                      <span className="text-muted-foreground"> — {f.subtitle}</span>
+                    )}
+                  </Link>
+                ) : (
+                  <p className="text-sm">
+                    <span className="font-medium">{f.title}</span>
+                    {f.subtitle && (
+                      <span className="text-muted-foreground"> — {f.subtitle}</span>
+                    )}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <StatTile
@@ -171,6 +241,7 @@ export function OwnerPortfolioView({
           <div className="rounded-xl border bg-card overflow-hidden divide-y">
             {data.properties.map((p) => {
               const soldRecently = p.last_sale_date && daysSince(p.last_sale_date) <= 730;
+              const ownerChanged = Boolean(p.ownership_change_detected_at);
               return (
                 <Link
                   key={p.id}
@@ -190,6 +261,11 @@ export function OwnerPortfolioView({
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {ownerChanged && (
+                      <span className="hidden sm:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/20">
+                        Ownership change
+                      </span>
+                    )}
                     {soldRecently && (
                       <span className="hidden sm:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                         <TrendingUp className="size-3" />

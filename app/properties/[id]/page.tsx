@@ -269,6 +269,14 @@ export default async function PropertyPage({
               </button>
             }
           />
+          {p.owner_name && (
+            <OwnerPortfolioLink
+              propertyId={id}
+              variant="button"
+              label="Owner portfolio"
+              className="h-8 text-xs"
+            />
+          )}
         </div>
       </div>
 

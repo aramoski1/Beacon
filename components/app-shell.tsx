@@ -45,6 +45,7 @@ function navActive(href: string, pathname: string): boolean {
       pathname === "/crm" ||
       (pathname.startsWith("/properties/") && pathname !== "/properties/new") ||
       pathname.startsWith("/contacts/") ||
+      pathname.startsWith("/owner-portfolio/") ||
       (pathname.startsWith("/abstracts/") && pathname !== "/abstracts/new")
     );
   }

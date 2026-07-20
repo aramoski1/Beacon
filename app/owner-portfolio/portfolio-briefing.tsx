@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
-import { ArrowRight, BrainCircuit, Loader2, TriangleAlert } from "lucide-react";
+import { BrainCircuit, Loader2, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generatePortfolioBriefing } from "./portfolio-briefing-actions";
 import type { PortfolioBriefing } from "./portfolio-briefing-actions";
 import type { OwnerPortfolioData } from "@/lib/owner-portfolio";
+import { ComposeOutreach } from "@/components/compose-outreach";
 
 const URGENCY_STYLES: Record<PortfolioBriefing["nextActions"][number]["urgency"], string> = {
   critical: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
@@ -126,13 +126,13 @@ export function PortfolioBriefing({ data }: { data: OwnerPortfolioData }) {
                     </div>
                     <p className="text-xs leading-relaxed opacity-90">{action.reason}</p>
                     {action.contactId && (
-                      <Link
-                        href={`/outreach?contact=${action.contactId}`}
-                        className="inline-flex items-center gap-1 text-xs font-medium hover:underline underline-offset-2 mt-1"
-                      >
-                        Start outreach
-                        <ArrowRight className="size-3" />
-                      </Link>
+                      <div className="pt-1">
+                        <ComposeOutreach
+                          contactId={action.contactId}
+                          contactName={action.contactName}
+                          contactEmail={null}
+                        />
+                      </div>
                     )}
                   </div>
                 ))}

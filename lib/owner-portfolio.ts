@@ -15,6 +15,13 @@ export type OwnerPortfolioProperty = {
   owner_name: string | null;
   last_sale_date: string | null;
   last_sale_price: number | null;
+  ownership_change_detected_at?: string | null;
+  ownership_change_data?: {
+    previous_owner: string | null;
+    new_owner: string | null;
+    previous_sale_date?: string | null;
+    new_sale_date?: string | null;
+  } | null;
 };
 
 export type OwnerPortfolioRelatedEntity = {

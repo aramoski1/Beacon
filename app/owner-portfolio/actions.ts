@@ -29,6 +29,8 @@ type RawProperty = PropertyRowForMatch & {
   owner_contact_address?: string | null;
   last_sale_date?: string | null;
   last_sale_price?: number | null;
+  ownership_change_detected_at?: string | null;
+  ownership_change_data?: OwnerPortfolioProperty["ownership_change_data"];
 };
 
 type RawContact = {
@@ -132,6 +134,8 @@ function toPortfolioProperty(p: RawProperty): OwnerPortfolioProperty {
     owner_name: p.owner_name,
     last_sale_date: p.last_sale_date ?? null,
     last_sale_price: p.last_sale_price ?? null,
+    ownership_change_detected_at: p.ownership_change_detected_at ?? null,
+    ownership_change_data: p.ownership_change_data ?? null,
   };
 }
 
@@ -352,7 +356,7 @@ async function fetchAllProperties(userId: string): Promise<RawProperty[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("properties")
-    .select("id, address, city, submarket, property_type, size_sqft, owner_name, owner_mailing_address, owner_contacts, owner_contact_name, owner_contact_address, last_sale_date, last_sale_price, entity_id")
+    .select("id, address, city, submarket, property_type, size_sqft, owner_name, owner_mailing_address, owner_contacts, owner_contact_name, owner_contact_address, last_sale_date, last_sale_price, entity_id, ownership_change_detected_at, ownership_change_data")
     .eq("owner_id", userId);
   return (data ?? []) as RawProperty[];
 }
