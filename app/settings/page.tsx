@@ -331,7 +331,29 @@ function BrokerageSection({
 
 // ─── Data & Sources section ───────────────────────────────────────────────────
 
-function DataSourcesSection({ errorCount }: { errorCount: number }) {
+function DataSourcesSection({
+  errorCount,
+  settings,
+  onSaved,
+}: {
+  errorCount: number;
+  settings: UserSettings;
+  onSaved: (s: UserSettings) => void;
+}) {
+  const [costarEnabled, setCostarEnabled] = useState(settings.costar_enabled);
+  const [toggling, setToggling] = useState(false);
+
+  async function toggleCoStar() {
+    setToggling(true);
+    const next = !costarEnabled;
+    const result = await upsertUserSettings({ costar_enabled: next });
+    setToggling(false);
+    if (!result.error) {
+      setCostarEnabled(next);
+      onSaved({ ...settings, costar_enabled: next });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeading title="Data & Sources" description="Connected data sources and ingestion status." />
@@ -340,30 +362,46 @@ function DataSourcesSection({ errorCount }: { errorCount: number }) {
         <h3 className="text-sm font-semibold">Ingestion sources</h3>
         <div className="space-y-2 max-w-md">
           {[
-            { label: "Miami-Dade Property Appraiser", detail: null, status: "Active" },
-            { label: "Sunbiz (FL Sec. of State)", detail: null, status: "Active" },
-            {
-              label: "CoStar",
-              detail:
-                "Export from CoStar, then upload: Add property → Upload file (property + contacts), or Enrich on an existing property (owner contacts). No account login.",
-              status: "Active",
-            },
+            { label: "Miami-Dade Property Appraiser", detail: null },
+            { label: "Sunbiz (FL Sec. of State)", detail: null },
           ].map((s) => (
             <div
               key={s.label}
               className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3"
             >
-              <div className="min-w-0">
-                <p className="text-sm">{s.label}</p>
-                {s.detail && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{s.detail}</p>
-                )}
-              </div>
+              <p className="text-sm">{s.label}</p>
               <span className="shrink-0 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2 py-0.5 rounded-full">
-                {s.status}
+                Active
               </span>
             </div>
           ))}
+
+          {/* CoStar — toggleable */}
+          <div className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm">CoStar</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Export from CoStar, then upload via{" "}
+                <Link href="/properties/new?method=upload" className="underline underline-offset-2 hover:text-foreground">
+                  Add property
+                </Link>{" "}
+                or the Enrich panel on a property page. No account login required.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleCoStar}
+              disabled={toggling}
+              className={cn(
+                "shrink-0 text-xs font-medium px-2 py-0.5 rounded-full transition-colors disabled:opacity-60",
+                costarEnabled
+                  ? "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 hover:bg-green-100 dark:hover:bg-green-950/60"
+                  : "text-muted-foreground bg-muted hover:bg-muted/80",
+              )}
+            >
+              {toggling ? "Saving…" : costarEnabled ? "Enabled" : "Disabled"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -775,7 +813,7 @@ export default function SettingsPage() {
             <BrokerageSection settings={settings} onSaved={setSettings} />
           )}
           {section === "data-sources" && settings && (
-            <DataSourcesSection errorCount={errorCount} />
+            <DataSourcesSection errorCount={errorCount} settings={settings} onSaved={setSettings} />
           )}
           {section === "outreach" && settings && (
             <OutreachSection settings={settings} onSaved={setSettings} />

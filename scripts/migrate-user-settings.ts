@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
   cadence_tier1_days integer     NOT NULL DEFAULT 14,
   cadence_tier2_days integer     NOT NULL DEFAULT 30,
   cadence_tier3_days integer     NOT NULL DEFAULT 90,
-  costar_enabled     boolean     NOT NULL DEFAULT false,
+  costar_enabled     boolean     NOT NULL DEFAULT true,
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now(),
   UNIQUE (owner_id)

@@ -38,7 +38,7 @@ const DEFAULTS: UserSettings = {
   cadence_tier1_days: 14,
   cadence_tier2_days: 30,
   cadence_tier3_days: 90,
-  costar_enabled: false,
+  costar_enabled: true,
   onboarding_completed_at: null,
   email_provider: null,
 };
