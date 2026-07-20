@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { TenantSelector } from "./tenant-selector";
+import { PropertyLinker } from "./property-linker";
 import {
   deriveConfidence, confidenceLevel, fieldLabel,
   type FieldCitation, type FieldReview, type FieldReviews, type ReviewStatus,
@@ -43,6 +44,7 @@ type KeyProvision = { provision: string; citation?: string };
 
 type TenantContact = { id: string; name: string | null; email: string | null; phone: string | null; role: string | null; company: string | null };
 type PropertyContact = Pick<TenantContact, "id" | "name" | "role" | "company">;
+type LinkedProperty = { id: string; address: string; city: string | null };
 
 interface LeaseAbstract {
   id: string;
@@ -67,6 +69,7 @@ interface LeaseReviewViewProps {
   customDefs: FieldDefinition[];
   tenantContact: TenantContact | null;
   propertyContacts: PropertyContact[];
+  linkedProperty: LinkedProperty | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -298,6 +301,7 @@ export function LeaseReviewView({
   customDefs,
   tenantContact,
   propertyContacts,
+  linkedProperty,
 }: LeaseReviewViewProps) {
   const [reviews, setReviews] = useState<FieldReviews>(abstract.field_reviews ?? {});
   const [targetPage, setTargetPage] = useState<number | null>(null);
@@ -611,6 +615,20 @@ export function LeaseReviewView({
                 })}
               </FieldSection>
             )}
+
+            {/* Property section */}
+            <Separator />
+            <FieldSection title="Property">
+              {!linkedProperty && (
+                <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 mb-2">
+                  This lease is not linked to a property — it won't appear on a property page or in lease radar.
+                </div>
+              )}
+              <PropertyLinker
+                leaseId={abstract.id}
+                currentProperty={linkedProperty}
+              />
+            </FieldSection>
 
             {/* Tenant section */}
             <Separator />

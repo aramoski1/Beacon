@@ -78,6 +78,10 @@ const EXTRACT_TOOL: Anthropic.Tool = {
           required: ["field", "page", "text"],
         },
       },
+      premises_address: {
+        type: "string",
+        description: "Street address of the leased premises (e.g. '123 Main St, Suite 400'). Extract from the lease preamble.",
+      },
     },
   },
 };
@@ -94,10 +98,34 @@ export type LeasePreview = {
   key_provisions: { provision: string; citation?: string }[];
   field_citations: { field: string; page: string; text: string }[];
   custom_fields?: Record<string, string | number | null>;
+  premises_address?: string | null;
+  linked_property?: string | null;
   storagePath: string;
 };
 
 export type AbstractResult = { error: string } | { preview: LeasePreview };
+
+// ─── Property search (for linking during abstraction or orphan repair) ────────
+
+export async function searchPropertiesForPicker(
+  query: string,
+): Promise<{ id: string; address: string; city: string | null }[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const q = query.trim();
+  if (!q) return [];
+  const { data } = await supabase
+    .from("properties")
+    .select("id, address, city")
+    .eq("owner_id", user.id)
+    .ilike("address", `%${q}%`)
+    .order("address", { ascending: true })
+    .limit(8);
+  return (data ?? []) as { id: string; address: string; city: string | null }[];
+}
 
 // ─── Extract action — uploads PDF and returns preview; does NOT save ──────────
 
@@ -208,6 +236,7 @@ export async function saveAbstractLease(
     .from("lease_abstracts")
     .insert({
       owner_id: user.id,
+      linked_property: preview.linked_property ?? null,
       source_document: preview.storagePath,
       execution_date: preview.execution_date || null,
       expiration_date: preview.expiration_date || null,

@@ -62,7 +62,7 @@ export default async function AbstractPage({
 
   const abstract = data as LeaseAbstract;
 
-  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, pdfUrlResult] =
+  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, { data: linkedPropertyData }, pdfUrlResult] =
     await Promise.all([
       supabase
         .from("field_definitions")
@@ -86,6 +86,15 @@ export default async function AbstractPage({
             .eq("owner_id", user.id)
             .order("name", { ascending: true })
         : Promise.resolve({ data: [] }),
+      abstract.linked_property
+        ? supabase
+            .from("properties")
+            .select("id, address, city")
+            .eq("id", abstract.linked_property)
+            .eq("owner_id", user.id)
+            .single()
+            .then(r => ({ data: r.data as { id: string; address: string; city: string | null } | null }))
+        : Promise.resolve({ data: null }),
       // Signed URL for PDF viewer (1-hour expiry)
       abstract.source_document
         ? supabase.storage
@@ -97,6 +106,7 @@ export default async function AbstractPage({
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const tenantContact = tenantContactData as TenantContact | null;
   const propertyContacts = (propertyContactsData ?? []) as Pick<TenantContact, "id" | "name" | "role" | "company">[];
+  const linkedProperty = linkedPropertyData as { id: string; address: string; city: string | null } | null;
   const pdfUrl = (pdfUrlResult as { data: { signedUrl: string } | null }).data?.signedUrl ?? null;
 
   return (
@@ -106,6 +116,7 @@ export default async function AbstractPage({
       customDefs={customDefs}
       tenantContact={tenantContact}
       propertyContacts={propertyContacts}
+      linkedProperty={linkedProperty}
     />
   );
 }

@@ -11,12 +11,21 @@ import {
   DollarSign,
   TrendingUp,
   Key,
+  Building2,
+  Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { abstractLease, saveAbstractLease, type LeasePreview, type AbstractResult } from "./actions";
+import {
+  abstractLease,
+  saveAbstractLease,
+  searchPropertiesForPicker,
+  type LeasePreview,
+  type AbstractResult,
+} from "./actions";
 import { createClient } from "@/lib/supabase/client";
 import { fetchFieldDefs, fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { BatchUpload } from "./batch-upload";
@@ -35,15 +44,132 @@ function optionVariant(type: string): "default" | "secondary" | "outline" {
   return "outline";
 }
 
+// ─── Property picker ──────────────────────────────────────────────────────────
+
+type PropertyOption = { id: string; address: string; city: string | null };
+
+function PropertyPicker({
+  value,
+  label,
+  onChange,
+  initialSearch,
+}: {
+  value: string | null;
+  label: string | null;
+  onChange: (id: string | null, label: string | null) => void;
+  initialSearch?: string | null;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PropertyOption[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function runSearch(q: string) {
+    if (!q.trim()) { setResults([]); setOpen(false); return; }
+    setSearching(true);
+    const r = await searchPropertiesForPicker(q);
+    setResults(r);
+    setSearching(false);
+    setOpen(r.length > 0);
+  }
+
+  // Auto-search on mount if premises_address was extracted
+  useEffect(() => {
+    if (initialSearch && !value) {
+      setQuery(initialSearch);
+      runSearch(initialSearch);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSearch]);
+
+  function handleInput(q: string) {
+    setQuery(q);
+    if (!q.trim()) { setResults([]); setOpen(false); return; }
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => runSearch(q), 250);
+  }
+
+  if (value && label) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+        <Building2 className="size-4 text-primary shrink-0" />
+        <span className="text-sm font-medium flex-1 min-w-0 truncate">{label}</span>
+        <button
+          type="button"
+          onClick={() => onChange(null, null)}
+          className="text-muted-foreground hover:text-foreground shrink-0"
+          title="Clear"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+        <input
+          type="text"
+          value={query}
+          onChange={e => handleInput(e.target.value)}
+          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Search by address…"
+          className="w-full pl-8 pr-8 py-2 text-sm border border-border rounded-md outline-none focus:ring-2 ring-ring bg-background placeholder:text-muted-foreground/60"
+        />
+        {searching && (
+          <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      {open && results.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-background shadow-lg overflow-hidden">
+          {results.map((r, i) => (
+            <button
+              key={r.id}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => {
+                const lbl = r.address + (r.city ? `, ${r.city}` : "");
+                onChange(r.id, lbl);
+                setQuery("");
+                setResults([]);
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-muted/60 transition-colors flex items-center gap-2"
+            >
+              <Building2 className="size-3.5 text-muted-foreground shrink-0" />
+              <span className="truncate">{r.address}{r.city ? `, ${r.city}` : ""}</span>
+              {i === 0 && initialSearch && results.length === 1 && (
+                <Badge variant="secondary" className="text-[10px] ml-auto shrink-0">Suggested</Badge>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Preview card ─────────────────────────────────────────────────────────────
+
 function LeasePreviewCard({
   preview,
   fileName,
+  linkedPropertyId,
+  linkedPropertyLabel,
+  onPropertyChange,
   onSave,
   onDiscard,
   saving,
 }: {
   preview: LeasePreview;
   fileName: string;
+  linkedPropertyId: string | null;
+  linkedPropertyLabel: string | null;
+  onPropertyChange: (id: string | null, label: string | null) => void;
   onSave: () => void;
   onDiscard: () => void;
   saving: boolean;
@@ -207,8 +333,39 @@ function LeasePreviewCard({
 
       <Separator />
 
+      {/* Property link — required before saving */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Building2 className="size-4 text-muted-foreground" />
+          <p className="text-sm font-medium">
+            Link to property <span className="text-destructive">*</span>
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Required — the lease will appear on the property page and in lease radar.
+        </p>
+        <PropertyPicker
+          value={linkedPropertyId}
+          label={linkedPropertyLabel}
+          onChange={onPropertyChange}
+          initialSearch={preview.premises_address}
+        />
+        {!linkedPropertyId && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Select a property above to enable saving.
+          </p>
+        )}
+      </div>
+
+      <Separator />
+
       <div className="flex gap-3">
-        <Button onClick={onSave} disabled={saving} className="flex-1">
+        <Button
+          onClick={onSave}
+          disabled={saving || !linkedPropertyId}
+          className="flex-1"
+          title={!linkedPropertyId ? "Link a property first" : undefined}
+        >
           {saving ? <><Loader2 className="animate-spin" />Saving…</> : "Save to database"}
         </Button>
         <Button variant="outline" onClick={onDiscard} disabled={saving}>
@@ -229,12 +386,16 @@ export default function NewAbstractPage() {
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [linkedPropId, setLinkedPropId] = useState<string | null>(null);
+  const [linkedPropLabel, setLinkedPropLabel] = useState<string | null>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
     setError(null);
+    setLinkedPropId(null);
+    setLinkedPropLabel(null);
     const formData = new FormData();
     formData.set("pdf", file);
     startTransition(async () => {
@@ -245,13 +406,21 @@ export default function NewAbstractPage() {
   }
 
   function handleSave() {
-    if (!preview) return;
+    if (!preview || !linkedPropId) return;
     setError(null);
     startTransition(async () => {
-      const result = await saveAbstractLease(preview);
+      const result = await saveAbstractLease({ ...preview, linked_property: linkedPropId });
       if ("error" in result) setError(result.error);
       else router.push(`/abstracts/${result.id}`);
     });
+  }
+
+  function handleDiscard() {
+    setPreview(null);
+    setError(null);
+    setFileName("");
+    setLinkedPropId(null);
+    setLinkedPropLabel(null);
   }
 
   return (
@@ -344,8 +513,14 @@ export default function NewAbstractPage() {
           <LeasePreviewCard
             preview={preview}
             fileName={fileName}
+            linkedPropertyId={linkedPropId}
+            linkedPropertyLabel={linkedPropLabel}
+            onPropertyChange={(id, label) => {
+              setLinkedPropId(id);
+              setLinkedPropLabel(label);
+            }}
             onSave={handleSave}
-            onDiscard={() => { setPreview(null); setError(null); setFileName(""); }}
+            onDiscard={handleDiscard}
             saving={isPending}
           />
         </>
