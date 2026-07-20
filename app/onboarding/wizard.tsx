@@ -74,7 +74,8 @@ function WelcomeStep({
         <h1 className="text-2xl font-semibold">Welcome to Beacon</h1>
         <p className="text-muted-foreground leading-relaxed">
           Let&apos;s import your book of business. Upload a spreadsheet of your properties
-          or contacts and we&apos;ll map the columns, deduplicate, and enrich owner data automatically.
+          or contacts and we&apos;ll map the columns and deduplicate records. You can enrich
+          owner data from each property page after import.
         </p>
       </div>
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
@@ -413,10 +414,12 @@ function DoneStep({
   result,
   onImportMore,
   onGoToCRM,
+  onEnrichProperties,
 }: {
   result: ImportResult;
   onImportMore: () => void;
   onGoToCRM: () => void;
+  onEnrichProperties: () => void;
 }) {
   const total = result.propertiesImported + result.contactsImported;
   const hasErrors = result.errors.length > 0;
@@ -486,13 +489,28 @@ function DoneStep({
       )}
 
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+        {result.propertiesImported > 0 && (
+          <button
+            type="button"
+            onClick={onEnrichProperties}
+            className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            Enrich imported properties
+            <ArrowRight className="size-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onGoToCRM}
-          className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          className={cn(
+            "w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors",
+            result.propertiesImported > 0
+              ? "border border-border hover:bg-muted/40 text-foreground"
+              : "bg-primary text-primary-foreground hover:bg-primary/90"
+          )}
         >
           Go to my workspace
-          <ArrowRight className="size-4" />
+          {result.propertiesImported === 0 && <ArrowRight className="size-4" />}
         </button>
         <button
           type="button"
@@ -501,6 +519,11 @@ function DoneStep({
         >
           Import another file
         </button>
+        {result.propertiesImported > 0 && (
+          <p className="text-xs text-muted-foreground text-center">
+            Enrich runs Miami-Dade and Sunbiz lookups to pull owner contacts for each property.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -614,6 +637,12 @@ export function OnboardingWizard() {
                 }))
               }
               onGoToCRM={goToCRM}
+              onEnrichProperties={() => {
+                startCompleting(async () => {
+                  await completeOnboarding();
+                  router.push("/properties");
+                });
+              }}
             />
           )}
         </div>
