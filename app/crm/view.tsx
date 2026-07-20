@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { syncPropertyEntity } from "@/lib/entities";
+import { contactIdsByPropertyIds, contactIdsForProperties } from "@/lib/contact-properties";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap } from "lucide-react";
 import { CustomFieldsPanel } from "@/components/custom-fields-panel";
@@ -1795,22 +1796,31 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     // Fetch linked contacts + their most recent activity for this page of properties
     const idSet = new Set(rows.map((p) => p.id));
     if (idSet.size > 0) {
-      const { data: contactData } = await supabase
-        .from("contacts")
-        .select("id, name, email, mailing_address, linked_properties")
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .overlaps("linked_properties", [...idSet] as any)
-        .order("created_at", { ascending: true });
+      const propIds = [...idSet];
+      const { data: { user } } = await supabase.auth.getUser();
+      const byProp = user
+        ? await contactIdsByPropertyIds(supabase, user.id, propIds)
+        : new Map<string, string[]>();
+      const allContactIds = [...new Set([...byProp.values()].flat())];
 
       type RawContact = {
         id: string;
         name: string | null;
         email: string | null;
         mailing_address: string | null;
-        linked_properties: string[] | null;
+        linked_properties?: string[] | null;
       };
 
-      const contacts = (contactData ?? []) as RawContact[];
+      let contacts: RawContact[] = [];
+      if (allContactIds.length > 0) {
+        const { data: contactData } = await supabase
+          .from("contacts")
+          .select("id, name, email, mailing_address")
+          .in("id", allContactIds)
+          .order("created_at", { ascending: true });
+        contacts = (contactData ?? []) as RawContact[];
+      }
+
       const contactIds = contacts.map((c) => c.id);
 
       // Fetch most recent activity per contact
@@ -1835,10 +1845,13 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         }
       }
 
+      const contactById = new Map(contacts.map((c) => [c.id, c]));
       const map = new Map<string, LinkedContactInfo[]>();
-      for (const c of contacts) {
-        for (const propId of c.linked_properties ?? []) {
-          if (!idSet.has(propId)) continue;
+      for (const [propId, cids] of byProp.entries()) {
+        if (!idSet.has(propId)) continue;
+        for (const cid of cids) {
+          const c = contactById.get(cid);
+          if (!c) continue;
           const a = activityMap.get(c.id);
           const info: LinkedContactInfo = {
             id: c.id,
@@ -1849,9 +1862,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
             last_activity_type: a?.activity_type ?? null,
             last_activity_notes: a?.notes ?? null,
           };
-          const existing = map.get(propId);
-          if (existing) existing.push(info);
-          else map.set(propId, [info]);
+          const list = map.get(propId) ?? [];
+          list.push(info);
+          map.set(propId, list);
         }
       }
       setPropContacts(map);
@@ -1887,8 +1900,17 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           setContactsLoading(false);
           return;
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        q = (q as any).overlaps("linked_properties", propertyIds);
+        const { data: { user } } = await supabase.auth.getUser();
+        const linkedIds = user
+          ? await contactIdsForProperties(supabase, user.id, propertyIds)
+          : [];
+        if (linkedIds.length === 0) {
+          setContacts([]);
+          setTotalCons(0);
+          setContactsLoading(false);
+          return;
+        }
+        q = q.in("id", linkedIds);
       }
       if (activeSearch?.contacts) {
         q = applyContactFilters(q, activeSearch.contacts);

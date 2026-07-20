@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { type FieldDefinition } from "@/lib/custom-fields";
 import { LeaseReviewView } from "./review-view";
 import type { FieldCitation, FieldReviews } from "./review-utils";
+import { contactIdsForProperty } from "@/lib/contact-properties";
 
 // ─── Local types ───────────────────────────────────────────────────────────────
 
@@ -62,6 +63,10 @@ export default async function AbstractPage({
 
   const abstract = data as LeaseAbstract;
 
+  const propertyContactIds = abstract.linked_property
+    ? await contactIdsForProperty(supabase, user.id, abstract.linked_property)
+    : [];
+
   const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, { data: linkedPropertyData }, pdfUrlResult] =
     await Promise.all([
       supabase
@@ -78,11 +83,11 @@ export default async function AbstractPage({
             .single()
             .then(r => ({ data: r.data as TenantContact | null }))
         : Promise.resolve({ data: null }),
-      abstract.linked_property
+      propertyContactIds.length > 0
         ? supabase
             .from("contacts")
             .select("id, name, role, company")
-            .contains("linked_properties", [abstract.linked_property])
+            .in("id", propertyContactIds)
             .eq("owner_id", user.id)
             .order("name", { ascending: true })
         : Promise.resolve({ data: [] }),

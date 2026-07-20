@@ -128,6 +128,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-entities.ts",
     description: "Entities — durable legal entities + entity_properties/entity_contacts + properties.entity_id backfill",
   },
+  {
+    file: "migrate-contact-properties.ts",
+    description: "Contact↔property join table replacing soft linked_properties UUID[] (with backfill)",
+  },
 ];
 
 const hr = "─".repeat(60);

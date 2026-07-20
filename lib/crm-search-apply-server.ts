@@ -6,6 +6,7 @@ import {
   applyLeaseFilters,
   type SmartListCounts,
 } from "@/lib/crm-search-filters";
+import { contactIdsForProperties } from "@/lib/contact-properties";
 
 async function fetchMatchingPropertyIds(
   filters: PropertySearchFilters,
@@ -38,16 +39,27 @@ export async function countSmartListMatches(
 
   let contactCount = 0;
   if (search.contacts || search.target === "contacts" || search.target === "both") {
-    let cq = supabase.from("contacts").select("*", { count: "exact", head: true }).eq("owner_id", ownerId);
-    if (search.contacts) cq = applyContactFilters(cq, search.contacts);
     if (propertyIds != null) {
-      if (propertyIds.length === 0) contactCount = 0;
-      else {
-        cq = cq.overlaps("linked_properties", propertyIds);
-        const { count } = await cq;
-        contactCount = count ?? 0;
+      if (propertyIds.length === 0) {
+        contactCount = 0;
+      } else {
+        const linkedContactIds = await contactIdsForProperties(supabase, ownerId, propertyIds);
+        if (linkedContactIds.length === 0) {
+          contactCount = 0;
+        } else {
+          let cq = supabase
+            .from("contacts")
+            .select("*", { count: "exact", head: true })
+            .eq("owner_id", ownerId)
+            .in("id", linkedContactIds);
+          if (search.contacts) cq = applyContactFilters(cq, search.contacts);
+          const { count } = await cq;
+          contactCount = count ?? 0;
+        }
       }
     } else {
+      let cq = supabase.from("contacts").select("*", { count: "exact", head: true }).eq("owner_id", ownerId);
+      if (search.contacts) cq = applyContactFilters(cq, search.contacts);
       const { count } = await cq;
       contactCount = count ?? 0;
     }
@@ -87,10 +99,19 @@ export async function fetchSmartListContactIds(
 
   if (propertyIds != null && propertyIds.length === 0) return [];
 
+  if (propertyIds != null) {
+    const linkedContactIds = await contactIdsForProperties(supabase, ownerId, propertyIds);
+    if (linkedContactIds.length === 0) return [];
+    let q = supabase.from("contacts").select("id").eq("owner_id", ownerId).in("id", linkedContactIds);
+    if (search.contacts) q = applyContactFilters(q, search.contacts);
+    const { data } = await q;
+    return (data ?? []).map((r: { id: string }) => r.id);
+  }
+
+  if (search.target === "properties") return [];
+
   let q = supabase.from("contacts").select("id").eq("owner_id", ownerId);
   if (search.contacts) q = applyContactFilters(q, search.contacts);
-  if (propertyIds != null) q = q.overlaps("linked_properties", propertyIds);
-  else if (search.target === "properties") return [];
 
   const { data } = await q;
   return (data ?? []).map((r: { id: string }) => r.id);

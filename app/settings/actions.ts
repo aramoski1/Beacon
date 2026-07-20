@@ -106,6 +106,7 @@ export async function deleteAllData(): Promise<{ error?: string }> {
     "lease_abstracts",
     "entity_contacts",
     "entity_properties",
+    "contact_properties",
     "entities",
     "contacts",
     "properties",

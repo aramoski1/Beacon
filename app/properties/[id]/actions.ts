@@ -13,6 +13,7 @@ import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFi
 import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
+import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 
 export async function createOwnerContact(
   propertyId: string
@@ -48,6 +49,11 @@ export async function createOwnerContact(
     .single();
 
   if (error) return { error: error.message };
+  try {
+    await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
+  } catch {
+    // Contact row exists with array shim.
+  }
   return { id: data.id };
 }
 
@@ -175,6 +181,11 @@ export async function createContactFromSunbizOwner(
     .single();
 
   if (error) return { error: error.message };
+  try {
+    await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
+  } catch {
+    // Contact row exists with array shim.
+  }
 
   let entityId = prop.entity_id as string | null;
   if (!entityId && prop.owner_name?.trim()) {
@@ -194,8 +205,6 @@ export async function createContactFromSunbizOwner(
 
   return { id: data.id };
 }
-
-// ─── CoStar file upload enrichment ───────────────────────────────────────────
 
 export type CoStarParseAction =
   | { error: string }
@@ -302,7 +311,14 @@ export async function createCoStarContacts(
       .select("id")
       .single();
 
-    if (!error && data) ids.push(data.id);
+    if (!error && data) {
+      ids.push(data.id);
+      try {
+        await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
+      } catch {
+        // Contact row exists with array shim.
+      }
+    }
   }
 
   return { created: ids.length, ids };

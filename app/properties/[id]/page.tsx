@@ -30,6 +30,7 @@ import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { getUserSettings } from "@/app/settings/actions";
 import { Suspense } from "react";
 import { TaxRollCompsSection } from "./tax-roll-comps";
+import { contactIdsForProperty } from "@/lib/contact-properties";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,17 +136,22 @@ export default async function PropertyPage({
   if (error || !data) notFound();
   const p = data as Property;
 
+  const linkedContactIds = await contactIdsForProperty(supabase, user.id, id);
+
   const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
       .eq("entity_type", "property")
       .order("created_at", { ascending: true }),
-    supabase
-      .from("contacts")
-      .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due, action_tags, contact_type")
-      .contains("linked_properties", [id])
-      .order("created_at", { ascending: true }),
+    linkedContactIds.length > 0
+      ? supabase
+          .from("contacts")
+          .select("id, name, email, phone, mailing_address, company, role, contact_tier, next_action_due, action_tags, contact_type")
+          .in("id", linkedContactIds)
+          .eq("owner_id", user.id)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] as LinkedContact[] }),
     fetchActivitiesByProperty(id),
     supabase
       .from("lease_abstracts")

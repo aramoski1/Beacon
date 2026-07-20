@@ -18,6 +18,11 @@ import {
 } from "@/lib/owner-portfolio";
 import { aggregateRelatedEntities, aggregateRelatedPersons } from "@/lib/portfolio-graph";
 import { mergeEntityPropertyIds, propertyIdsForEntity, syncPropertyEntity } from "@/lib/entities";
+import {
+  contactIdsForProperties,
+  propertyIdsForContact,
+  resolveLinkedPropertyIds,
+} from "@/lib/contact-properties";
 
 type RawProperty = PropertyRowForMatch & {
   owner_contact_name?: string | null;
@@ -276,8 +281,14 @@ async function loadPortfolioForPropertyIds(
       .order("expiration_date", { ascending: true }),
   ]);
 
+  const joinContactIds = await contactIdsForProperties(supabase, user.id, propertyIds);
+  const joinSet = new Set(joinContactIds);
+
   const contactsRaw = ((allContacts ?? []) as RawContact[])
-    .filter((c) => (c.linked_properties ?? []).some((pid) => idSet.has(pid)));
+    .filter((c) =>
+      joinSet.has(c.id) ||
+      (c.linked_properties ?? []).some((pid) => idSet.has(pid)),
+    );
 
   const contacts = contactsRaw
     .map((c): OwnerPortfolioContact => ({
@@ -377,7 +388,15 @@ export async function getOwnerPortfolioForContact(contactId: string): Promise<Ow
   if (error || !contact) return null;
 
   const allProperties = await fetchAllProperties(user.id);
-  const seedIds = new Set<string>(contact.linked_properties ?? []);
+  let joinPropIds: string[] = [];
+  try {
+    joinPropIds = await propertyIdsForContact(supabase, user.id, contactId);
+  } catch {
+    joinPropIds = [];
+  }
+  const seedIds = new Set<string>(
+    resolveLinkedPropertyIds(joinPropIds, contact.linked_properties ?? []),
+  );
 
   // Prefer durable entity links from linked properties + entity_contacts
   const entityIds = new Set<string>();

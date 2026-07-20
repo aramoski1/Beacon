@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { validateName, validateEmail } from "@/lib/validation";
+import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 
 export async function createContact(
   formData: FormData
@@ -77,5 +78,12 @@ export async function createContact(
     .single();
 
   if (error) return { error: error.message };
+  if (linkedPropId) {
+    try {
+      await linkContactPropertyAndSync(supabase, user.id, data.id, linkedPropId);
+    } catch {
+      // Contact exists; join sync is best-effort (array already set on insert).
+    }
+  }
   return { id: data.id };
 }

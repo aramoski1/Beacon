@@ -497,3 +497,38 @@ describe("createActivity", () => {
     expect(result.error).toBeTruthy();
   });
 });
+
+// ─── contact_properties join helpers ──────────────────────────────────────────
+
+import {
+  contactIdsForProperty,
+  propertyIdsForContact,
+} from "@/lib/contact-properties";
+
+describe("contact_properties auth isolation", () => {
+  it("scopes property→contact lookup by owner_id", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contact_properties: {
+        data: [{ contact_id: "c1" }],
+        error: null,
+      },
+    });
+
+    await contactIdsForProperty(supabase, USER_A, "p1");
+
+    expect(spy.tableHadOwnerFilter("contact_properties", USER_A)).toBe(true);
+  });
+
+  it("scopes contact→property lookup by owner_id", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contact_properties: {
+        data: [{ property_id: "p1" }],
+        error: null,
+      },
+    });
+
+    await propertyIdsForContact(supabase, USER_A, "c1");
+
+    expect(spy.tableHadOwnerFilter("contact_properties", USER_A)).toBe(true);
+  });
+});
