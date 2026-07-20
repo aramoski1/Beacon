@@ -92,6 +92,7 @@ async function importProperties(
   let propertiesImported = 0;
   let skipped = 0;
   const errors: string[] = [];
+  const importedPropertyIds: string[] = [];
   const now = new Date().toISOString();
 
   for (const row of rows) {
@@ -99,7 +100,7 @@ async function importProperties(
     if (!mapped) { skipped++; continue; }
 
     try {
-      await upsertProperty(supabase, userId, {
+      const id = await upsertProperty(supabase, userId, {
         owner_id: userId,
         address: mapped.address,
         city: mapped.city,
@@ -117,12 +118,13 @@ async function importProperties(
         confidence_flags: [],
       });
       propertiesImported++;
+      importedPropertyIds.push(id);
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }
   }
 
-  return { propertiesImported, contactsImported: 0, skipped, errors };
+  return { propertiesImported, contactsImported: 0, skipped, errors, importedPropertyIds };
 }
 
 async function importContacts(
@@ -203,3 +205,36 @@ export async function completeOnboarding(): Promise<{ error?: string }> {
 
   return error ? { error: error.message } : {};
 }
+
+/** Load imported property rows for the optional post-import enrich queue. */
+export async function fetchImportedPropertiesForEnrich(
+  propertyIds: string[],
+): Promise<
+  | {
+      properties: {
+        id: string;
+        address: string | null;
+        source: string | null;
+        source_url: string | null;
+        owner_name: string | null;
+      }[];
+    }
+  | { error: string }
+> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const ids = propertyIds.filter(Boolean).slice(0, 50);
+  if (ids.length === 0) return { properties: [] };
+
+  const { data, error } = await supabase
+    .from("properties")
+    .select("id, address, source, source_url, owner_name")
+    .eq("owner_id", user.id)
+    .in("id", ids);
+
+  if (error) return { error: error.message };
+  return { properties: data ?? [] };
+}
+

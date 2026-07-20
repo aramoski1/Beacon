@@ -48,6 +48,8 @@ export type ImportResult = {
   contactsImported: number;
   skipped: number;
   errors: string[];
+  /** Property IDs written in this import (for optional post-import enrich). */
+  importedPropertyIds?: string[];
 };
 
 // ─── Auto-suggest ─────────────────────────────────────────────────────────────

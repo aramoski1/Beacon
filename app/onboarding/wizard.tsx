@@ -12,7 +12,9 @@ import {
   type ParsedFile,
   type ImportResult,
 } from "@/lib/import-mapper";
-import { parseImportFile, runImport, completeOnboarding } from "./actions";
+import { parseImportFile, runImport, completeOnboarding, fetchImportedPropertiesForEnrich } from "./actions";
+import { BulkEnrichPanel, type BulkProperty } from "@/app/crm/bulk-enrich-panel";
+import { planEnrichJobs, summarizeEnrichPlan } from "@/lib/enrich-queue";
 
 type EntityType = "property" | "contact";
 type Step = "welcome" | "upload" | "map" | "importing" | "done";
@@ -74,8 +76,9 @@ function WelcomeStep({
         <h1 className="text-2xl font-semibold">Welcome to Beacon</h1>
         <p className="text-muted-foreground leading-relaxed">
           Let&apos;s import your book of business. Upload a spreadsheet of your properties
-          or contacts and we&apos;ll map the columns and deduplicate records. You can enrich
-          owner data from each property page after import.
+          or contacts and we&apos;ll map the columns and deduplicate records. After import you
+          can queue Miami-Dade + Sunbiz enrichment for those properties (rate-limited; skips
+          parcels already linked to a county folio).
         </p>
       </div>
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
@@ -415,11 +418,15 @@ function DoneStep({
   onImportMore,
   onGoToCRM,
   onEnrichProperties,
+  enrichLoading,
+  enrichError,
 }: {
   result: ImportResult;
   onImportMore: () => void;
   onGoToCRM: () => void;
   onEnrichProperties: () => void;
+  enrichLoading?: boolean;
+  enrichError?: string | null;
 }) {
   const total = result.propertiesImported + result.contactsImported;
   const hasErrors = result.errors.length > 0;
@@ -432,7 +439,9 @@ function DoneStep({
 
       <div className="space-y-1.5">
         <h2 className="text-xl font-semibold">Import complete</h2>
-        <p className="text-sm text-muted-foreground">Your data is now in Beacon.</p>
+        <p className="text-sm text-muted-foreground">
+          Your data is in Beacon. Enrichment is optional and does not block this step.
+        </p>
       </div>
 
       <div className="w-full max-w-xs space-y-2.5 text-sm">
@@ -488,15 +497,32 @@ function DoneStep({
         </details>
       )}
 
+      {enrichError && (
+        <p className="flex items-center gap-2 text-sm text-destructive max-w-xs">
+          <AlertCircle className="size-4 shrink-0" />
+          {enrichError}
+        </p>
+      )}
+
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
         {result.propertiesImported > 0 && (
           <button
             type="button"
             onClick={onEnrichProperties}
-            className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            disabled={enrichLoading}
+            className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
           >
-            Enrich imported properties
-            <ArrowRight className="size-4" />
+            {enrichLoading ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Preparing enrich queue…
+              </>
+            ) : (
+              <>
+                Enrich imported properties
+                <ArrowRight className="size-4" />
+              </>
+            )}
           </button>
         )}
         <button
@@ -521,7 +547,9 @@ function DoneStep({
         </button>
         {result.propertiesImported > 0 && (
           <p className="text-xs text-muted-foreground text-center">
-            Enrich runs Miami-Dade and Sunbiz lookups to pull owner contacts for each property.
+            Enrich queues Miami-Dade address lookups and Sunbiz for entity owners.
+            Already-linked folios are skipped. Progress and errors show in the panel —
+            you can leave for CRM anytime.
           </p>
         )}
       </div>
@@ -535,6 +563,10 @@ export function OnboardingWizard() {
   const router = useRouter();
   const [state, setState] = useState<State>(INIT);
   const [isCompleting, startCompleting] = useTransition();
+  const [enrichProps, setEnrichProps] = useState<BulkProperty[] | null>(null);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [enrichSummary, setEnrichSummary] = useState<string | null>(null);
 
   function goToCRM() {
     startCompleting(async () => {
@@ -573,6 +605,40 @@ export function OnboardingWizard() {
       return;
     }
     setState((s) => ({ ...s, step: "done", result }));
+  }
+
+  async function startEnrichQueue() {
+    const ids = state.result?.importedPropertyIds ?? [];
+    if (ids.length === 0) {
+      setEnrichError("No imported property IDs to enrich.");
+      return;
+    }
+    setEnrichLoading(true);
+    setEnrichError(null);
+    const res = await fetchImportedPropertiesForEnrich(ids);
+    setEnrichLoading(false);
+    if ("error" in res) {
+      setEnrichError(res.error);
+      return;
+    }
+    const plans = planEnrichJobs(res.properties);
+    const summary = summarizeEnrichPlan(plans);
+    setEnrichSummary(
+      `${summary.county} county · ${summary.sunbiz} Sunbiz · ${summary.skipped} skipped`,
+    );
+    const runnable = res.properties.filter((p) => {
+      const plan = plans.find((j) => j.propertyId === p.id);
+      return plan && !plan.skipReason;
+    });
+    if (runnable.length === 0) {
+      setEnrichError(
+        summary.skipped > 0
+          ? "Nothing to enrich — imported properties are already county-linked or have no entity owner."
+          : "Nothing to enrich.",
+      );
+      return;
+    }
+    setEnrichProps(runnable);
   }
 
   return (
@@ -626,7 +692,12 @@ export function OnboardingWizard() {
           {state.step === "done" && state.result && (
             <DoneStep
               result={state.result}
-              onImportMore={() =>
+              enrichLoading={enrichLoading}
+              enrichError={enrichError}
+              onImportMore={() => {
+                setEnrichProps(null);
+                setEnrichError(null);
+                setEnrichSummary(null);
                 setState((s) => ({
                   ...s,
                   step: "upload",
@@ -634,18 +705,25 @@ export function OnboardingWizard() {
                   fileName: "",
                   mapping: {},
                   result: null,
-                }))
-              }
-              onGoToCRM={goToCRM}
-              onEnrichProperties={() => {
-                startCompleting(async () => {
-                  await completeOnboarding();
-                  router.push("/properties");
-                });
+                }));
               }}
+              onGoToCRM={goToCRM}
+              onEnrichProperties={startEnrichQueue}
             />
           )}
         </div>
+
+        {enrichSummary && state.step === "done" && !enrichProps && (
+          <p className="mt-3 text-center text-xs text-muted-foreground">{enrichSummary}</p>
+        )}
+
+        {enrichProps && (
+          <BulkEnrichPanel
+            properties={enrichProps}
+            onClose={() => setEnrichProps(null)}
+            onDone={() => setEnrichProps(null)}
+          />
+        )}
 
         {/* Skip link on non-welcome steps */}
         {state.step !== "welcome" && state.step !== "importing" && state.step !== "done" && (

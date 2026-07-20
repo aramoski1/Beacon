@@ -142,6 +142,9 @@ export function BulkEnrichPanel({
       }
 
       setResult(p.id, { tag: "done", countyFields, sunbizPersons: sunbizPersonsSaved, countyNote });
+
+      // Rate-limit county/Sunbiz lookups across the queue
+      await new Promise((r) => setTimeout(r, 400));
     }
 
     setRunning(false);
