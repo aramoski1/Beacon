@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from "react";
 import { X, Briefcase, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DEAL_STAGES, STAGE_LABELS, type DealStage, type Deal } from "@/lib/deals";
+import { DEAL_TYPES, DEAL_TYPE_LABELS, stagesForDealType, STAGE_LABELS, type DealStage, type DealType, type Deal } from "@/lib/deals";
 import { createDeal } from "./actions";
 
 type Props = {
@@ -30,6 +30,7 @@ export function CreateDealDialog({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [dealType, setDealType] = useState<DealType>("tenant_rep");
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export function CreateDealDialog({
     const fd = new FormData(e.currentTarget);
     const name = fd.get("name") as string;
     const stage = fd.get("stage") as DealStage;
+    const type = (fd.get("deal_type") as DealType) || dealType;
     const commissionRaw = fd.get("estimated_commission") as string;
     const estimated_commission = commissionRaw ? parseFloat(commissionRaw) : null;
     const next_action = fd.get("next_action") as string | null;
@@ -58,6 +60,7 @@ export function CreateDealDialog({
     startTransition(async () => {
       const result = await createDeal({
         name,
+        deal_type: type,
         stage: stage || "prospect",
         contact_id: contactId ?? null,
         property_id: propertyId ?? null,
@@ -157,6 +160,24 @@ export function CreateDealDialog({
                 )}
               </div>
 
+              {/* Deal type */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground" htmlFor="deal-type">
+                  Deal type
+                </label>
+                <select
+                  id="deal-type"
+                  name="deal_type"
+                  value={dealType}
+                  onChange={(e) => setDealType(e.target.value as DealType)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {DEAL_TYPES.map((t) => (
+                    <option key={t} value={t}>{DEAL_TYPE_LABELS[t]}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Stage */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground" htmlFor="deal-stage">
@@ -166,9 +187,10 @@ export function CreateDealDialog({
                   id="deal-stage"
                   name="stage"
                   defaultValue="prospect"
+                  key={dealType}
                   className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  {DEAL_STAGES.map((s) => (
+                  {stagesForDealType(dealType).map((s) => (
                     <option key={s} value={s}>{STAGE_LABELS[s]}</option>
                   ))}
                 </select>

@@ -9,9 +9,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DEAL_STAGES, STAGE_LABELS, STAGE_COLORS, TERMINAL_STAGES, ACTIVE_STAGES,
-  isDealStale, daysInStage, fmtCommission, nextStage, prevStage,
-  type Deal, type DealStage,
+  DEAL_STAGES, DEAL_TYPES, DEAL_TYPE_LABELS, STAGE_LABELS, STAGE_COLORS, TERMINAL_STAGES,
+  isDealStale, daysInStage, fmtCommission, nextStage, prevStage, stagesForDealType,
+  type Deal, type DealStage, type DealType,
 } from "@/lib/deals";
 import { updateDealStage, deleteDeal } from "./actions";
 import { CreateDealDialog } from "./create-deal-dialog";
@@ -39,8 +39,8 @@ function DealCard({
   const days = daysInStage(deal);
   const contact = deal.contacts;
   const property = deal.properties;
-  const next = nextStage(deal.stage);
-  const prev = prevStage(deal.stage);
+  const next = nextStage(deal.stage, deal.deal_type);
+  const prev = prevStage(deal.stage, deal.deal_type);
   const isTerminal = (TERMINAL_STAGES as readonly string[]).includes(deal.stage);
 
   return (
@@ -136,26 +136,33 @@ function DealCard({
 
 function KanbanBoard({
   deals,
+  stages,
   onStageChange,
   onDelete,
   updatingId,
 }: {
   deals: Deal[];
+  stages: readonly DealStage[];
   onStageChange: (id: string, stage: DealStage) => void;
   onDelete: (id: string) => void;
   updatingId: string | null;
 }) {
   const byStage = new Map<DealStage, Deal[]>();
-  for (const stage of DEAL_STAGES) byStage.set(stage, []);
+  for (const stage of stages) byStage.set(stage, []);
   for (const deal of deals) {
     const list = byStage.get(deal.stage);
     if (list) list.push(deal);
+    else if (stages.length > 0) {
+      // Stage outside filtered set — park in first column so the deal stays visible
+      const fallback = byStage.get(stages[0]);
+      fallback?.push(deal);
+    }
   }
 
   return (
     <div className="overflow-x-auto pb-4">
       <div className="flex gap-3 min-w-max">
-        {DEAL_STAGES.map((stage) => {
+        {stages.map((stage) => {
           const stageDeas = byStage.get(stage) ?? [];
           const isTerminal = (TERMINAL_STAGES as readonly string[]).includes(stage);
           return (
@@ -265,7 +272,7 @@ function ListView({
         {filtered.map((deal) => {
           const stale = isDealStale(deal);
           const days = daysInStage(deal);
-          const next = nextStage(deal.stage);
+          const next = nextStage(deal.stage, deal.deal_type);
           const isTerminal = (TERMINAL_STAGES as readonly string[]).includes(deal.stage);
           return (
             <div
@@ -327,6 +334,7 @@ function ListView({
 export function DealsView({ initialDeals }: { initialDeals: Deal[] }) {
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
   const [view, setView] = useState<"kanban" | "list">("kanban");
+  const [typeFilter, setTypeFilter] = useState<DealType | "all">("all");
   const [isPending, startTransition] = useTransition();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const router = useRouter();
@@ -364,8 +372,14 @@ export function DealsView({ initialDeals }: { initialDeals: Deal[] }) {
     setDeals((prev) => [deal, ...prev]);
   }
 
-  const activeCount = deals.filter((d) => !(TERMINAL_STAGES as readonly string[]).includes(d.stage)).length;
-  const staleCount = deals.filter((d) => isDealStale(d)).length;
+  const filteredDeals =
+    typeFilter === "all" ? deals : deals.filter((d) => (d.deal_type ?? "tenant_rep") === typeFilter);
+
+  const kanbanStages =
+    typeFilter === "all" ? DEAL_STAGES : stagesForDealType(typeFilter);
+
+  const activeCount = filteredDeals.filter((d) => !(TERMINAL_STAGES as readonly string[]).includes(d.stage)).length;
+  const staleCount = filteredDeals.filter((d) => isDealStale(d)).length;
 
   return (
     <div className="space-y-6">
@@ -380,7 +394,18 @@ export function DealsView({ initialDeals }: { initialDeals: Deal[] }) {
             )}
           </span>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as DealType | "all")}
+            className="h-8 rounded-md border bg-background px-2 text-xs"
+            aria-label="Filter by deal type"
+          >
+            <option value="all">All types</option>
+            {DEAL_TYPES.map((t) => (
+              <option key={t} value={t}>{DEAL_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
           {/* View toggle */}
           <div className="flex rounded-lg border bg-muted/40 p-0.5">
             <button
@@ -410,14 +435,15 @@ export function DealsView({ initialDeals }: { initialDeals: Deal[] }) {
 
       {view === "kanban" ? (
         <KanbanBoard
-          deals={deals}
+          deals={filteredDeals}
+          stages={kanbanStages}
           onStageChange={handleStageChange}
           onDelete={handleDelete}
           updatingId={updatingId}
         />
       ) : (
         <ListView
-          deals={deals}
+          deals={filteredDeals}
           onStageChange={handleStageChange}
           onDelete={handleDelete}
           updatingId={updatingId}

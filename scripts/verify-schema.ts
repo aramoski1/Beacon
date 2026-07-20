@@ -130,6 +130,7 @@ const EXPECTED: TableSpec[] = [
       { col: "next_action_due",      from: "migrate-deals.ts" },
       { col: "created_at",           from: "migrate-deals.ts" },
       { col: "updated_at",           from: "migrate-deals.ts" },
+      { col: "deal_type",            from: "migrate-deal-type.ts" },
     ],
   },
   {

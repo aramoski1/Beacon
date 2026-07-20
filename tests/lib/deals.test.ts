@@ -9,6 +9,7 @@ import {
   DEAL_STAGES,
   ACTIVE_STAGES,
   TERMINAL_STAGES,
+  stagesForDealType,
   type Deal,
 } from "@/lib/deals";
 
@@ -20,6 +21,7 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
     owner_id: "user-1",
     name: "Test Deal",
     stage: "prospect",
+    deal_type: "tenant_rep",
     contact_id: null,
     property_id: null,
     estimated_commission: null,
@@ -69,11 +71,30 @@ describe("validateCreateDeal", () => {
     expect(errors.some((e) => e.field === "stage")).toBe(true);
   });
 
-  it("accepts all valid stages", () => {
+  it("accepts all valid stages for tenant_rep", () => {
     for (const stage of DEAL_STAGES) {
-      const errors = validateCreateDeal({ name: "Deal", stage });
+      if (stage === "under_contract") continue; // not in tenant_rep set
+      const errors = validateCreateDeal({ name: "Deal", stage, deal_type: "tenant_rep" });
       expect(errors.some((e) => e.field === "stage")).toBe(false);
     }
+  });
+
+  it("rejects requirement stage for listing deals", () => {
+    const errors = validateCreateDeal({
+      name: "Deal",
+      stage: "requirement",
+      deal_type: "listing",
+    });
+    expect(errors.some((e) => e.field === "stage")).toBe(true);
+  });
+
+  it("accepts under_contract for investment_sale", () => {
+    const errors = validateCreateDeal({
+      name: "Deal",
+      stage: "under_contract",
+      deal_type: "investment_sale",
+    });
+    expect(errors.some((e) => e.field === "stage")).toBe(false);
   });
 
   it("rejects negative commission", () => {
@@ -149,10 +170,23 @@ describe("nextStage", () => {
     expect(nextStage("lost")).toBeNull();
   });
 
-  it("covers all consecutive stage transitions", () => {
+  it("covers all consecutive stage transitions for full set", () => {
     for (let i = 0; i < DEAL_STAGES.length - 1; i++) {
       expect(nextStage(DEAL_STAGES[i])).toBe(DEAL_STAGES[i + 1]);
     }
+  });
+
+  it("skips requirement for listing deals", () => {
+    expect(nextStage("meeting", "listing")).toBe("proposal");
+    expect(nextStage("proposal", "listing")).toBe("under_contract");
+  });
+});
+
+describe("stagesForDealType", () => {
+  it("includes requirement only for tenant_rep", () => {
+    expect(stagesForDealType("tenant_rep")).toContain("requirement");
+    expect(stagesForDealType("listing")).not.toContain("requirement");
+    expect(stagesForDealType("investment_sale")).toContain("under_contract");
   });
 });
 

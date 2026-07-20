@@ -132,6 +132,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-contact-properties.ts",
     description: "Contact↔property join table replacing soft linked_properties UUID[] (with backfill)",
   },
+  {
+    file: "migrate-deal-type.ts",
+    description: "Deals — deal_type column (tenant_rep / listing / investment_sale)",
+  },
 ];
 
 const hr = "─".repeat(60);

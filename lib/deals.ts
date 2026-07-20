@@ -1,5 +1,14 @@
 /** Pure types, validation, and helpers for the deals/pursuit pipeline. */
 
+export const DEAL_TYPES = ["tenant_rep", "listing", "investment_sale"] as const;
+export type DealType = (typeof DEAL_TYPES)[number];
+
+export const DEAL_TYPE_LABELS: Record<DealType, string> = {
+  tenant_rep: "Tenant rep",
+  listing: "Listing",
+  investment_sale: "Investment sale",
+};
+
 export const DEAL_STAGES = [
   "prospect",
   "contacted",
@@ -26,6 +35,56 @@ export const STAGE_LABELS: Record<DealStage, string> = {
   lost: "Lost",
 };
 
+/** Ordered stage set appropriate to each deal type (kanban columns). */
+export const STAGES_BY_DEAL_TYPE: Record<DealType, readonly DealStage[]> = {
+  tenant_rep: [
+    "prospect",
+    "contacted",
+    "meeting",
+    "requirement",
+    "proposal",
+    "won",
+    "closed",
+    "lost",
+  ],
+  listing: [
+    "prospect",
+    "contacted",
+    "meeting",
+    "proposal",
+    "under_contract",
+    "closed",
+    "lost",
+  ],
+  investment_sale: [
+    "prospect",
+    "contacted",
+    "meeting",
+    "proposal",
+    "under_contract",
+    "closed",
+    "lost",
+  ],
+};
+
+export function stagesForDealType(dealType: DealType | null | undefined): readonly DealStage[] {
+  if (dealType && dealType in STAGES_BY_DEAL_TYPE) {
+    return STAGES_BY_DEAL_TYPE[dealType];
+  }
+  return DEAL_STAGES;
+}
+
+export function isStageAllowedForType(
+  stage: DealStage,
+  dealType: DealType | null | undefined,
+): boolean {
+  return (stagesForDealType(dealType) as readonly string[]).includes(stage);
+}
+
+export function defaultStageForType(dealType: DealType): DealStage {
+  return stagesForDealType(dealType)[0] ?? "prospect";
+}
+
 export const TERMINAL_STAGES: readonly DealStage[] = ["won", "under_contract", "closed", "lost"];
 export const ACTIVE_STAGES: DealStage[] = DEAL_STAGES.filter(
   (s) => !TERMINAL_STAGES.includes(s)
@@ -48,6 +107,7 @@ export type Deal = {
   owner_id: string;
   name: string;
   stage: DealStage;
+  deal_type: DealType;
   contact_id: string | null;
   property_id: string | null;
   estimated_commission: number | null;
@@ -63,6 +123,7 @@ export type Deal = {
 export type CreateDealInput = {
   name: string;
   stage?: DealStage;
+  deal_type?: DealType;
   contact_id?: string | null;
   property_id?: string | null;
   estimated_commission?: number | null;
@@ -81,8 +142,16 @@ export function validateCreateDeal(input: Partial<CreateDealInput>): ValidationE
   } else if (name.length > 200) {
     errors.push({ field: "name", message: "Deal name must be 200 characters or fewer." });
   }
-  if (input.stage != null && !(DEAL_STAGES as readonly string[]).includes(input.stage)) {
-    errors.push({ field: "stage", message: "Invalid stage." });
+  const dealType = input.deal_type ?? "tenant_rep";
+  if (!(DEAL_TYPES as readonly string[]).includes(dealType)) {
+    errors.push({ field: "deal_type", message: "Invalid deal type." });
+  }
+  if (input.stage != null) {
+    if (!(DEAL_STAGES as readonly string[]).includes(input.stage)) {
+      errors.push({ field: "stage", message: "Invalid stage." });
+    } else if (!isStageAllowedForType(input.stage, dealType)) {
+      errors.push({ field: "stage", message: "Stage is not used for this deal type." });
+    }
   }
   if (
     input.estimated_commission != null &&
@@ -93,14 +162,22 @@ export function validateCreateDeal(input: Partial<CreateDealInput>): ValidationE
   return errors;
 }
 
-export function nextStage(stage: DealStage): DealStage | null {
-  const idx = DEAL_STAGES.indexOf(stage);
-  return idx >= 0 && idx < DEAL_STAGES.length - 1 ? DEAL_STAGES[idx + 1] : null;
+export function nextStage(
+  stage: DealStage,
+  dealType?: DealType | null,
+): DealStage | null {
+  const stages = stagesForDealType(dealType);
+  const idx = stages.indexOf(stage);
+  return idx >= 0 && idx < stages.length - 1 ? stages[idx + 1] : null;
 }
 
-export function prevStage(stage: DealStage): DealStage | null {
-  const idx = DEAL_STAGES.indexOf(stage);
-  return idx > 0 ? DEAL_STAGES[idx - 1] : null;
+export function prevStage(
+  stage: DealStage,
+  dealType?: DealType | null,
+): DealStage | null {
+  const stages = stagesForDealType(dealType);
+  const idx = stages.indexOf(stage);
+  return idx > 0 ? stages[idx - 1] : null;
 }
 
 export function isDealStale(deal: Deal, staleDays = 14): boolean {

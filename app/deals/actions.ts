@@ -72,6 +72,7 @@ export async function createDeal(
     .insert({
       owner_id: user.id,
       name: input.name.trim(),
+      deal_type: input.deal_type ?? "tenant_rep",
       stage: input.stage ?? "prospect",
       contact_id: input.contact_id ?? null,
       property_id: input.property_id ?? null,
