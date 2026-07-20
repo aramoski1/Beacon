@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type LogActivityInput = {
-  contact_id: string;
+  contact_id?: string | null;
   property_id?: string | null;
   activity_type: "letter" | "email" | "call" | "note" | "meeting";
   activity_date?: string;

@@ -45,6 +45,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     description: "Activities — activities table with RLS (contact + property touch-point log)",
   },
   {
+    file: "migrate-activities-nullable-contact.ts",
+    description: "Activities — make contact_id nullable; add CHECK (contact_id OR property_id NOT NULL)",
+  },
+  {
     file: "migrate-contact-type.ts",
     description: "Contacts — contact_type column (owner / tenant / other)",
   },

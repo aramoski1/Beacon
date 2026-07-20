@@ -59,8 +59,6 @@ export function PropertyActivitySection({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const hasContacts = linkedContacts.length > 0;
-
   const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
     .toISOString()
     .slice(0, 16);
@@ -69,13 +67,11 @@ export function PropertyActivitySection({
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
-    const contact_id = fd.get("contact_id") as string;
+    const contact_id = (fd.get("contact_id") as string) || null;
     const activity_type = fd.get("activity_type") as ActivityType;
     const rawDate = fd.get("activity_date") as string;
     const notes = (fd.get("notes") as string)?.trim() || null;
     const form = e.currentTarget;
-
-    if (!contact_id) { setError("Select a contact."); return; }
 
     const activity_date = rawDate
       ? new Date(rawDate).toISOString()
@@ -103,8 +99,12 @@ export function PropertyActivitySection({
         ...prev,
       ]);
       form.reset();
-      setNudgeContactId(contact_id);
-      setPhase("nudging");
+      if (contact_id) {
+        setNudgeContactId(contact_id);
+        setPhase("nudging");
+      } else {
+        setPhase("idle");
+      }
     });
   }
 
@@ -114,7 +114,7 @@ export function PropertyActivitySection({
   // ─── Build unified timeline ─────────────────────────────────────────────────
 
   const actEvents: ActivityEvent[] = activities.map((a) => {
-    const contact = linkedContacts.find((c) => c.id === a.contact_id);
+    const contact = a.contact_id ? linkedContacts.find((c) => c.id === a.contact_id) : null;
     return {
       kind: "activity",
       id: a.id,
@@ -148,7 +148,7 @@ export function PropertyActivitySection({
             </span>
           )}
         </CardTitle>
-        {hasContacts && phase !== "nudging" && (
+        {phase !== "nudging" && (
           <button
             onClick={() => { setPhase(phase === "logging" ? "idle" : "logging"); setError(null); }}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -163,35 +163,30 @@ export function PropertyActivitySection({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!hasContacts && (
-          <p className="text-sm text-muted-foreground">
-            Add a contact to this property to log activities.
-          </p>
-        )}
-
         {/* Log form */}
-        {phase === "logging" && hasContacts && (
+        {phase === "logging" && (
           <form
             onSubmit={handleSubmit}
             className="rounded-lg border p-4 space-y-3 bg-muted/10"
           >
             <p className="text-sm font-medium">Log activity</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Contact</label>
-                <select
-                  name="contact_id"
-                  required
-                  disabled={isPending}
-                  defaultValue={linkedContacts[0]?.id ?? ""}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background"
-                >
-                  <option value="">— Select contact —</option>
-                  {linkedContacts.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name ?? "Unknown"}</option>
-                  ))}
-                </select>
-              </div>
+              {linkedContacts.length > 0 && (
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-xs font-medium text-muted-foreground">Contact (optional)</label>
+                  <select
+                    name="contact_id"
+                    disabled={isPending}
+                    defaultValue=""
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background"
+                  >
+                    <option value="">— No contact (property only) —</option>
+                    {linkedContacts.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name ?? "Unknown"}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Type</label>
                 <select
@@ -206,7 +201,7 @@ export function PropertyActivitySection({
                   ))}
                 </select>
               </div>
-              <div className="space-y-1 sm:col-span-2">
+              <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Date & time</label>
                 <input
                   type="datetime-local"
@@ -266,7 +261,11 @@ export function PropertyActivitySection({
         )}
 
         {/* Unified chronological timeline */}
-        {hasContacts && <ActivityTimeline events={allEvents} />}
+        {allEvents.length > 0 && <ActivityTimeline events={allEvents} />}
+
+        {allEvents.length === 0 && phase !== "logging" && (
+          <p className="text-sm text-muted-foreground">No activity yet.</p>
+        )}
       </CardContent>
     </Card>
   );

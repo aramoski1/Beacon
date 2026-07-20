@@ -8,7 +8,7 @@ const VALID_ACTIVITY_TYPES: ActivityType[] = ["letter", "email", "call", "note",
 
 export type Activity = {
   id: string;
-  contact_id: string;
+  contact_id: string | null;
   property_id: string | null;
   activity_type: ActivityType;
   activity_date: string;
@@ -17,7 +17,7 @@ export type Activity = {
 };
 
 export async function createActivity(params: {
-  contact_id: string;
+  contact_id?: string | null;
   property_id?: string | null;
   activity_type: ActivityType;
   activity_date?: string | null;
@@ -33,16 +33,23 @@ export async function createActivity(params: {
     return { error: "Invalid activity type." };
   }
 
-  // Verify contact belongs to this user before inserting
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("id")
-    .eq("id", params.contact_id)
-    .eq("owner_id", user.id)
-    .single();
-  if (!contact) return { error: "Contact not found." };
+  // Must link to at least a contact or a property
+  if (!params.contact_id && !params.property_id) {
+    return { error: "An activity must be linked to a contact, a property, or both." };
+  }
 
-  // If a property is supplied, verify it belongs to this user
+  // Verify contact belongs to this user (when provided)
+  if (params.contact_id) {
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("id", params.contact_id)
+      .eq("owner_id", user.id)
+      .single();
+    if (!contact) return { error: "Contact not found." };
+  }
+
+  // Verify property belongs to this user (when provided)
   if (params.property_id) {
     const { data: property } = await supabase
       .from("properties")
@@ -57,7 +64,7 @@ export async function createActivity(params: {
     .from("activities")
     .insert({
       owner_id: user.id,
-      contact_id: params.contact_id,
+      contact_id: params.contact_id ?? null,
       property_id: params.property_id ?? null,
       activity_type: params.activity_type,
       activity_date: params.activity_date ?? new Date().toISOString(),
