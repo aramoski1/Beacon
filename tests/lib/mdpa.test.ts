@@ -144,6 +144,14 @@ describe("parseAddressForGIS", () => {
     expect(parseAddressForGIS("Biscayne Blvd")).toBeNull();
   });
 
+  it("returns null when house number is missing but city is present", () => {
+    expect(parseAddressForGIS("Brickell Ave, Miami FL")).toBeNull();
+  });
+
+  it("returns null when address starts with a street name (no house #)", () => {
+    expect(parseAddressForGIS("NW 12 Ave")).toBeNull();
+  });
+
   it("returns null for an empty string", () => {
     expect(parseAddressForGIS("")).toBeNull();
   });
