@@ -13,6 +13,10 @@ import {
   type OutreachTemplate,
 } from "./actions";
 import { composeUrl, isWebCompose, type EmailProviderSetting } from "@/lib/email-provider";
+import {
+  OUTREACH_CHUNK_SIZE,
+  planOutreachBatches,
+} from "@/lib/outreach-chunks";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,7 +53,7 @@ const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] 
 
 type ListMode = "due" | "all" | "selection";
 
-const MAX_BATCH = 25;
+const CHUNK_SIZE = OUTREACH_CHUNK_SIZE;
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -82,6 +86,10 @@ export default function OutreachView({
   const [editedBodies, setEditedBodies] = useState<Record<string, string>>({});
 
   const [template, setTemplate] = useState<OutreachTemplate>("check-in");
+
+  // Chunked batch: when >10 selected, generate/review in batches of 10
+  const [batchQueue, setBatchQueue] = useState<string[][]>([]);
+  const [batchIndex, setBatchIndex] = useState(0);
 
   // ── Safety gates ───────────────────────────────────────────────────────────
   const [testMode, setTestMode] = useState(false);
@@ -165,17 +173,12 @@ export default function OutreachView({
     setSelected(new Set(overdueInList.map((c) => c.id)));
   }
 
-  async function handleGenerate() {
-    if (selected.size === 0) return;
-    if (selected.size > MAX_BATCH) {
-      setError(`Select up to ${MAX_BATCH} contacts at once. Deselect some, then generate.`);
-      return;
-    }
+  async function generateForIds(ids: string[]) {
     setGenerating(true);
     setError(null);
     setStep("review");
 
-    const result = await generateDrafts([...selected], brokerContext, template);
+    const result = await generateDrafts(ids, brokerContext, template);
     setGenerating(false);
 
     if (result.error) {
@@ -198,6 +201,21 @@ export default function OutreachView({
     setSentIds(new Set());
     setConfirmingMarkAll(false);
     setTestMode(false);
+  }
+
+  async function handleGenerate() {
+    if (selected.size === 0) return;
+    const plan = planOutreachBatches([...selected], CHUNK_SIZE);
+    setBatchQueue(plan.chunks);
+    setBatchIndex(0);
+    await generateForIds(plan.chunks[0] ?? []);
+  }
+
+  async function handleNextBatch() {
+    const next = batchIndex + 1;
+    if (next >= batchQueue.length) return;
+    setBatchIndex(next);
+    await generateForIds(batchQueue[next] ?? []);
   }
 
   // Logs outreach in the DB — does NOT send email.
@@ -407,7 +425,7 @@ export default function OutreachView({
                 </button>
               )}
               <span className="text-xs text-muted-foreground">
-                Max {MAX_BATCH} drafts per generate — each opens as its own email.
+                Drafts generate in batches of {CHUNK_SIZE} — one personalized email per contact.
               </span>
             </div>
 
@@ -448,18 +466,25 @@ export default function OutreachView({
           <div className="fixed bottom-0 left-52 right-0 border-t bg-background/95 backdrop-blur px-6 py-4 flex items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">
               {selected.size} contact{selected.size !== 1 ? "s" : ""} selected
-              {selected.size > MAX_BATCH && (
-                <span className="text-destructive"> — max {MAX_BATCH} at once</span>
+              {selected.size > CHUNK_SIZE && (
+                <span>
+                  {" "}
+                  — will generate in {Math.ceil(selected.size / CHUNK_SIZE)} batches of up to{" "}
+                  {CHUNK_SIZE}
+                </span>
               )}
             </p>
             <button
               onClick={handleGenerate}
-              disabled={selected.size > MAX_BATCH || generating}
+              disabled={generating}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               <Zap className="size-4" />
-              Generate drafts for {Math.min(selected.size, MAX_BATCH)} contact
-              {Math.min(selected.size, MAX_BATCH) !== 1 ? "s" : ""} →
+              Generate drafts
+              {selected.size > CHUNK_SIZE
+                ? ` (batch 1 of ${Math.ceil(selected.size / CHUNK_SIZE)})`
+                : ` for ${selected.size}`}{" "}
+              →
             </button>
           </div>
         )}
@@ -501,6 +526,36 @@ export default function OutreachView({
           {testMode ? "Test mode ON" : "Test mode"}
         </button>
       </div>
+
+      {batchQueue.length > 1 && (
+        <div className="rounded-lg border bg-muted/30 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+          <p className="text-muted-foreground">
+            Batch{" "}
+            <span className="font-medium text-foreground">
+              {batchIndex + 1} of {batchQueue.length}
+            </span>
+            {" "}
+            ({drafts.length} draft{drafts.length !== 1 ? "s" : ""} this batch · one email per contact)
+          </p>
+          {batchIndex + 1 < batchQueue.length && (
+            <button
+              type="button"
+              onClick={handleNextBatch}
+              disabled={generating}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>Next batch ({batchQueue[batchIndex + 1]?.length ?? 0}) →</>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* How this works — always visible on review step */}
       <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground space-y-1">
