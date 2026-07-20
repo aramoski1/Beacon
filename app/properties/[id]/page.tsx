@@ -28,6 +28,8 @@ import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerNa
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { getUserSettings } from "@/app/settings/actions";
+import { Suspense } from "react";
+import { TaxRollCompsSection } from "./tax-roll-comps";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -343,6 +345,21 @@ export default async function PropertyPage({
         initialOwnerContacts={storedOwnerContacts}
         costarEnabled={userSettings.costar_enabled}
       />
+
+      <Suspense
+        fallback={
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold">Tax-roll comps</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">Loading nearby tax-roll sales…</p>
+            </CardContent>
+          </Card>
+        }
+      >
+        <TaxRollCompsSection sourceUrl={p.source_url} address={p.address} />
+      </Suspense>
 
       {/* Uncertain / ambiguous fields — yellow */}
       {uncertainFlags.length > 0 && (
