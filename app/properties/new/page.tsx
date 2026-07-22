@@ -787,7 +787,7 @@ function AddPropertyInner() {
                   <Input id="address" name="address" type="text" placeholder="3401 N Miami Ave"
                     autoComplete="off" required disabled={isPending} className="pl-9" />
                 </div>
-                <p className="text-xs text-muted-foreground">Miami-Dade: street number + name only. Broward: include city (e.g. "200 W Broward Blvd, Fort Lauderdale").</p>
+                <p className="text-xs text-muted-foreground">Street number + name only. Supports Miami-Dade and Broward County.</p>
               </div>
               {error && <ErrorBox msg={error} />}
               <Button type="submit" disabled={isPending} className="w-full">

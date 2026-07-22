@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
+import { searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
 import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
@@ -93,37 +93,41 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
   const address = (formData.get("address") as string | null)?.trim();
   if (!address) return { error: "Please enter an address." };
 
-  // Detect county from city suffix ("200 W Broward Blvd, Fort Lauderdale" → "broward")
-  const commaIdx = address.indexOf(",");
-  const rawCity = commaIdx !== -1
-    ? address.slice(commaIdx + 1).trim().replace(/\s+[A-Z]{2}\s*\d{5}.*$/, "").trim()
-    : null;
-  const county: SupportedCounty = (rawCity ? detectCounty(rawCity) : null) ?? "miami-dade";
+  // Search both counties in parallel — an address can only be in one county,
+  // so whichever finds results wins. City suffix hint is accepted but not required.
+  const [mdpaResult, bcpaResult] = await Promise.allSettled([
+    searchParcelsByAddress(address, "miami-dade"),
+    searchParcelsByAddress(address, "broward"),
+  ]);
 
-  let parcels;
-  try {
-    parcels = await searchParcelsByAddress(address, county);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    await logIngestionError(supabase, user.id, {
-      stage: "gis_fetch",
-      source_type: "address",
-      source_ref: address,
-      error_message: msg,
-    });
-    return { error: `Property search failed: ${msg}` };
-  }
+  const mdpaParcels = mdpaResult.status === "fulfilled" ? mdpaResult.value : [];
+  const bcpaParcels = bcpaResult.status === "fulfilled" ? bcpaResult.value : [];
 
-  if (parcels.length === 0) {
-    const countyName = county === "broward" ? "Broward County" : "Miami-Dade";
+  const matches = [
+    ...mdpaParcels.map((p) => ({ strap: p.strap, address: p.address, county: "miami-dade" as const })),
+    ...bcpaParcels.map((p) => ({ strap: p.strap, address: p.address, county: "broward" as const })),
+  ];
+
+  if (matches.length === 0) {
+    // Surface a useful error: if both threw, show the first error; if searches ran but returned nothing, give a generic message
+    const firstError = mdpaResult.status === "rejected" ? (mdpaResult.reason as Error).message
+      : bcpaResult.status === "rejected" ? (bcpaResult.reason as Error).message
+      : null;
+    if (firstError) {
+      await logIngestionError(supabase, user.id, {
+        stage: "gis_fetch",
+        source_type: "address",
+        source_ref: address,
+        error_message: firstError,
+      });
+      return { error: `Property search failed: ${firstError}` };
+    }
     return {
-      error: `No ${countyName} parcel found for that address. Double-check the street number and name. Include city (e.g. "Fort Lauderdale") to search Broward County.`,
+      error: "No parcel found for that address. Double-check the street number and name. This feature supports Miami-Dade and Broward County properties.",
     };
   }
 
-  return {
-    matches: parcels.map((p) => ({ strap: p.strap, address: p.address, county })),
-  };
+  return { matches };
 }
 
 // ─── Step 2: Extract ──────────────────────────────────────────────────────────

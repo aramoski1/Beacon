@@ -406,14 +406,30 @@ export async function initiateCountyEnhancement(
     return { error: "This property has no address to search." };
   }
 
-  const county: SupportedCounty = detectCounty(prop.city ?? "") ?? "miami-dade";
+  // Use city to pick the known county first; fall back to searching both.
+  const knownCounty = detectCounty(prop.city ?? "");
 
   try {
-    const parcels = await searchParcelsByAddress(prop.address.trim(), county);
+    const address = prop.address.trim();
+    let parcels;
+
+    if (knownCounty) {
+      parcels = await searchParcelsByAddress(address, knownCounty);
+    } else {
+      // Unknown city — search both counties in parallel and take whichever finds results
+      const [mdpaResult, bcpaResult] = await Promise.allSettled([
+        searchParcelsByAddress(address, "miami-dade"),
+        searchParcelsByAddress(address, "broward"),
+      ]);
+      parcels = [
+        ...(mdpaResult.status === "fulfilled" ? mdpaResult.value : []),
+        ...(bcpaResult.status === "fulfilled" ? bcpaResult.value : []),
+      ];
+    }
+
     if (parcels.length === 0) {
-      const countyName = county === "broward" ? "Broward County" : "Miami-Dade";
       return {
-        error: `No ${countyName} parcel found for this address. Verify the street number and name. This feature supports Miami-Dade and Broward County properties.`,
+        error: "No parcel found for this address. Verify the street number and name. This feature supports Miami-Dade and Broward County properties.",
       };
     }
     return { matches: parcels.map((p) => ({ strap: p.strap, address: p.address })) };
