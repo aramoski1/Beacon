@@ -2,7 +2,9 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
+import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
+import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
+import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -14,42 +16,93 @@ import { storedOwnerContactsFromSunbiz, mdpaIndividualOwnerContact } from "@/lib
 export type FolioMatch = {
   strap: string;
   address: string;
+  county: SupportedCounty;
 };
 
 export type PropertyPreview = ExtractedProperty & {
-  // MDPA-canonical values — override what Claude might extract from the JSON
   address: string;
   city: string;
   strap: string;
-  // Owner mailing address read directly from OwnerInfos[0] — not AI-extracted
+  county: SupportedCounty;
   owner_mailing_address: string | null;
-  // Auto Sunbiz lookup result (entity owners only; null if not an entity or lookup failed)
   sunbiz_result?: SunbizResult | null;
-  // Non-null when Sunbiz was attempted but failed — surfaces the reason in the UI
   sunbiz_error?: string | null;
 };
-
 
 export type IngestResult =
   | { error: string }
   | { matches: FolioMatch[] }
   | { preview: PropertyPreview };
 
-// ─── Step 1: Identify — always returns candidate list, never auto-extracts ────
+// ─── BCPA field-mapping helpers ───────────────────────────────────────────────
+
+function dorCodeToPropertyType(code: string | null): string {
+  if (!code) return "other";
+  const n = parseInt(code, 10);
+  if (n === 1) return "residential";
+  if ([3, 4, 8].includes(n)) return "multifamily";
+  if (n >= 20 && n <= 28) return "retail";
+  if (n >= 30 && n <= 39) return "office";
+  if (n >= 40 && n <= 49) return "industrial";
+  if (n >= 11 && n <= 18) return "land";
+  return "other";
+}
+
+function bcpaSaleDate(yr: number | null, mo: string | null): string | null {
+  if (!yr) return null;
+  return `${yr}-${String(mo ?? "01").padStart(2, "0")}-01`;
+}
+
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function bcpaToFields(rec: BCPARecord, customFields: Record<string, null> = {}): ExtractedProperty {
+  const dorCode = rec.DOR_UC ?? rec.PA_UC ?? null;
+  const ownerNorm = (rec.OWN_NAME ?? "").replace(/\./g, "");
+  const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
+  return {
+    address: rec.PHY_ADDR1 ?? null,
+    city: rec.PHY_CITY ? titleCase(rec.PHY_CITY) : null,
+    submarket: null,
+    owner_name: rec.OWN_NAME ?? null,
+    ownership_type: isEntity ? "institutional" : (rec.OWN_NAME ? "private" : "unknown"),
+    size_sqft: rec.TOT_LVG_AR ?? null,
+    property_type: dorCodeToPropertyType(dorCode),
+    last_sale_date: bcpaSaleDate(rec.SALE_YR1, rec.SALE_MO1),
+    last_sale_price: rec.SALE_PRC1 ?? null,
+    building_composition: {
+      year_built: rec.ACT_YR_BLT ?? rec.EFF_YR_BLT ?? null,
+      lot_size_sqft: rec.LND_SQFOOT ?? null,
+      assessed_value: rec.JV ?? null,
+      dor_code: dorCode ?? null,
+    },
+    confidence_flags: [],
+    custom_fields: customFields,
+  };
+}
+
+// ─── Step 1: Identify ─────────────────────────────────────────────────────────
+// Always returns the full candidate list — the broker must confirm before we fetch anything.
 
 export async function ingestAddress(formData: FormData): Promise<IngestResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const address = (formData.get("address") as string | null)?.trim();
   if (!address) return { error: "Please enter an address." };
 
+  // Detect county from city suffix ("200 W Broward Blvd, Fort Lauderdale" → "broward")
+  const commaIdx = address.indexOf(",");
+  const rawCity = commaIdx !== -1
+    ? address.slice(commaIdx + 1).trim().replace(/\s+[A-Z]{2}\s*\d{5}.*$/, "").trim()
+    : null;
+  const county: SupportedCounty = (rawCity ? detectCounty(rawCity) : null) ?? "miami-dade";
+
   let parcels;
   try {
-    parcels = await searchByAddressGIS(address);
+    parcels = await searchParcelsByAddress(address, county);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logIngestionError(supabase, user.id, {
@@ -58,43 +111,95 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
       source_ref: address,
       error_message: msg,
     });
-    return {
-      error: `Miami-Dade property search failed: ${msg}`,
-    };
+    return { error: `Property search failed: ${msg}` };
   }
 
   if (parcels.length === 0) {
+    const countyName = county === "broward" ? "Broward County" : "Miami-Dade";
     return {
-      error:
-        "No Miami-Dade parcel found for that address. Double-check the street number and name. This feature only supports Miami-Dade County properties.",
+      error: `No ${countyName} parcel found for that address. Double-check the street number and name. Include city (e.g. "Fort Lauderdale") to search Broward County.`,
     };
   }
 
-  // Always return the full candidate list — never auto-select, even for one result.
-  // The broker must confirm the folio before we fetch or extract anything.
   return {
-    matches: parcels.map((p) => ({
-      strap: p.strap,
-      address: p.address,
-    })),
+    matches: parcels.map((p) => ({ strap: p.strap, address: p.address, county })),
   };
 }
 
-// ─── Step 2: Extract — broker confirmed folio, now fetch + structure the record ──
+// ─── Step 2: Extract ──────────────────────────────────────────────────────────
+// Broker confirmed folio — fetch the full record and build a preview.
 
 export async function ingestChosenFolio(formData: FormData): Promise<IngestResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const strap         = formData.get("strap")         as string;
-  const siteAddress   = formData.get("siteAddress")   as string;
+  const strap       = formData.get("strap")       as string;
+  const siteAddress = formData.get("siteAddress") as string;
+  const county      = (formData.get("county") as SupportedCounty | null) ?? "miami-dade";
 
+  // ── Broward: BCPARecord maps directly — no Claude needed ─────────────────────
+  if (county === "broward") {
+    let rec: BCPARecord | null;
+    try {
+      rec = await bcpaDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await logIngestionError(supabase, user.id, {
+        stage: "bcpa_fetch",
+        source_type: "address",
+        source_ref: `${strap} (${siteAddress})`,
+        error_message: msg,
+      });
+      return { error: `BCPA detail fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: `No Broward parcel record found for folio ${strap}.` };
+
+    const customExtractDefs = (await fetchFieldDefs(supabase, "property")).filter(f => f.fill_mode === "extract");
+    const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
+    const fields = bcpaToFields(rec, nullCustom);
+
+    const ownerName = fields.owner_name?.trim() ?? "";
+    const ownerNorm = ownerName.replace(/\./g, "");
+    const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
+
+    let sunbiz_result: SunbizResult | null = null;
+    let sunbiz_error: string | null = null;
+    if (isEntity && ownerName) {
+      try {
+        const lookup = await searchAndExtractSunbiz(ownerName);
+        sunbiz_result = lookup.result;
+        if (!sunbiz_result) sunbiz_error = "No matching entity found on Sunbiz.";
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sunbiz_error = `Sunbiz lookup failed: ${msg}`;
+        await logIngestionError(supabase, user.id, {
+          stage: "sunbiz_search",
+          source_type: "address",
+          source_ref: ownerName,
+          error_message: `Auto Sunbiz: ${msg}`,
+        });
+      }
+    }
+
+    return {
+      preview: {
+        ...fields,
+        address: siteAddress,
+        city: rec.PHY_CITY ? titleCase(rec.PHY_CITY) : "Broward County",
+        strap,
+        county: "broward",
+        owner_mailing_address: bcpaExtractMailing(rec),
+        sunbiz_result,
+        sunbiz_error,
+      },
+    };
+  }
+
+  // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────────
   let detail: unknown;
   try {
-    detail = await getPropertyDetail(strap);
+    detail = await mdpaDetail(strap);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logIngestionError(supabase, user.id, {
@@ -103,14 +208,9 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
       source_ref: `${strap} (${siteAddress})`,
       error_message: msg,
     });
-    return {
-      error: `MDPA detail fetch failed: ${msg}`,
-    };
+    return { error: `MDPA detail fetch failed: ${msg}` };
   }
 
-  // Field-mapping notes tell Claude where each value lives in the MDPA JSON.
-  // These are facts about the MDPA schema, not free-form hints — Claude reads
-  // them as instructions for navigating the source record, not license to infer.
   const hint = `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
 Field locations in this record:
 - owner_name: OwnerInfos[0].Name (primary owner; ignore Owner2/Owner3)
@@ -143,11 +243,7 @@ STRICT RULES — violation is not permitted:
   let fields: ExtractedProperty;
   try {
     fields = await extractPropertyFields(
-      {
-        type: "text",
-        text: JSON.stringify(detail, null, 2),
-        hint,
-      },
+      { type: "text", text: JSON.stringify(detail, null, 2), hint },
       MDPA_SYSTEM_PROMPT,
       customExtractFields
     );
@@ -162,22 +258,16 @@ STRICT RULES — violation is not permitted:
     return { error: msg };
   }
 
-  // Auto Sunbiz: run for entity owners (LLC, INC, CORP, etc.) — non-blocking.
-  // A failed Sunbiz lookup never prevents the property preview from returning.
   let sunbiz_result: SunbizResult | null = null;
   let sunbiz_error: string | null = null;
   const ownerName = fields.owner_name?.trim() ?? "";
-  // Normalize before the entity check: MDPA sometimes stores "L.L.C." (with dots)
-  // instead of "LLC", so strip periods first to match either form.
   const ownerNorm = ownerName.replace(/\./g, "");
   const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
   if (isEntity && ownerName) {
     try {
       const lookup = await searchAndExtractSunbiz(ownerName);
       sunbiz_result = lookup.result;
-      if (!sunbiz_result) {
-        sunbiz_error = "No matching entity found on Sunbiz.";
-      }
+      if (!sunbiz_result) sunbiz_error = "No matching entity found on Sunbiz.";
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       sunbiz_error = `Sunbiz lookup failed: ${msg}`;
@@ -193,30 +283,27 @@ STRICT RULES — violation is not permitted:
   return {
     preview: {
       ...fields,
-      // MDPA canonical values take precedence over whatever the model extracted
       address: siteAddress,
       city: "Miami",
       strap,
-      owner_mailing_address: extractOwnerMailing(detail),
+      county: "miami-dade",
+      owner_mailing_address: mdpaExtractMailing(detail),
       sunbiz_result,
       sunbiz_error,
     },
   };
 }
 
-// ─── Broker confirmed — save to DB ────────────────────────────────────────────
+// ─── Save ─────────────────────────────────────────────────────────────────────
 
 export async function saveIngestedProperty(
   preview: PropertyPreview,
   selectedSunbizPersons?: SunbizPerson[]
 ): Promise<{ id: string } | { error: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // MDPA path always has a canonical address from GIS; guard against corrupt calls
   if (!preview.address?.trim()) {
     return { error: "Cannot save a property without an address." };
   }
@@ -225,6 +312,10 @@ export async function saveIngestedProperty(
     ? storedOwnerContactsFromSunbiz(selectedSunbizPersons)
     : mdpaIndividualOwnerContact(preview.owner_name, preview.owner_mailing_address);
 
+  const sourceUrl = preview.county === "broward"
+    ? `bcpa:${preview.strap}`
+    : `mdpa:${preview.strap}`;
+
   let id: string;
   try {
     id = await savePipelineProperty(
@@ -232,7 +323,7 @@ export async function saveIngestedProperty(
       user.id,
       preview,
       "tax_roll",
-      `mdpa:${preview.strap}`,
+      sourceUrl,
       {
         address: preview.address,
         city: preview.city,
@@ -245,7 +336,7 @@ export async function saveIngestedProperty(
     await logIngestionError(supabase, user.id, {
       stage: "db_save",
       source_type: "address",
-      source_ref: `mdpa:${preview.strap}`,
+      source_ref: sourceUrl,
       error_message: msg,
     });
     return { error: msg };

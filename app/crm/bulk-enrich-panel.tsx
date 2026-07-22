@@ -60,8 +60,8 @@ export function BulkEnrichPanel({
     for (const p of properties) {
       setResult(p.id, { tag: "running", step: "Initializing…" });
 
-      const isMdpa = p.source_url?.startsWith("mdpa:") ?? false;
-      const needsCounty = p.source !== "tax_roll" && !isMdpa;
+      const hasCountyData = (p.source_url?.startsWith("mdpa:") || p.source_url?.startsWith("bcpa:")) ?? false;
+      const needsCounty = p.source !== "tax_roll" && !hasCountyData;
       const isEntityOwner = isEntityOwnerName(p.owner_name);
 
       let countyFields = 0;

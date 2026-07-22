@@ -207,15 +207,21 @@ function AddressPreviewCard({
       <div className="rounded-lg border bg-muted/30 px-4 py-3 space-y-1">
         <div className="flex items-center gap-2 text-sm">
           <CheckCircle2 className="size-4 text-green-500 shrink-0" />
-          Structured from Miami-Dade Property Appraiser record.
+          {preview.county === "broward"
+            ? "Structured from Broward County Property Appraiser record."
+            : "Structured from Miami-Dade Property Appraiser record."}
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground pl-6 flex-wrap">
           <span>Folio: <span className="font-mono text-foreground">{preview.strap}</span></span>
-          <span>·</span>
-          <a href="https://www.miamidade.gov/Apps/PA/propertysearch/#/" target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground">
-            Verify on MDPA <ExternalLink className="size-3" />
-          </a>
+          {preview.county !== "broward" && (
+            <>
+              <span>·</span>
+              <a href="https://www.miamidade.gov/Apps/PA/propertysearch/#/" target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground">
+                Verify on MDPA <ExternalLink className="size-3" />
+              </a>
+            </>
+          )}
         </div>
       </div>
 
@@ -634,6 +640,7 @@ function AddPropertyInner() {
       const fd = new FormData();
       fd.set("strap", match.strap);
       fd.set("siteAddress", match.address);
+      fd.set("county", match.county);
       const result = await ingestChosenFolio(fd);
       if ("error" in result) {
         setAddrStep(
@@ -743,7 +750,7 @@ function AddPropertyInner() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Add property</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Look up by Miami-Dade address, import from a listing URL, or upload a file.
+          Look up by address, import from a listing URL, or upload a file.
         </p>
       </div>
 
@@ -780,13 +787,13 @@ function AddPropertyInner() {
                   <Input id="address" name="address" type="text" placeholder="3401 N Miami Ave"
                     autoComplete="off" required disabled={isPending} className="pl-9" />
                 </div>
-                <p className="text-xs text-muted-foreground">Street number + name only — skip city, state, and zip.</p>
+                <p className="text-xs text-muted-foreground">Miami-Dade: street number + name only. Broward: include city (e.g. "200 W Broward Blvd, Fort Lauderdale").</p>
               </div>
               {error && <ErrorBox msg={error} />}
               <Button type="submit" disabled={isPending} className="w-full">
                 {isPending
                   ? <><Loader2 className="animate-spin" />Searching…</>
-                  : <><Building2 />Search Miami-Dade property records</>}
+                  : <><Building2 />Search property records</>}
               </Button>
             </form>
           )}

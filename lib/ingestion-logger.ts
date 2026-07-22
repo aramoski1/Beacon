@@ -7,8 +7,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureException } from "@/lib/error-reporter";
 
 export type IngestionStage =
-  | "gis_fetch"      // Miami-Dade GIS address search
+  | "gis_fetch"      // County GIS address search
   | "mdpa_fetch"     // MDPA folio detail lookup
+  | "bcpa_fetch"     // BCPA folio detail lookup (Florida DOR statewide service)
   | "jina_fetch"     // Jina Reader web page fetch
   | "ai_extract"     // Claude field extraction
   | "db_save"        // Supabase upsert

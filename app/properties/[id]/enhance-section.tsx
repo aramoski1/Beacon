@@ -125,8 +125,8 @@ export function CountyEnhanceContent({
     return (
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Look up this property on Miami-Dade&rsquo;s public records to fill in authoritative owner,
-          sale, and building data.
+          Look up this property on the county property appraiser&rsquo;s records to fill in
+          authoritative owner, sale, and building data.
         </p>
         <Button
           size="sm"
@@ -145,8 +145,8 @@ export function CountyEnhanceContent({
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
         <Loader2 className="size-4 animate-spin shrink-0" />
-        {phase.tag === "searching" && "Searching Miami-Dade county records…"}
-        {phase.tag === "loading_preview" && "Fetching MDPA detail, extracting fields, and searching Sunbiz…"}
+        {phase.tag === "searching" && "Searching county records…"}
+        {phase.tag === "loading_preview" && "Fetching county detail, extracting fields, and searching Sunbiz…"}
         {phase.tag === "saving" && "Saving county data…"}
       </div>
     );
@@ -219,7 +219,9 @@ export function CountyEnhanceContent({
                   <tr className="border-b bg-muted/30">
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground w-1/4">Field</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">Current</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">County (MDPA)</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">
+                      County ({preview.county === "broward" ? "BCPA" : "MDPA"})
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -361,7 +363,7 @@ export function CountyEnhanceContent({
           <span>
             {phase.changesCount === 0
               ? "County data matched existing values — no changes made."
-              : `${phase.changesCount} field${phase.changesCount !== 1 ? "s" : ""} updated with authoritative Miami-Dade county data.`}
+              : `${phase.changesCount} field${phase.changesCount !== 1 ? "s" : ""} updated with authoritative county data.`}
           </span>
         </div>
         {phase.ownerContactsSaved > 0 && (

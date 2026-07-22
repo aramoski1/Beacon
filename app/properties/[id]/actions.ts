@@ -11,6 +11,8 @@ import {
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFileContent } from "@/lib/costar";
 import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
+import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
+import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
@@ -347,12 +349,37 @@ export type EnhancementDiffEntry = {
 export type EnhancementPreview = {
   strap: string;
   siteAddress: string;
+  county: SupportedCounty;
   changes: EnhancementDiffEntry[];
   unchanged: EnhancementDiffEntry[];
   mdpaData: MdpaEnhancementData;
   sunbiz_result: import("@/lib/sunbiz").SunbizResult | null;
   sunbiz_error: string | null;
 };
+
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
+// County detection from strap length: Broward folios are 12 digits, Miami-Dade 13.
+function countyFromStrap(strap: string): SupportedCounty {
+  return strap.replace(/-/g, "").length === 12 ? "broward" : "miami-dade";
+}
+
+function dorCodeToPropertyType(code: string | null): string {
+  if (!code) return "other";
+  const n = parseInt(code, 10);
+  if (n === 1) return "residential";
+  if ([3, 4, 8].includes(n)) return "multifamily";
+  if (n >= 20 && n <= 28) return "retail";
+  if (n >= 30 && n <= 39) return "office";
+  if (n >= 40 && n <= 49) return "industrial";
+  if (n >= 11 && n <= 18) return "land";
+  return "other";
+}
+
+function bcpaSaleDate(yr: number | null, mo: string | null): string | null {
+  if (!yr) return null;
+  return `${yr}-${String(mo ?? "01").padStart(2, "0")}-01`;
+}
 
 // Step 1: GIS address search for an existing property
 export async function initiateCountyEnhancement(
@@ -364,37 +391,39 @@ export async function initiateCountyEnhancement(
 
   const { data: prop } = await supabase
     .from("properties")
-    .select("address, source, source_url")
+    .select("address, city, source, source_url")
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
   if (!prop) return { error: "Property not found." };
   if (prop.source === "tax_roll") {
-    return { error: "This property is already sourced from the Miami-Dade Property Appraiser." };
+    return { error: "This property is already sourced from the county property appraiser." };
   }
-  if (prop.source_url?.startsWith("mdpa:")) {
+  if (prop.source_url?.startsWith("mdpa:") || prop.source_url?.startsWith("bcpa:")) {
     return { error: "This property has already been enhanced with county data." };
   }
   if (!prop.address?.trim()) {
     return { error: "This property has no address to search." };
   }
 
+  const county: SupportedCounty = detectCounty(prop.city ?? "") ?? "miami-dade";
+
   try {
-    const parcels = await searchByAddressGIS(prop.address.trim());
+    const parcels = await searchParcelsByAddress(prop.address.trim(), county);
     if (parcels.length === 0) {
+      const countyName = county === "broward" ? "Broward County" : "Miami-Dade";
       return {
-        error:
-          "No Miami-Dade parcel found for this address. Verify the street number and name. This feature only supports Miami-Dade County properties.",
+        error: `No ${countyName} parcel found for this address. Verify the street number and name. This feature supports Miami-Dade and Broward County properties.`,
       };
     }
     return { matches: parcels.map((p) => ({ strap: p.strap, address: p.address })) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { error: `Miami-Dade property search failed: ${msg}` };
+    return { error: `County property search failed: ${msg}` };
   }
 }
 
-// Step 2: Fetch MDPA detail, extract fields, compute before/after diff
+// Step 2: Fetch county detail, extract fields, compute before/after diff
 export async function previewCountyEnhancement(
   propertyId: string,
   strap: string,
@@ -414,15 +443,62 @@ export async function previewCountyEnhancement(
     .single();
   if (!existing) return { error: "Property not found." };
 
-  let detail: unknown;
-  try {
-    detail = await getPropertyDetail(strap);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { error: `MDPA detail fetch failed: ${msg}` };
-  }
+  const county = countyFromStrap(strap);
 
-  const hint = `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
+  function fmtN(n: number | null | undefined, opts?: Intl.NumberFormatOptions): string | null {
+    if (n == null) return null;
+    return n.toLocaleString("en-US", opts);
+  }
+  function fmtD(d: string | null | undefined): string | null {
+    if (!d) return null;
+    return new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  }
+  const existingBc = existing.building_composition as Record<string, unknown> | null;
+  const currency: Intl.NumberFormatOptions = { style: "currency", currency: "USD", maximumFractionDigits: 0 };
+
+  let mdpaData: MdpaEnhancementData;
+  let bc: Record<string, unknown> | null;
+
+  // ── Broward: BCPARecord maps directly — no Claude needed ─────────────────────
+  if (county === "broward") {
+    let rec: BCPARecord | null;
+    try {
+      rec = await bcpaDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `BCPA detail fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: `No Broward parcel record found for folio ${strap}.` };
+
+    const dorCode = rec.DOR_UC ?? rec.PA_UC ?? null;
+    bc = {
+      year_built: rec.ACT_YR_BLT ?? rec.EFF_YR_BLT ?? null,
+      lot_size_sqft: rec.LND_SQFOOT ?? null,
+      assessed_value: rec.JV ?? null,
+      dor_code: dorCode,
+      dor_description: dorCode ? `DOR ${dorCode} — ${dorCodeToPropertyType(dorCode)}` : null,
+    };
+    mdpaData = {
+      owner_name: rec.OWN_NAME ?? null,
+      size_sqft: rec.TOT_LVG_AR ?? null,
+      last_sale_date: bcpaSaleDate(rec.SALE_YR1, rec.SALE_MO1),
+      last_sale_price: rec.SALE_PRC1 ?? null,
+      building_composition: bc,
+      owner_mailing_address: bcpaExtractMailing(rec),
+      land_sqft: rec.LND_SQFOOT != null ? Math.round(rec.LND_SQFOOT) : null,
+      asset_description: dorCode ? `DOR ${dorCode} — ${dorCodeToPropertyType(dorCode)}` : null,
+    };
+  } else {
+    // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────
+    let detail: unknown;
+    try {
+      detail = await getPropertyDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `MDPA detail fetch failed: ${msg}` };
+    }
+
+    const hint = `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
 Field locations in this record:
 - owner_name: OwnerInfos[0].Name (primary owner; ignore Owner2/Owner3)
 - size_sqft: PropertyInfo.BuildingActualArea (rentable/building area — NOT LotSize)
@@ -436,7 +512,7 @@ Field locations in this record:
 - building_composition.legal_description: PropertyInfo.LegalDescription
 - submarket / geographic_category: not present in MDPA data — leave null`;
 
-  const MDPA_SYSTEM_PROMPT = `You are a data-structuring assistant. You receive a JSON record from the Miami-Dade County Property Appraiser API and must populate a structured schema using ONLY data that is explicitly present in that record.
+    const MDPA_SYSTEM_PROMPT = `You are a data-structuring assistant. You receive a JSON record from the Miami-Dade County Property Appraiser API and must populate a structured schema using ONLY data that is explicitly present in that record.
 
 STRICT RULES — violation is not permitted:
 1. Return a field value ONLY when it appears directly in the source JSON. Read it; do not compute or guess it.
@@ -447,45 +523,30 @@ STRICT RULES — violation is not permitted:
    a. ownership_type: derive from the literal owner name string in the source — presence of LLC / CORP / INC / TRUST / FUND / REIT → "institutional"; government keywords (CITY, COUNTY, STATE, GOVT) → "institutional"; individual human-style names → "private".
    b. property_type: derive from the numeric DORCode in the source using Florida DOR mappings: 01 = "residential"; 03/04/08 = "multifamily"; 20–28 = "retail"; 30–39 = "office"; 40–49 = "industrial"; 11–18 = "land". If DORCode is absent, return null and flag.`;
 
-  let fields: ExtractedProperty;
-  try {
-    fields = await extractPropertyFields(
-      { type: "text", text: JSON.stringify(detail, null, 2), hint },
-      MDPA_SYSTEM_PROMPT,
-      []
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { error: `AI extraction failed: ${msg}` };
+    let fields: ExtractedProperty;
+    try {
+      fields = await extractPropertyFields(
+        { type: "text", text: JSON.stringify(detail, null, 2), hint },
+        MDPA_SYSTEM_PROMPT,
+        []
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `AI extraction failed: ${msg}` };
+    }
+
+    bc = fields.building_composition as Record<string, unknown> | null;
+    mdpaData = {
+      owner_name: fields.owner_name,
+      size_sqft: fields.size_sqft,
+      last_sale_date: fields.last_sale_date || null,
+      last_sale_price: fields.last_sale_price ?? null,
+      building_composition: bc,
+      owner_mailing_address: extractOwnerMailing(detail),
+      land_sqft: bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null,
+      asset_description: (bc?.dor_description as string | null | undefined) ?? null,
+    };
   }
-
-  const owner_mailing_address = extractOwnerMailing(detail);
-  const bc = fields.building_composition;
-  const land_sqft = bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null;
-  const asset_description = (bc?.dor_description as string | null | undefined) ?? null;
-
-  const mdpaData: MdpaEnhancementData = {
-    owner_name: fields.owner_name,
-    size_sqft: fields.size_sqft,
-    last_sale_date: fields.last_sale_date || null,
-    last_sale_price: fields.last_sale_price ?? null,
-    building_composition: bc as Record<string, unknown> | null,
-    owner_mailing_address,
-    land_sqft,
-    asset_description,
-  };
-
-  function fmtN(n: number | null | undefined, opts?: Intl.NumberFormatOptions): string | null {
-    if (n == null) return null;
-    return n.toLocaleString("en-US", opts);
-  }
-  function fmtD(d: string | null | undefined): string | null {
-    if (!d) return null;
-    return new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-  }
-
-  const existingBc = existing.building_composition as Record<string, unknown> | null;
-  const currency: Intl.NumberFormatOptions = { style: "currency", currency: "USD", maximumFractionDigits: 0 };
 
   const allFields: EnhancementDiffEntry[] = [
     { field: "owner_name",             label: "Owner name",             before: existing.owner_name ?? null,                                 after: mdpaData.owner_name },
@@ -498,14 +559,14 @@ STRICT RULES — violation is not permitted:
     { field: "building_composition.year_built",     label: "Year built",      before: existingBc?.year_built != null     ? String(existingBc.year_built)     : null, after: bc?.year_built != null     ? String(bc.year_built)     : null },
     { field: "building_composition.stories",        label: "Stories",         before: existingBc?.stories != null        ? String(existingBc.stories)        : null, after: bc?.stories != null        ? String(bc.stories)        : null },
     { field: "building_composition.units",          label: "Units",           before: existingBc?.units != null          ? String(existingBc.units)          : null, after: bc?.units != null          ? String(bc.units)          : null },
-    { field: "building_composition.dor_code",       label: "DOR code",        before: (existingBc?.dor_code as string | null) ?? null,                             after: bc?.dor_code ?? null },
+    { field: "building_composition.dor_code",       label: "DOR code",        before: (existingBc?.dor_code as string | null) ?? null,                             after: (bc?.dor_code as string | null) ?? null },
     { field: "building_composition.assessed_value", label: "Assessed value",  before: fmtN(existingBc?.assessed_value as number | null, currency),               after: fmtN(bc?.assessed_value as number | null, currency) },
   ];
 
   const changes   = allFields.filter((f) => f.before !== f.after);
   const unchanged = allFields.filter((f) => f.before === f.after && (f.before !== null || f.after !== null));
 
-  // Auto Sunbiz: same logic as ingestChosenFolio — non-blocking, never prevents preview returning
+  // Auto Sunbiz — non-blocking, never prevents preview returning
   let sunbiz_result: import("@/lib/sunbiz").SunbizResult | null = null;
   let sunbiz_error: string | null = null;
   const ownerNorm = (mdpaData.owner_name ?? "").replace(/\./g, "");
@@ -520,7 +581,7 @@ STRICT RULES — violation is not permitted:
     }
   }
 
-  return { preview: { strap, siteAddress, changes, unchanged, mdpaData, sunbiz_result, sunbiz_error } };
+  return { preview: { strap, siteAddress, county, changes, unchanged, mdpaData, sunbiz_result, sunbiz_error } };
 }
 
 // ─── Ownership-change re-check ────────────────────────────────────────────────
@@ -549,31 +610,54 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
     .single();
   if (!prop) return { error: "Property not found." };
 
-  const strap = prop.source_url?.startsWith("mdpa:") ? (prop.source_url as string).replace("mdpa:", "") : null;
-  if (!strap) return { error: "No MDPA folio on record. Run county enhancement first." };
+  const sourceUrl = prop.source_url as string | null;
+  const strap = sourceUrl?.startsWith("mdpa:") ? sourceUrl.replace("mdpa:", "")
+    : sourceUrl?.startsWith("bcpa:") ? sourceUrl.replace("bcpa:", "")
+    : null;
+  if (!strap) return { error: "No county folio on record. Run county enhancement first." };
 
-  let detail: unknown;
-  try {
-    detail = await getPropertyDetail(strap);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { error: `MDPA fetch failed: ${msg}` };
+  const county = countyFromStrap(strap);
+  let newOwner: string | null;
+  let newSaleDate: string | null;
+
+  if (county === "broward") {
+    let rec: BCPARecord | null;
+    try {
+      rec = await bcpaDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `BCPA fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: "Broward parcel record not found." };
+    newOwner = rec.OWN_NAME?.trim() ?? null;
+    // BCPA only has year+month; compare year-month for change detection
+    newSaleDate = rec.SALE_YR1 ? `${rec.SALE_YR1}-${String(rec.SALE_MO1 ?? "01").padStart(2, "0")}-01` : null;
+  } else {
+    let detail: unknown;
+    try {
+      detail = await getPropertyDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `MDPA fetch failed: ${msg}` };
+    }
+    const raw = detail as {
+      OwnerInfos?: Array<{ Name?: string }>;
+      SalesInfos?: Array<{ SaleDate?: string }>;
+    };
+    newOwner = raw.OwnerInfos?.[0]?.Name?.trim() ?? null;
+    const latestSale = (raw.SalesInfos ?? [])
+      .filter((s) => s.SaleDate)
+      .sort((a, b) => new Date(b.SaleDate!).getTime() - new Date(a.SaleDate!).getTime())[0];
+    newSaleDate = latestSale?.SaleDate?.slice(0, 10) ?? null;
   }
-
-  const raw = detail as {
-    OwnerInfos?: Array<{ Name?: string }>;
-    SalesInfos?: Array<{ SaleDate?: string }>;
-  };
-
-  const newOwner = raw.OwnerInfos?.[0]?.Name?.trim() ?? null;
-  const latestSale = (raw.SalesInfos ?? [])
-    .filter((s) => s.SaleDate)
-    .sort((a, b) => new Date(b.SaleDate!).getTime() - new Date(a.SaleDate!).getTime())[0];
-  const newSaleDate = latestSale?.SaleDate?.slice(0, 10) ?? null;
 
   const norm = (s: string | null) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
   const ownerChanged = norm(prop.owner_name as string | null) !== norm(newOwner);
-  const saleChanged = (prop.last_sale_date as string | null)?.slice(0, 10) !== newSaleDate;
+  // For Broward, compare year-month only (no day in BCPA data)
+  const storedDate = (prop.last_sale_date as string | null) ?? null;
+  const saleChanged = county === "broward"
+    ? storedDate?.slice(0, 7) !== newSaleDate?.slice(0, 7)
+    : storedDate?.slice(0, 10) !== newSaleDate;
 
   if (!ownerChanged && !saleChanged) return { ok: true, changed: false };
 
@@ -642,7 +726,7 @@ export async function applyCountyEnhancement(
       owner_mailing_address: mdpaData.owner_mailing_address,
       land_sqft:             mdpaData.land_sqft,
       asset_description:     mdpaData.asset_description,
-      source_url:            `mdpa:${strap}`,
+      source_url:            countyFromStrap(strap) === "broward" ? `bcpa:${strap}` : `mdpa:${strap}`,
       confidence_flags:      remainingFlags,
       ingested_at:           new Date().toISOString(),
     })

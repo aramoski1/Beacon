@@ -371,7 +371,7 @@ export function EnrichPanel({
             {county.tag === "idle" && (
               <div className="flex items-center justify-between gap-4">
                 <p className="text-sm text-muted-foreground">
-                  Look up this property on Miami-Dade public records to fill in owner, sale, and building data.
+                  Look up this property on the county property appraiser&apos;s records to fill in owner, sale, and building data.
                 </p>
                 <Button
                   size="sm" variant="outline" onClick={handleCountyStart}
@@ -384,8 +384,8 @@ export function EnrichPanel({
 
             {(county.tag === "searching" || county.tag === "loading_preview" || county.tag === "saving") && (
               <Spinner label={
-                county.tag === "searching" ? "Searching Miami-Dade county records…" :
-                county.tag === "loading_preview" ? "Fetching MDPA detail, extracting fields, searching Sunbiz…" :
+                county.tag === "searching" ? "Searching county records…" :
+                county.tag === "loading_preview" ? "Fetching county detail, extracting fields, searching Sunbiz…" :
                 "Saving county data…"
               } />
             )}
@@ -437,7 +437,9 @@ export function EnrichPanel({
                             <tr className="border-b bg-muted/30">
                               <th className="text-left px-3 py-2 font-medium text-muted-foreground w-1/4">Field</th>
                               <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">Current</th>
-                              <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">County (MDPA)</th>
+                              <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">
+                                County ({preview.county === "broward" ? "BCPA" : "MDPA"})
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -565,7 +567,7 @@ export function EnrichPanel({
                   <span className="text-green-700">
                     {county.changesCount === 0
                       ? "County data matched existing values — no changes made."
-                      : `${county.changesCount} field${county.changesCount !== 1 ? "s" : ""} updated with Miami-Dade county data.`}
+                      : `${county.changesCount} field${county.changesCount !== 1 ? "s" : ""} updated with county data.`}
                   </span>
                   {county.ownerContactsSaved > 0 && (
                     <p className="text-xs text-muted-foreground mt-0.5">
