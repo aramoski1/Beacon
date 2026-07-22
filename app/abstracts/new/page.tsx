@@ -22,7 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   abstractLease,
   saveAbstractLease,
-  searchPropertiesForPicker,
+  getAllPropertiesForPicker,
   type LeasePreview,
   type AbstractResult,
 } from "./actions";
@@ -59,36 +59,32 @@ function PropertyPicker({
   onChange: (id: string | null, label: string | null) => void;
   initialSearch?: string | null;
 }) {
+  const [allProperties, setAllProperties] = useState<PropertyOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PropertyOption[]>([]);
-  const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function runSearch(q: string) {
-    if (!q.trim()) { setResults([]); setOpen(false); return; }
-    setSearching(true);
-    const r = await searchPropertiesForPicker(q);
-    setResults(r);
-    setSearching(false);
-    setOpen(r.length > 0);
-  }
-
-  // Auto-search on mount if premises_address was extracted
   useEffect(() => {
-    if (initialSearch && !value) {
-      setQuery(initialSearch);
-      runSearch(initialSearch);
-    }
+    getAllPropertiesForPicker().then((props) => {
+      setAllProperties(props);
+      setLoading(false);
+      // Auto-select when the lease's extracted address matches a property
+      if (initialSearch && !value) {
+        const q = initialSearch.toLowerCase();
+        const match = props.find((p) => p.address.toLowerCase().includes(q));
+        if (match) {
+          onChange(match.id, match.address + (match.city ? `, ${match.city}` : ""));
+        }
+      }
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSearch]);
+  }, []);
 
-  function handleInput(q: string) {
-    setQuery(q);
-    if (!q.trim()) { setResults([]); setOpen(false); return; }
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => runSearch(q), 250);
-  }
+  const filtered = query.trim()
+    ? allProperties.filter((p) =>
+        (p.address + (p.city ? ` ${p.city}` : "")).toLowerCase().includes(query.toLowerCase())
+      )
+    : allProperties;
 
   if (value && label) {
     return (
@@ -114,39 +110,39 @@ function PropertyPicker({
         <input
           type="text"
           value={query}
-          onChange={e => handleInput(e.target.value)}
-          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Search by address…"
-          className="w-full pl-8 pr-8 py-2 text-sm border border-border rounded-md outline-none focus:ring-2 ring-ring bg-background placeholder:text-muted-foreground/60"
+          placeholder={loading ? "Loading properties…" : `Search ${allProperties.length} properties…`}
+          disabled={loading}
+          className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md outline-none focus:ring-2 ring-ring bg-background placeholder:text-muted-foreground/60 disabled:opacity-60"
         />
-        {searching && (
+        {loading && (
           <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 animate-spin text-muted-foreground" />
         )}
       </div>
-      {open && results.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-background shadow-lg overflow-hidden">
-          {results.map((r, i) => (
+      {open && !loading && (
+        <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-background shadow-lg overflow-y-auto max-h-56">
+          {filtered.length > 0 ? filtered.map((r) => (
             <button
               key={r.id}
               type="button"
-              onMouseDown={e => e.preventDefault()}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                const lbl = r.address + (r.city ? `, ${r.city}` : "");
-                onChange(r.id, lbl);
+                onChange(r.id, r.address + (r.city ? `, ${r.city}` : ""));
                 setQuery("");
-                setResults([]);
                 setOpen(false);
               }}
               className="w-full text-left px-3 py-2 text-sm hover:bg-muted/60 transition-colors flex items-center gap-2"
             >
               <Building2 className="size-3.5 text-muted-foreground shrink-0" />
               <span className="truncate">{r.address}{r.city ? `, ${r.city}` : ""}</span>
-              {i === 0 && initialSearch && results.length === 1 && (
-                <Badge variant="secondary" className="text-[10px] ml-auto shrink-0">Suggested</Badge>
-              )}
             </button>
-          ))}
+          )) : (
+            <p className="px-3 py-2 text-sm text-muted-foreground">
+              No properties match &ldquo;{query}&rdquo;
+            </p>
+          )}
         </div>
       )}
     </div>

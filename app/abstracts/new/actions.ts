@@ -105,8 +105,26 @@ export type LeasePreview = {
 
 export type AbstractResult = { error: string } | { preview: LeasePreview };
 
-// ─── Property search (for linking during abstraction or orphan repair) ────────
+// ─── Property list for picker (all properties, client-side filtered) ─────────
 
+export async function getAllPropertiesForPicker(): Promise<
+  { id: string; address: string; city: string | null }[]
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data } = await supabase
+    .from("properties")
+    .select("id, address, city")
+    .eq("owner_id", user.id)
+    .order("address", { ascending: true })
+    .limit(1000);
+  return (data ?? []) as { id: string; address: string; city: string | null }[];
+}
+
+// Kept for any callers that still use server-side search
 export async function searchPropertiesForPicker(
   query: string,
 ): Promise<{ id: string; address: string; city: string | null }[]> {

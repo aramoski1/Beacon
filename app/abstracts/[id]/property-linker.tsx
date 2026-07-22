@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Loader2, Building2, X, Search, CheckCircle2 } from "lucide-react";
 import { setLeaseProperty } from "./actions";
-import { searchPropertiesForPicker } from "../new/actions";
+import { getAllPropertiesForPicker } from "../new/actions";
 
 type PropertyOption = {
   id: string;
@@ -20,26 +20,25 @@ export function PropertyLinker({
   currentProperty: PropertyOption | null;
 }) {
   const [linked, setLinked] = useState<PropertyOption | null>(currentProperty);
+  const [allProperties, setAllProperties] = useState<PropertyOption[]>([]);
+  const [loadingList, setLoadingList] = useState(true);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PropertyOption[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function handleInput(q: string) {
-    setQuery(q);
-    if (!q.trim()) { setResults([]); setOpen(false); return; }
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      setSearching(true);
-      const r = await searchPropertiesForPicker(q);
-      setResults(r);
-      setSearching(false);
-      setOpen(r.length > 0);
-    }, 250);
-  }
+  useEffect(() => {
+    getAllPropertiesForPicker().then((props) => {
+      setAllProperties(props);
+      setLoadingList(false);
+    });
+  }, []);
+
+  const filtered = query.trim()
+    ? allProperties.filter((p) =>
+        (p.address + (p.city ? ` ${p.city}` : "")).toLowerCase().includes(query.toLowerCase())
+      )
+    : allProperties;
 
   async function link(prop: PropertyOption | null) {
     setError(null);
@@ -49,7 +48,6 @@ export function PropertyLinker({
     if (res.error) { setError(res.error); return; }
     setLinked(prop);
     setQuery("");
-    setResults([]);
     setOpen(false);
   }
 
@@ -83,21 +81,29 @@ export function PropertyLinker({
           <input
             type="text"
             value={query}
-            onChange={e => handleInput(e.target.value)}
-            onFocus={() => { if (results.length > 0) setOpen(true); }}
-            placeholder="Search by address…"
-            className="w-full pl-8 pr-8 py-1.5 text-sm border border-border rounded-md outline-none focus:ring-2 ring-ring bg-background placeholder:text-muted-foreground/60"
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            placeholder={
+              loadingList
+                ? "Loading properties…"
+                : `Search ${allProperties.length} properties…`
+            }
+            disabled={loadingList || saving}
+            className="w-full pl-8 pr-8 py-1.5 text-sm border border-border rounded-md outline-none focus:ring-2 ring-ring bg-background placeholder:text-muted-foreground/60 disabled:opacity-60"
           />
-          {searching && (
+          {(loadingList || saving) && (
             <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 animate-spin text-muted-foreground" />
           )}
         </div>
-        {open && results.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-background shadow-md overflow-hidden">
-            {results.map(r => (
+
+        {open && !loadingList && (
+          <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-background shadow-md overflow-y-auto max-h-52">
+            {filtered.length > 0 ? filtered.map((r) => (
               <button
                 key={r.id}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => link(r)}
                 disabled={saving}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-muted/60 transition-colors flex items-center gap-2 disabled:opacity-50"
@@ -105,7 +111,11 @@ export function PropertyLinker({
                 <Building2 className="size-3.5 text-muted-foreground shrink-0" />
                 <span className="truncate">{r.address}{r.city ? `, ${r.city}` : ""}</span>
               </button>
-            ))}
+            )) : (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                No properties match &ldquo;{query}&rdquo;
+              </p>
+            )}
           </div>
         )}
       </div>
