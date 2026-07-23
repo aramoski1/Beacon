@@ -2,19 +2,23 @@
 **Version:** July 2026  
 **Audience:** New engineers joining the Beacon project
 
+**Pilot truth for brokers:** see `Beacon_Pilot_Readiness.md` (what shipped, honest limits, day-1 path). This PRD is the engineering map.
+
 ---
 
 ## 1. What Is Beacon?
 
 Beacon is a single-broker CRM for commercial real estate. One user. No teams, no multi-tenant. The broker uses it to:
 
-1. **Track properties** — who owns them, when they last sold, what's on the land
+1. **Track properties** — who owns them, when they last sold, what's on the land (Miami-Dade + Broward tax roll)
 2. **Track owner contacts** — with contact tiers, outreach cadence, and relationship notes
-3. **Track lease abstracts** — expiration dates, base rates, tenants
+3. **Track lease abstracts** — expiration dates, base rates, tenants (must be linked to a property)
 4. **Stay on top of follow-ups** — lease expiry alerts, cadence overdue reminders
 5. **Draft outreach** — AI-generated emails, sent manually via the broker's own email client
+6. **Track pursuits** — type-aware deal pipeline (tenant rep / listing / investment sale)
+7. **Ask Beacon** — Copilot on the dashboard for portfolio / focus questions
 
-The app is Miami-Dade County–centric. The primary data source for properties is the Miami-Dade Property Appraiser (MDPA). Sunbiz (Florida Division of Corporations) is used to identify the humans behind LLC owners.
+The app is South Florida–centric. Primary county sources: Miami-Dade Property Appraiser (MDPA) and Broward County Property Appraiser (BCPA GIS). Sunbiz (Florida Division of Corporations) identifies humans behind LLC owners.
 
 ---
 
@@ -83,22 +87,26 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 
 **`contacts`** — CRM contacts. Key columns:
 - `name`, `email`, `phone`, `phone_mobile`, `phone_office`
-- `contact_tier integer` — 1 (hot, 14-day cadence) / 2 (warm, 30-day) / 3 (cold, 90-day)
+- `contact_tier integer` — 1 / 2 / 3; cadence days from `user_settings.cadence_tier*_days` (defaults 14 / 30 / 90 via `lib/cadence.ts`)
 - `last_contacted_at`, `next_action_due`
 - `action_tags text[]` — free-form tags (also used for source: `sunbiz`, `costar`, `unverified`, `mdpa_mailing`)
-- `linked_properties text[]` — array of property IDs this contact is linked to
+- `linked_properties text[]` — **legacy** array of property IDs; still dual-written. Prefer **`contact_properties`** join for reads (`lib/contact-properties.ts`)
 - `outreach_history jsonb` — `[{sent_at, subject, body, method}]` — grows unboundedly in this column
 - `ownership_role`, `relationship_stage`, `lead_source`, `asset_focus text[]`
 - `contact_type` — `'owner'` | `'tenant'` | `'other'`
 - `custom_fields jsonb`
 
+**`contact_properties`** — many-to-many join (contact_id, property_id, owner_id). Canonical for “contacts on asset” / “assets for contact.”
+
 **`lease_abstracts`** — AI-extracted lease data. Key columns:
-- `linked_property uuid FK properties`
+- `linked_property uuid FK properties` — **required on save** (server rejects null)
 - `tenant_contact_id uuid FK contacts`
 - `source_document text` — Supabase Storage path: `<owner_id>/<filename>`
 - `execution_date`, `expiration_date`, `base_rate`, `term`
 - `renewal_options`, `use_clause`, `escalation_clause`, `parking`, `operating_expenses`
 - `custom_fields jsonb`
+
+**`deals`** — CRE pursuit pipeline. `deal_type`: `tenant_rep` | `listing` | `investment_sale`. Stage sets are type-aware; `under_contract` and `won` are active; terminal stages are `closed` / `lost`.
 
 ### Supporting tables
 
@@ -165,10 +173,11 @@ User clicks "Mark as sent" → logOutreach → writes to outreach_history JSONB 
 
 ```
 Lease Radar page
-  → getLeaseRadarData: fetches leases expiring within 12 months
+  → getLeaseRadarData: fetches leases expiring within 12 months (property-linked only are actionable)
   → Buckets: <3mo (urgent), 3-6mo (soon), 6-12mo (watch)
+  → resolveOutreachContact: tenant-facing actions → tenant_contact when present; owner-facing → owner contact
 User clicks "Sync follow-ups"
-  → syncLeaseFollowUps: creates follow_up rows for owner + tenant contacts
+  → syncLeaseFollowUps: creates follow_up rows aligned to action type / contact
   → Unique index (owner_id, contact_id, lease_id, lease_bucket) prevents duplicates
 ```
 
@@ -215,26 +224,30 @@ It also offers a county-wide tax roll search (via Miami-Dade ArcGIS) to discover
 
 ```
 /login                    Auth (no app shell)
-/dashboard                Home — attention items, cadence health, recent activity
-/crm                      Three-tab workspace: properties / contacts / leases
+/onboarding               First-run gate
+/dashboard                Broker command center — KPIs, Needs attention, Ask Beacon (Copilot)
+/crm                      Workspace — properties / contacts / leases tabs
+/deals                    Pursuit pipeline (kanban); /deals?new=1 opens create dialog
 /properties/new           Add property (address / URL / upload)
-/properties/[id]          Property detail + enrich panel
+/properties/[id]          Property detail + enrich + tax-roll comps + Owner portfolio CTA
 /contacts/new             Add contact manually
-/contacts/[id]            Contact detail + briefing
-/abstracts/new            Upload + abstract a lease
+/contacts/[id]            Contact detail + briefing + Owner portfolio CTA
+/abstracts/new            Upload + abstract a lease (property required)
 /abstracts/[id]           Lease abstract detail
-/lease-radar              Expiring leases + follow-up sync
+/lease-radar              Expiring leases + tenant/owner outreach + follow-up sync
 /follow-ups               Follow-up list
-/outreach                 Cadence-driven outreach drafts
-/owner-portfolio/property/[id]   Owner portfolio (by property)
-/owner-portfolio/contact/[id]    Owner portfolio (by contact)
-/settings                 User settings
+/outreach                 Cadence-driven outreach drafts (mailto — no send)
+/owner-portfolio/...      Owner portfolio (by property or contact)
+/properties/audit         Advanced — data audit
+/properties/errors        Advanced — ingestion errors
+/settings                 User settings (cadence, profile)
 /settings/fields          Custom field definitions
 /api/export/properties    XLSX download (GET, auth-checked)
 /api/export/contacts      XLSX download (GET, auth-checked)
-/api/export/leases        XLSX download (GET, auth-checked) — BROKEN: see Known Issues
+/api/export/leases        XLSX download (GET, auth-checked) — verify columns before demo
 ```
 
+Primary nav labels: Dashboard, Workspace, Deals, Lease radar, Follow-ups, Outreach, Settings.
 ---
 
 ## 8. Custom Fields System
@@ -248,37 +261,36 @@ Users can define custom fields for properties, contacts, and leases at `/setting
 
 ---
 
-## 9. Known Issues (Must-Fix Before Shipping)
+## 9. Known Issues / Remaining Risks
 
-### P0 — Data Loss / Broken Feature
-1. **Lease export is broken** (`app/api/export/leases/route.ts`): queries columns that don't exist (`tenant_name`, `landlord_name`, `property_address`, `rent_escalation`, `security_deposit`). All values are null in the output.
+### Still watch in pilot
+1. **Lease export** (`app/api/export/leases/route.ts`): historically queried columns that don't exist — verify before promising export demos.
+2. **CoStar toggle** (`user_settings.costar_enabled`): preference UX; CoStar remains **file upload only**, not a live API.
+3. **Scale**: app shell badge counts, owner portfolio, and some dashboard aggregations favor simplicity over large-book performance.
+4. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
 
-### P1 — Silent Misbehavior
-2. **Cadence settings do nothing** (`user_settings.cadence_tier*_days`): saved but never read. All cadence logic uses hardcoded `{1:14, 2:30, 3:90}` in `app-shell.tsx:234`, `app/outreach/actions.ts`, `app/dashboard/actions.ts`.
-3. **CoStar toggle does nothing** (`user_settings.costar_enabled`): saved, never checked by any component.
+### Fixed (do not re-open as bugs)
+- Cadence settings **do** drive due/overdue math via `lib/cadence.ts` + `user_settings`.
+- Lease abstracts **require** `linked_property` on save; clearing to null is blocked.
+- Deals / pursuit pipeline **exists** with type-aware stages.
 
-### P2 — UX Bugs
-4. **Dark mode flashes on load**: theme set from localStorage in client; no server-side init in `app/layout.tsx`.
+### UX / polish
+- Dark mode may flash on load (theme from localStorage; no server-side init in `app/layout.tsx`).
 
-### P3 — Performance (Fine Now, Will Degrade)
-5. **App shell fetches all contacts** on every page load for overdue badge count (`app-shell.tsx:217`). Should be a count query.
-6. **Owner portfolio loads all properties in memory** (`app/owner-portfolio/actions.ts:fetchAllProperties`).
-7. **Dashboard unbounded queries**: `getPortfolioSnapshot`, `getCadenceHealth`, `getDataHealth` all do full-table scans.
+See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 
 ---
 
 ## 10. What Does Not Exist Yet
 
-- Email sending (only `mailto:` links)
+- Email **sending** (only compose via mailto / web client)
 - Mobile app
 - Calendar sync
-- CoStar live API (file upload only)
+- CoStar **live** API (file upload only)
 - Team / shared workspace
-- Deal / transaction entity
 - Map view of portfolio
-- Smart list UI (table exists, no UI)
-- `.env.example` file for onboarding
-- Tests for server actions, AI pipelines, or React components
+- Smart list management UI (table may exist; no producer UI)
+- Drop of legacy `linked_properties` column (join is preferred; dual-write remains)
 
 ---
 
@@ -290,3 +302,4 @@ Users can define custom fields for properties, contacts, and leases at `/setting
 4. **Custom fields in extraction?** Call `fetchFieldDefs(supabase, entityType)` and pass to `extractPropertyFields` as `customExtractFields` arg. Only fields with `fill_mode='extract'` should be included.
 5. **New route?** Check auth at the top. Use `createClient` from `lib/supabase/server.ts` (not client).
 6. **Tests?** Add Vitest unit tests for any pure function in `lib/`. External services (Supabase, Claude, MDPA) are not mocked — don't write integration tests without a clear strategy for mocking them.
+7. **Do not delete** Copilot, Deals, Lease radar, Follow-ups, Outreach, or Owner portfolio without an explicit product decision.
