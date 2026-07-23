@@ -78,12 +78,21 @@ function DealCard({
         </div>
       )}
 
-      {/* Commission */}
-      {deal.estimated_commission != null && (
-        <p className="text-xs font-medium flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
-          <DollarSign className="size-3" />
-          {fmtCommission(deal.estimated_commission)} est.
-        </p>
+      {/* Commission + next action due */}
+      {(deal.estimated_commission != null || deal.next_action_due) && (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+          {deal.estimated_commission != null && (
+            <p className="font-medium flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+              <DollarSign className="size-3" />
+              {fmtCommission(deal.estimated_commission)} est.
+            </p>
+          )}
+          {deal.next_action_due && (
+            <p className="text-muted-foreground tabular-nums">
+              Next due {new Date(deal.next_action_due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Next action */}

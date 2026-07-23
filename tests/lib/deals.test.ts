@@ -10,6 +10,9 @@ import {
   ACTIVE_STAGES,
   TERMINAL_STAGES,
   stagesForDealType,
+  isStageAllowedForType,
+  isTerminalStage,
+  isActiveStage,
   type Deal,
 } from "@/lib/deals";
 
@@ -223,6 +226,25 @@ describe("stage constants", () => {
     for (const s of ACTIVE_STAGES) {
       expect(TERMINAL_STAGES).not.toContain(s);
     }
+  });
+
+  it("TERMINAL_STAGES are closed and lost only", () => {
+    expect([...TERMINAL_STAGES].sort()).toEqual(["closed", "lost"]);
+  });
+
+  it("under_contract and won stay active (CRE pipeline)", () => {
+    expect(isActiveStage("under_contract")).toBe(true);
+    expect(isActiveStage("won")).toBe(true);
+    expect(isTerminalStage("under_contract")).toBe(false);
+    expect(isTerminalStage("won")).toBe(false);
+    expect(isTerminalStage("closed")).toBe(true);
+    expect(isTerminalStage("lost")).toBe(true);
+  });
+
+  it("rejects illegal stage for deal type", () => {
+    expect(isStageAllowedForType("requirement", "listing")).toBe(false);
+    expect(isStageAllowedForType("under_contract", "tenant_rep")).toBe(false);
+    expect(isStageAllowedForType("won", "tenant_rep")).toBe(true);
   });
 
   it("TERMINAL_STAGES are all in DEAL_STAGES", () => {

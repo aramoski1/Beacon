@@ -4,12 +4,16 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   DEAL_STAGES,
+  DEAL_TYPE_LABELS,
+  STAGE_LABELS,
   TERMINAL_STAGES,
   ACTIVE_STAGES,
   validateCreateDeal,
   isDealStale,
+  isStageAllowedForType,
   type Deal,
   type DealStage,
+  type DealType,
   type CreateDealInput,
   type ValidationError,
 } from "@/lib/deals";
@@ -102,6 +106,23 @@ export async function updateDealStage(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("deals")
+    .select("deal_type")
+    .eq("id", dealId)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  if (fetchErr) return { error: fetchErr.message };
+  if (!existing) return { error: "Deal not found." };
+
+  const dealType = existing.deal_type as DealType;
+  if (!isStageAllowedForType(stage, dealType)) {
+    return {
+      error: `Stage "${STAGE_LABELS[stage]}" isn't used for ${DEAL_TYPE_LABELS[dealType]} pursuits.`,
+    };
+  }
 
   const { error } = await supabase
     .from("deals")

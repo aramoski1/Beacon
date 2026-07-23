@@ -138,6 +138,13 @@ export function CreateDealDialog({
                 </div>
               )}
 
+              {!contactId && !propertyId && (
+                <p className="text-xs text-amber-800 dark:text-amber-300 rounded-lg border border-amber-300/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
+                  Tip: start from a contact or property page so this pursuit is linked.
+                  You can still create it here — just harder to track who and which asset.
+                </p>
+              )}
+
               {/* Name */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground" htmlFor="deal-name">

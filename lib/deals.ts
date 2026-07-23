@@ -29,7 +29,8 @@ export const STAGE_LABELS: Record<DealStage, string> = {
   meeting: "Meeting",
   requirement: "Requirement",
   proposal: "Proposal",
-  won: "Won",
+  /** Tenant-rep: mandate won / search live — still an active pursuit until Closed. */
+  won: "Won (active)",
   under_contract: "Under Contract",
   closed: "Closed",
   lost: "Lost",
@@ -85,10 +86,22 @@ export function defaultStageForType(dealType: DealType): DealStage {
   return stagesForDealType(dealType)[0] ?? "prospect";
 }
 
-export const TERMINAL_STAGES: readonly DealStage[] = ["won", "under_contract", "closed", "lost"];
+/**
+ * Truly done pursuits — drop out of active pipeline / dashboard KPIs.
+ * under_contract and tenant-rep "won" stay ACTIVE (still working the deal).
+ */
+export const TERMINAL_STAGES: readonly DealStage[] = ["closed", "lost"];
 export const ACTIVE_STAGES: DealStage[] = DEAL_STAGES.filter(
   (s) => !TERMINAL_STAGES.includes(s)
 );
+
+export function isTerminalStage(stage: DealStage): boolean {
+  return (TERMINAL_STAGES as readonly string[]).includes(stage);
+}
+
+export function isActiveStage(stage: DealStage): boolean {
+  return !isTerminalStage(stage);
+}
 
 export const STAGE_COLORS: Record<DealStage, string> = {
   prospect: "bg-slate-500/10 text-slate-700 dark:text-slate-300 border-slate-500/20",
