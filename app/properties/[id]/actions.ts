@@ -411,19 +411,30 @@ export async function initiateCountyEnhancement(
 
   try {
     const address = prop.address.trim();
-    let parcels;
+    let parcels: { strap: string; address: string }[] = [];
 
     if (knownCounty) {
-      parcels = await searchParcelsByAddress(address, knownCounty);
+      const searchResult = await searchParcelsByAddress(address, knownCounty);
+      if (searchResult.kind === "error") {
+        return { error: `County property search failed: ${searchResult.message}` };
+      }
+      if (searchResult.kind === "too_many_candidates") {
+        return {
+          error: "Too many candidates for that address. Edit the property address to include the city (e.g. '2116 Sherman St, Hollywood') and try again.",
+        };
+      }
+      parcels = searchResult.parcels;
     } else {
-      // Unknown city — search both counties in parallel and take whichever finds results
-      const [mdpaResult, bcpaResult] = await Promise.allSettled([
+      // Unknown city — search both counties in parallel and merge results
+      const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
         searchParcelsByAddress(address, "miami-dade"),
         searchParcelsByAddress(address, "broward"),
       ]);
+      const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : { kind: "error" as const, message: String(mdpaSettled.reason) };
+      const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : { kind: "error" as const, message: String(bcpaSettled.reason) };
       parcels = [
-        ...(mdpaResult.status === "fulfilled" ? mdpaResult.value : []),
-        ...(bcpaResult.status === "fulfilled" ? bcpaResult.value : []),
+        ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
+        ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
       ];
     }
 

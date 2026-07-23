@@ -105,38 +105,45 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
   let matches: FolioMatch[];
 
   if (knownCounty) {
-    let parcels;
-    try {
-      parcels = await searchParcelsByAddress(address, knownCounty);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+    const searchResult = await searchParcelsByAddress(address, knownCounty);
+    if (searchResult.kind === "error") {
       await logIngestionError(supabase, user.id, {
         stage: "gis_fetch",
         source_type: "address",
         source_ref: address,
-        error_message: msg,
+        error_message: searchResult.message,
       });
-      return { error: `Property search failed: ${msg}` };
+      return { error: `Property search failed: ${searchResult.message}` };
     }
-    matches = parcels.map((p) => ({ strap: p.strap, address: p.address, county: knownCounty }));
+    if (searchResult.kind === "too_many_candidates") {
+      return {
+        error: "Too many candidates for that address — include the city to narrow the search (e.g. '2116 Sherman St, Hollywood').",
+      };
+    }
+    matches = searchResult.parcels;
   } else {
     // City missing or unrecognised — search both counties in parallel.
-    const [mdpaResult, bcpaResult] = await Promise.allSettled([
+    const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
       searchParcelsByAddress(address, "miami-dade"),
       searchParcelsByAddress(address, "broward"),
     ]);
 
-    const mdpaParcels = mdpaResult.status === "fulfilled" ? mdpaResult.value : [];
-    const bcpaParcels = bcpaResult.status === "fulfilled" ? bcpaResult.value : [];
+    const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : { kind: "error" as const, message: String(mdpaSettled.reason) };
+    const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : { kind: "error" as const, message: String(bcpaSettled.reason) };
 
     matches = [
-      ...mdpaParcels.map((p) => ({ strap: p.strap, address: p.address, county: "miami-dade" as const })),
-      ...bcpaParcels.map((p) => ({ strap: p.strap, address: p.address, county: "broward" as const })),
+      ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
+      ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
     ];
 
     if (matches.length === 0) {
-      const firstError = mdpaResult.status === "rejected" ? (mdpaResult.reason as Error).message
-        : bcpaResult.status === "rejected" ? (bcpaResult.reason as Error).message
+      if (bcpaResult.kind === "too_many_candidates") {
+        return {
+          error: "Too many candidates for that address — include the city to narrow the search (e.g. '2116 Sherman St, Hollywood').",
+        };
+      }
+      const firstError = mdpaResult.kind === "error" ? mdpaResult.message
+        : bcpaResult.kind === "error" ? bcpaResult.message
         : null;
       if (firstError) {
         await logIngestionError(supabase, user.id, {

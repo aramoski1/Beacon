@@ -91,7 +91,92 @@ export function folioToStrap(folio: string): string {
 
 // ─── GIS address search ───────────────────────────────────────────────────────
 
-export async function searchByAddressGIS(rawAddress: string): Promise<BCPAParcel[]> {
+export type GISSearchResult =
+  | { kind: "ok"; parcels: BCPAParcel[] }
+  | { kind: "error"; message: string }
+  | { kind: "too_many_candidates" };
+
+const PAGE_SIZE = 25;
+const MAX_PAGES = 8; // 200 parcels max per lookup
+
+type PageOutcome =
+  | { kind: "page"; parcels: BCPAParcel[]; exceededTransferLimit: boolean }
+  | { kind: "http_error"; status: number }
+  | { kind: "gis_error"; message: string };
+
+async function fetchPage(where: string, page: number): Promise<PageOutcome> {
+  const url = new URL(STATEWIDE_URL);
+  url.searchParams.set("where", where);
+  url.searchParams.set("outFields", SEARCH_FIELDS);
+  url.searchParams.set("f", "json");
+  url.searchParams.set("returnGeometry", "false");
+  url.searchParams.set("resultRecordCount", String(PAGE_SIZE));
+  if (page > 0) url.searchParams.set("resultOffset", String(page * PAGE_SIZE));
+
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 0 },
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return { kind: "http_error", status: res.status };
+
+  const data = (await res.json()) as {
+    features?: { attributes: { PARCEL_ID: string; PHY_ADDR1: string; PHY_CITY: string } }[];
+    exceededTransferLimit?: boolean;
+    error?: { message: string };
+  };
+
+  if (data.error) return { kind: "gis_error", message: data.error.message };
+
+  const parcels: BCPAParcel[] = (data.features ?? []).map((f) => {
+    const attr = f.attributes;
+    const folio = (attr.PARCEL_ID ?? "").replace(/-/g, "");
+    return {
+      folio,
+      strap: folioToStrap(folio),
+      address: (attr.PHY_ADDR1 ?? "").trim().toUpperCase(),
+      city: (attr.PHY_CITY ?? "").trim().toUpperCase(),
+    };
+  });
+
+  return { kind: "page", parcels, exceededTransferLimit: data.exceededTransferLimit ?? false };
+}
+
+function sortParcels(
+  parcels: BCPAParcel[],
+  houseNum: number,
+  dir: string | null,
+  streetType: string | null
+): BCPAParcel[] {
+  if (!(dir || streetType) || parcels.length <= 1) return parcels;
+  const dirPrefix = dir ? `${houseNum} ${dir} ` : null;
+  const typeSuffix = streetType ? ` ${streetType}` : null;
+  return [...parcels].sort((a, b) => {
+    const score = (p: BCPAParcel) =>
+      (dirPrefix && p.address.startsWith(dirPrefix) ? 2 : 0) +
+      (typeSuffix && p.address.endsWith(typeSuffix) ? 1 : 0);
+    return score(b) - score(a);
+  });
+}
+
+/**
+ * Search Broward parcels by address.
+ *
+ * @param rawAddress  Street address, optionally with city suffix (e.g. "2116 Sherman St, Hollywood").
+ * @param city        City name extracted from the address — used as a server-side PHY_CITY LIKE
+ *                    filter to collapse most lookups to a single page. Falls back to paginated
+ *                    house-number-only search if the service rejects the city filter or the
+ *                    result set still exceeds a page.
+ *
+ * Returns:
+ *   { kind: "ok"; parcels }           — success (parcels may be empty = genuine miss)
+ *   { kind: "error"; message }        — service failure; caller should log + surface to user
+ *   { kind: "too_many_candidates" }   — pagination exhausted with more results still available;
+ *                                       a real property exists but can't be isolated without city
+ */
+export async function searchByAddressGIS(
+  rawAddress: string,
+  city?: string
+): Promise<GISSearchResult> {
   const parsed = parseAddressForGIS(rawAddress);
   if (!parsed) {
     throw new Error(
@@ -104,84 +189,68 @@ export async function searchByAddressGIS(rawAddress: string): Promise<BCPAParcel
   const dir = directional?.toUpperCase() ?? null;
 
   // The statewide ArcGIS service only accepts LIKE patterns of the form
-  // 'houseNum %' — any keyword or directional after the house number causes
-  // "Invalid query parameters" (HTTP 200 with error JSON). All filtering beyond
-  // the house-number prefix must happen in JS. Pagination (resultOffset) is
-  // used to page through common house numbers that produce >25 results.
-  // CO_NO equality fails on this service; BETWEEN is the reliable workaround.
-  const where = `CO_NO BETWEEN ${BROWARD_CO_NO} AND ${BROWARD_CO_NO} AND PHY_ADDR1 LIKE '${houseNum} %'`;
+  // 'houseNum %' on PHY_ADDR1 — any keyword after the house number causes
+  // "Invalid query parameters". CO_NO equality also fails; BETWEEN is the
+  // reliable workaround. All street filtering happens in JS post-fetch.
+  const baseWhere = `CO_NO BETWEEN ${BROWARD_CO_NO} AND ${BROWARD_CO_NO} AND PHY_ADDR1 LIKE '${houseNum} %'`;
 
   // JS-side keyword match — word-boundary check for numbered streets ("3RD" must not match "13RD")
   const isNumbered = /^\d/.test(kw);
   const matchesKeyword = (addr: string): boolean =>
     isNumbered ? addr.includes(` ${kw}`) || addr.endsWith(kw) : addr.includes(kw);
 
-  const PAGE_SIZE = 25;
-  const MAX_PAGES = 8; // 200 parcels max per lookup
+  // ── City-scoped fast path ──────────────────────────────────────────────────
+  // PHY_CITY LIKE is tested differently from PHY_ADDR1 keyword embeds and may
+  // be accepted where those are rejected. A city + house number is precise
+  // enough that a single page covers all candidates; no pagination needed.
+  if (city) {
+    const cityUpper = city.toUpperCase().trim();
+    const outcome = await fetchPage(
+      `${baseWhere} AND PHY_CITY LIKE '${cityUpper}%'`,
+      0
+    );
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const url = new URL(STATEWIDE_URL);
-    url.searchParams.set("where", where);
-    url.searchParams.set("outFields", SEARCH_FIELDS);
-    url.searchParams.set("f", "json");
-    url.searchParams.set("returnGeometry", "false");
-    url.searchParams.set("resultRecordCount", String(PAGE_SIZE));
-    if (page > 0) url.searchParams.set("resultOffset", String(page * PAGE_SIZE));
-
-    const res = await fetch(url.toString(), {
-      next: { revalidate: 0 },
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) {
-      console.error(`[bcpa] GIS search HTTP ${res.status} on page ${page} — ${url.toString()}`);
-      break;
-    }
-
-    const data = (await res.json()) as {
-      features?: { attributes: { PARCEL_ID: string; PHY_ADDR1: string; PHY_CITY: string } }[];
-      exceededTransferLimit?: boolean;
-      error?: { message: string };
-    };
-
-    if (data.error) {
-      console.error(`[bcpa] GIS error on page ${page}: ${data.error.message} — ${url.toString()}`);
-      break;
-    }
-    if (!data.features || data.features.length === 0) break;
-
-    const parcels: BCPAParcel[] = data.features.map((f) => {
-      const attr = f.attributes;
-      const folio = (attr.PARCEL_ID ?? "").replace(/-/g, "");
-      return {
-        folio,
-        strap: folioToStrap(folio),
-        address: (attr.PHY_ADDR1 ?? "").trim().toUpperCase(),
-        city: (attr.PHY_CITY ?? "").trim().toUpperCase(),
-      };
-    });
-
-    const filtered = parcels.filter((p) => matchesKeyword(p.address));
-
-    if (filtered.length > 0) {
-      // Sort: directional match (2 pts) + street-type suffix match (1 pt)
-      if ((dir || streetType) && filtered.length > 1) {
-        const dirPrefix = dir ? `${houseNum} ${dir} ` : null;
-        const typeSuffix = streetType ? ` ${streetType}` : null;
-        filtered.sort((a, b) => {
-          const score = (p: BCPAParcel) =>
-            (dirPrefix && p.address.startsWith(dirPrefix) ? 2 : 0) +
-            (typeSuffix && p.address.endsWith(typeSuffix) ? 1 : 0);
-          return score(b) - score(a);
-        });
+    if (outcome.kind === "page") {
+      const filtered = outcome.parcels.filter((p) => matchesKeyword(p.address));
+      if (filtered.length > 0) {
+        return { kind: "ok", parcels: sortParcels(filtered, houseNum, dir, streetType) };
       }
-      return filtered;
+      if (!outcome.exceededTransferLimit) {
+        // City + house number is specific enough — no such parcel in this city.
+        return { kind: "ok", parcels: [] };
+      }
+      // Unusual: still more results with city filter — fall through to full pagination
     }
-
-    // No keyword match on this page — turn the page only if there are more results
-    if (!data.exceededTransferLimit) break;
+    // http_error or gis_error — city filter rejected; fall through to paginated search
   }
 
-  return [];
+  // ── Paginated house-number-only search ────────────────────────────────────
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const outcome = await fetchPage(baseWhere, page);
+
+    if (outcome.kind === "http_error") {
+      return { kind: "error", message: `GIS search failed: HTTP ${outcome.status}` };
+    }
+    if (outcome.kind === "gis_error") {
+      return { kind: "error", message: outcome.message };
+    }
+    if (outcome.parcels.length === 0) {
+      return { kind: "ok", parcels: [] };
+    }
+
+    const filtered = outcome.parcels.filter((p) => matchesKeyword(p.address));
+    if (filtered.length > 0) {
+      return { kind: "ok", parcels: sortParcels(filtered, houseNum, dir, streetType) };
+    }
+
+    if (!outcome.exceededTransferLimit) {
+      return { kind: "ok", parcels: [] };
+    }
+  }
+
+  // Pagination exhausted — the target parcel exists but can't be isolated
+  // without a city to narrow the house-number result set.
+  return { kind: "too_many_candidates" };
 }
 
 // ─── Folio detail ─────────────────────────────────────────────────────────────

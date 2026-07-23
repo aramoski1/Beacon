@@ -20,6 +20,7 @@ import {
   searchByAddressGIS as bcpaSearch,
   getPropertyDetail as bcpaDetail,
   extractOwnerMailing as bcpaExtractMailing,
+  type GISSearchResult,
 } from "./bcpa";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -125,22 +126,54 @@ export function detectCounty(city: string): SupportedCounty | null {
   return null;
 }
 
+// ─── Routed search result ─────────────────────────────────────────────────────
+
+export type RoutedSearchResult =
+  | { kind: "ok"; parcels: RoutedParcel[] }
+  | { kind: "error"; message: string }
+  | { kind: "too_many_candidates" };
+
+// Re-export so callers can narrow without importing from bcpa directly.
+export type { GISSearchResult };
+
 // ─── Unified search / detail / mailing ───────────────────────────────────────
 
 /**
  * Address search — returns candidate parcels for broker confirmation.
- * county determines which property appraiser's GIS to query.
+ * Returns a tagged result so callers can distinguish service failures from
+ * genuine misses and surface "too many candidates" to the user.
  */
 export async function searchParcelsByAddress(
   rawAddress: string,
   county: SupportedCounty
-): Promise<RoutedParcel[]> {
+): Promise<RoutedSearchResult> {
   if (county === "miami-dade") {
-    const parcels = await mdpaSearch(rawAddress);
-    return parcels.map((p) => ({ ...p, county: "miami-dade" as const }));
+    try {
+      const parcels = await mdpaSearch(rawAddress);
+      return { kind: "ok", parcels: parcels.map((p) => ({ ...p, county: "miami-dade" as const })) };
+    } catch (e) {
+      return { kind: "error", message: e instanceof Error ? e.message : String(e) };
+    }
   }
-  const parcels = await bcpaSearch(rawAddress);
-  return parcels.map((p) => ({ folio: p.folio, strap: p.strap, address: p.address, county: "broward" as const }));
+
+  // Broward — extract city from address suffix so bcpaSearch can try a fast
+  // single-page city-scoped query before falling back to full pagination.
+  const commaIdx = rawAddress.indexOf(",");
+  const city = commaIdx !== -1
+    ? rawAddress.slice(commaIdx + 1).trim().replace(/\s+[A-Z]{2}\s*\d{5}.*$/i, "").trim() || undefined
+    : undefined;
+
+  const result = await bcpaSearch(rawAddress, city);
+  if (result.kind !== "ok") return result;
+  return {
+    kind: "ok",
+    parcels: result.parcels.map((p) => ({
+      folio: p.folio,
+      strap: p.strap,
+      address: p.address,
+      county: "broward" as const,
+    })),
+  };
 }
 
 /**

@@ -4,8 +4,15 @@ import {
   parseAddressForGIS,
   searchByAddressGIS,
   extractOwnerMailing,
+  type BCPAParcel,
   type BCPARecord,
+  type GISSearchResult,
 } from "../../lib/bcpa";
+
+function okParcels(result: GISSearchResult): BCPAParcel[] {
+  if (result.kind !== "ok") throw new Error(`Expected kind "ok", got "${result.kind}"`);
+  return result.parcels;
+}
 import { detectCounty } from "../../lib/county-router";
 
 // ─── folioToStrap ─────────────────────────────────────────────────────────────
@@ -193,6 +200,43 @@ describe("searchByAddressGIS (Broward)", () => {
     expect(where).not.toContain("HIMMARSHEE");
   });
 
+  // ── city filter ───────────────────────────────────────────────────────────
+
+  it("city provided — WHERE includes PHY_CITY LIKE filter on first attempt", async () => {
+    const urls = stubFetch([{ PARCEL_ID: "514404020010", PHY_ADDR1: "2116 SHERMAN ST", PHY_CITY: "HOLLYWOOD" }]);
+    await searchByAddressGIS("2116 Sherman St, Hollywood", "Hollywood");
+    const where = whereFrom(urls[0]);
+    expect(where).toContain("PHY_ADDR1 LIKE '2116 %'");
+    expect(where).toContain("PHY_CITY LIKE 'HOLLYWOOD%'");
+  });
+
+  it("city provided — returns result on first page without paginating", async () => {
+    const urls = stubFetch([{ PARCEL_ID: "514404020010", PHY_ADDR1: "2116 SHERMAN ST", PHY_CITY: "HOLLYWOOD" }]);
+    const result = await searchByAddressGIS("2116 Sherman St, Hollywood", "Hollywood");
+    expect(okParcels(result)).toHaveLength(1);
+    expect(urls).toHaveLength(1); // no second fetch
+  });
+
+  it("city filter rejected (gis_error) — falls back to paginated house-only search", async () => {
+    const urls = stubFetchPages([
+      { error: { message: "Cannot perform query. Invalid query parameters." } },
+      { features: [{ PARCEL_ID: "514404020010", PHY_ADDR1: "2116 SHERMAN ST", PHY_CITY: "HOLLYWOOD" }] },
+    ]);
+    const result = await searchByAddressGIS("2116 Sherman St", "Hollywood");
+    expect(okParcels(result)).toHaveLength(1);
+    // First call had city filter, second call is the house-only paginated fallback
+    expect(whereFrom(urls[0])).toContain("PHY_CITY LIKE 'HOLLYWOOD%'");
+    expect(whereFrom(urls[1])).not.toContain("PHY_CITY");
+  });
+
+  it("city provided — empty result from city filter is a genuine miss (no pagination)", async () => {
+    const urls = stubFetch([]); // city filter returns zero features
+    const result = await searchByAddressGIS("2116 Sherman St, Hollywood", "Hollywood");
+    expect(result.kind).toBe("ok");
+    expect(okParcels(result)).toHaveLength(0);
+    expect(urls).toHaveLength(1); // no pagination attempt
+  });
+
   // ── result mapping and JS-side filtering ──────────────────────────────────
 
   it("maps returned features to BCPAParcel with folio, strap, address, city", async () => {
@@ -203,7 +247,7 @@ describe("searchByAddressGIS (Broward)", () => {
         PHY_CITY: "FORT LAUDERDALE",
       },
     ]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    const parcels = okParcels(await searchByAddressGIS("200 W Broward Blvd"));
     expect(parcels).toHaveLength(1);
     expect(parcels[0].folio).toBe("494101070090");
     expect(parcels[0].strap).toBe("49-4101-07-0090");
@@ -216,7 +260,7 @@ describe("searchByAddressGIS (Broward)", () => {
       { PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" },
       { PARCEL_ID: "494101070091", PHY_ADDR1: "200 NW 1ST AVE", PHY_CITY: "FORT LAUDERDALE" },
     ]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    const parcels = okParcels(await searchByAddressGIS("200 W Broward Blvd"));
     // "1ST AVE" doesn't include "BROWARD" keyword → filtered out
     expect(parcels).toHaveLength(1);
     expect(parcels[0].address).toBe("200 W BROWARD BLVD");
@@ -227,29 +271,31 @@ describe("searchByAddressGIS (Broward)", () => {
       { PARCEL_ID: "494101070090", PHY_ADDR1: "200 SE 3RD AVE", PHY_CITY: "FORT LAUDERDALE" },
       { PARCEL_ID: "494101070091", PHY_ADDR1: "200 SE 13RD AVE", PHY_CITY: "FORT LAUDERDALE" },
     ]);
-    const parcels = await searchByAddressGIS("200 SE 3rd Ave");
+    const parcels = okParcels(await searchByAddressGIS("200 SE 3rd Ave"));
     // JS word-boundary check: " 3RD" must match "SE 3RD" but not "13RD"
     const addresses = parcels.map((p) => p.address);
     expect(addresses).toContain("200 SE 3RD AVE");
     expect(addresses).not.toContain("200 SE 13RD AVE");
   });
 
-  it("returns empty array when no features", async () => {
+  it("returns { kind: 'ok', parcels: [] } when no features (genuine miss)", async () => {
     stubFetch([]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
-    expect(parcels).toHaveLength(0);
+    const result = await searchByAddressGIS("200 W Broward Blvd");
+    expect(result.kind).toBe("ok");
+    expect(okParcels(result)).toHaveLength(0);
   });
 
-  it("returns empty on GIS HTTP error (logs, does not throw)", async () => {
+  it("returns { kind: 'error' } on GIS HTTP error (does not throw)", async () => {
     vi.stubGlobal("fetch", async () => ({ ok: false, status: 503 }) as Response);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
-    expect(parcels).toHaveLength(0);
+    const result = await searchByAddressGIS("200 W Broward Blvd");
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("503");
   });
 
-  it("returns empty on GIS JSON error response (logs, does not throw)", async () => {
+  it("returns { kind: 'error' } on GIS JSON error response (does not throw)", async () => {
     stubFetchPages([{ error: { message: "Cannot perform query. Invalid query parameters." } }]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
-    expect(parcels).toHaveLength(0);
+    const result = await searchByAddressGIS("200 W Broward Blvd");
+    expect(result.kind).toBe("error");
   });
 
   it("throws when address has no house number", async () => {
@@ -268,7 +314,7 @@ describe("searchByAddressGIS (Broward)", () => {
       { features: wrongStreet, exceededTransferLimit: true },
       { features: [{ PARCEL_ID: "514404020010", PHY_ADDR1: "2116 SHERMAN ST", PHY_CITY: "HOLLYWOOD" }] },
     ]);
-    const parcels = await searchByAddressGIS("2116 Sherman St");
+    const parcels = okParcels(await searchByAddressGIS("2116 Sherman St"));
     expect(parcels).toHaveLength(1);
     expect(parcels[0].address).toBe("2116 SHERMAN ST");
     // Second fetch should have resultOffset=25
@@ -282,12 +328,13 @@ describe("searchByAddressGIS (Broward)", () => {
         // no exceededTransferLimit → stop after this page
       },
     ]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
-    expect(parcels).toHaveLength(0);
+    const result = await searchByAddressGIS("200 W Broward Blvd");
+    expect(result.kind).toBe("ok");
+    expect(okParcels(result)).toHaveLength(0);
     expect(urls).toHaveLength(1); // should not make a second fetch call
   });
 
-  it("returns empty (not junk) when no page returns a keyword match", async () => {
+  it("returns { kind: 'ok', parcels: [] } (not junk) when no page returns a keyword match", async () => {
     const wrongStreet = [
       { PARCEL_ID: "494101070099", PHY_ADDR1: "200 W OAK ST", PHY_CITY: "FORT LAUDERDALE" },
       { PARCEL_ID: "494101070098", PHY_ADDR1: "200 W ELM AVE", PHY_CITY: "FORT LAUDERDALE" },
@@ -297,9 +344,19 @@ describe("searchByAddressGIS (Broward)", () => {
       { features: wrongStreet, exceededTransferLimit: true },
       { features: wrongStreet }, // last page, no more results
     ]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
-    // None contain "BROWARD" across all pages — must return empty, never the junk list
-    expect(parcels).toHaveLength(0);
+    const result = await searchByAddressGIS("200 W Broward Blvd");
+    expect(result.kind).toBe("ok");
+    expect(okParcels(result)).toHaveLength(0);
+  });
+
+  it("returns { kind: 'too_many_candidates' } when MAX_PAGES exhausted with exceededTransferLimit still true", async () => {
+    const wrongStreet = [
+      { PARCEL_ID: "494101070099", PHY_ADDR1: "200 W OAK ST", PHY_CITY: "FORT LAUDERDALE" },
+    ];
+    // All 8 pages return exceededTransferLimit without a keyword match
+    stubFetchPages(Array.from({ length: 8 }, () => ({ features: wrongStreet, exceededTransferLimit: true })));
+    const result = await searchByAddressGIS("200 W Broward Blvd");
+    expect(result.kind).toBe("too_many_candidates");
   });
 
   // ── sorting: directional (2pts) + street-type suffix (1pt) ───────────────
@@ -309,7 +366,7 @@ describe("searchByAddressGIS (Broward)", () => {
       { PARCEL_ID: "494101070091", PHY_ADDR1: "200 W BROWARD DR", PHY_CITY: "FORT LAUDERDALE" },
       { PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" },
     ]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    const parcels = okParcels(await searchByAddressGIS("200 W Broward Blvd"));
     expect(parcels[0].address).toBe("200 W BROWARD BLVD");
   });
 
@@ -318,7 +375,7 @@ describe("searchByAddressGIS (Broward)", () => {
       { PARCEL_ID: "494101070091", PHY_ADDR1: "200 SW BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" },
       { PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" },
     ]);
-    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    const parcels = okParcels(await searchByAddressGIS("200 W Broward Blvd"));
     expect(parcels[0].address).toBe("200 W BROWARD BLVD");
   });
 });
