@@ -215,13 +215,11 @@ export async function searchByAddressGIS(
       if (filtered.length > 0) {
         return { kind: "ok", parcels: sortParcels(filtered, houseNum, dir, streetType) };
       }
-      if (!outcome.exceededTransferLimit) {
-        // City + house number is specific enough — no such parcel in this city.
-        return { kind: "ok", parcels: [] };
-      }
-      // Unusual: still more results with city filter — fall through to full pagination
+      // PHY_CITY is frequently blank in the statewide dataset — a city-filtered
+      // miss does NOT mean the parcel doesn't exist. Fall through to paginated
+      // house-number search in all non-match cases.
     }
-    // http_error or gis_error — city filter rejected; fall through to paginated search
+    // http_error, gis_error, empty, or no keyword match — fall through to paginated search
   }
 
   // ── Paginated house-number-only search ────────────────────────────────────

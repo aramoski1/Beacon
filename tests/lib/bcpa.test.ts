@@ -229,12 +229,28 @@ describe("searchByAddressGIS (Broward)", () => {
     expect(whereFrom(urls[1])).not.toContain("PHY_CITY");
   });
 
-  it("city provided — empty result from city filter is a genuine miss (no pagination)", async () => {
-    const urls = stubFetch([]); // city filter returns zero features
+  it("city filter returns no rows — falls through to paginated house-only search", async () => {
+    // PHY_CITY is unreliable; a city miss must NOT short-circuit to empty.
+    const urls = stubFetchPages([
+      { features: [] }, // city-scoped query: zero results
+      { features: [{ PARCEL_ID: "514404020010", PHY_ADDR1: "2116 SHERMAN ST", PHY_CITY: "HOLLYWOOD" }] },
+    ]);
     const result = await searchByAddressGIS("2116 Sherman St, Hollywood", "Hollywood");
-    expect(result.kind).toBe("ok");
-    expect(okParcels(result)).toHaveLength(0);
-    expect(urls).toHaveLength(1); // no pagination attempt
+    expect(okParcels(result)).toHaveLength(1);
+    expect(whereFrom(urls[0])).toContain("PHY_CITY LIKE 'HOLLYWOOD%'");
+    expect(whereFrom(urls[1])).not.toContain("PHY_CITY"); // paginated fallback has no city filter
+  });
+
+  it("parcel with blank PHY_CITY is found via paginated fallback when city is supplied", async () => {
+    // The statewide dataset often stores parcels with an empty PHY_CITY field.
+    // The city-scoped query returns nothing; the house-only fallback finds it.
+    stubFetchPages([
+      { features: [] }, // city filter: PHY_CITY LIKE 'HOLLYWOOD%' → no rows
+      { features: [{ PARCEL_ID: "514404020010", PHY_ADDR1: "2116 SHERMAN ST", PHY_CITY: "" }] },
+    ]);
+    const parcels = okParcels(await searchByAddressGIS("2116 Sherman St, Hollywood", "Hollywood"));
+    expect(parcels).toHaveLength(1);
+    expect(parcels[0].address).toBe("2116 SHERMAN ST");
   });
 
   // ── result mapping and JS-side filtering ──────────────────────────────────
