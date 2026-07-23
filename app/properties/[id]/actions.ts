@@ -507,7 +507,7 @@ export async function previewCountyEnhancement(
     };
     mdpaData = {
       owner_name: rec.OWN_NAME ?? null,
-      size_sqft: rec.TOT_LVG_AR ?? null,
+      size_sqft: rec.TOT_LVG_AREA ?? null,
       last_sale_date: bcpaSaleDate(rec.SALE_YR1, rec.SALE_MO1),
       last_sale_price: rec.SALE_PRC1 ?? null,
       building_composition: bc,

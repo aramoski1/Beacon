@@ -67,7 +67,7 @@ function bcpaToFields(rec: BCPARecord, customFields: Record<string, null> = {}):
     submarket: null,
     owner_name: rec.OWN_NAME ?? null,
     ownership_type: isEntity ? "institutional" : (rec.OWN_NAME ? "private" : "unknown"),
-    size_sqft: rec.TOT_LVG_AR ?? null,
+    size_sqft: rec.TOT_LVG_AREA ?? null,
     property_type: dorCodeToPropertyType(dorCode),
     last_sale_date: bcpaSaleDate(rec.SALE_YR1, rec.SALE_MO1),
     last_sale_price: rec.SALE_PRC1 ?? null,

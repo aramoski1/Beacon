@@ -184,8 +184,8 @@ export async function searchParcelsByAddress(
     }
   }
 
-  // Broward — extract city from address suffix so bcpaSearch can try a fast
-  // single-page city-scoped query before falling back to full pagination.
+  // Broward — city is still parsed for detectCounty / callers; bcpaSearch no
+  // longer needs it for server-side filtering (tight keyword WHERE).
   const city = parseCityFromAddress(rawAddress);
 
   const result = await bcpaSearch(rawAddress, city);
