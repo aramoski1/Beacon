@@ -1,8 +1,15 @@
-/** Lease expiration radar — bucket and urgency helpers (client-safe). */
+/** Lease expiration radar — bucket, urgency, and outreach-contact helpers (client-safe). */
 
 export type LeaseRadarBucket = "3mo" | "6mo" | "12mo";
 
 export type LeaseRadarUrgency = "critical" | "high" | "medium" | "low";
+
+export type RadarContactRef = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  company: string | null;
+};
 
 export type LeaseRadarEntry = {
   id: string;
@@ -16,12 +23,10 @@ export type LeaseRadarEntry = {
   property_id: string | null;
   property_address: string | null;
   property_owner_name: string | null;
-  owner_contact: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    company: string | null;
-  } | null;
+  /** Best CRM contact on the property for owner-facing actions (prefer contact_type=owner). */
+  owner_contact: RadarContactRef | null;
+  /** Tenant CRM contact linked on the lease abstract. */
+  tenant_contact: RadarContactRef | null;
 };
 
 export type LeaseRadarData = {
@@ -32,6 +37,37 @@ export type LeaseRadarData = {
   /** Leases expiring in ≤90 days — for nav badges and dashboard flags. */
   urgentCount: number;
 };
+
+/** CRE action that determines who should be contacted. */
+export type RadarActionType =
+  | "tenant_rollover"
+  | "owner_renewal"
+  | "owner_sale";
+
+export type OutreachResolution =
+  | {
+      kind: "ready";
+      role: "tenant" | "owner";
+      contact: RadarContactRef;
+      why: string;
+      action: RadarActionType;
+    }
+  | {
+      kind: "needs_choice";
+      /** Shown when tenant rollover is intended but only an owner contact exists. */
+      why: string;
+      ownerOption: {
+        contact: RadarContactRef;
+        why: string;
+        action: RadarActionType;
+      } | null;
+    }
+  | {
+      kind: "missing";
+      want: "tenant" | "owner" | "either";
+      why: string;
+      linkHint: "abstract" | "property";
+    };
 
 const MS_DAY = 86_400_000;
 
@@ -78,17 +114,119 @@ export function rolloverHint(days: number): string {
   return "Early signal — add to rollover pipeline";
 }
 
-export function leaseOutreachContext(entry: LeaseRadarEntry): string {
-  const parts = [
-    "LEASE ROLLOVER OUTREACH:",
+/**
+ * Pick who to email for a CRE action.
+ * Tenant rollover → tenant when linked; otherwise an explicit choice (link tenant vs email owner).
+ * Owner-facing actions → owner contact only.
+ */
+export function resolveOutreachContact(
+  action: RadarActionType,
+  entry: Pick<LeaseRadarEntry, "tenant_contact" | "owner_contact">,
+): OutreachResolution {
+  if (action === "tenant_rollover") {
+    if (entry.tenant_contact) {
+      return {
+        kind: "ready",
+        role: "tenant",
+        contact: entry.tenant_contact,
+        why: "Tenant rollover — email the tenant about renewal or relocation.",
+        action,
+      };
+    }
+    if (entry.owner_contact) {
+      return {
+        kind: "needs_choice",
+        why: "No tenant linked — link the tenant on the abstract, or email the owner about vacancy / renewal strategy?",
+        ownerOption: {
+          contact: entry.owner_contact,
+          why: "Owner-facing — vacancy / renewal strategy with the ownership contact.",
+          action: "owner_renewal",
+        },
+      };
+    }
+    return {
+      kind: "missing",
+      want: "tenant",
+      why: "No tenant linked — radar can't email the right party for rollover.",
+      linkHint: "abstract",
+    };
+  }
+
+  // owner_renewal | owner_sale
+  if (entry.owner_contact) {
+    return {
+      kind: "ready",
+      role: "owner",
+      contact: entry.owner_contact,
+      why:
+        action === "owner_sale"
+          ? "Owner-facing — discuss sale / ownership timing around this expiry."
+          : "Owner-facing — renewal strategy and vacancy risk with the ownership contact.",
+      action,
+    };
+  }
+  return {
+    kind: "missing",
+    want: "owner",
+    why: "No owner CRM contact on this property — link an owner contact to continue.",
+    linkHint: "property",
+  };
+}
+
+/** AI draft context aligned to who is being contacted. */
+export function leaseOutreachContext(
+  entry: LeaseRadarEntry,
+  action: RadarActionType = "tenant_rollover",
+): string {
+  const base = [
     entry.property_address ? `Property: ${entry.property_address}.` : "",
     entry.property_owner_name ? `Ownership entity: ${entry.property_owner_name}.` : "",
     `Lease expires ${fmtExpiry(entry.expiration_date)} (${entry.daysUntilExpiry} days).`,
     entry.base_rate != null ? `Current base rate: $${entry.base_rate}/sf.` : "",
-    rolloverHint(entry.daysUntilExpiry),
-    "The tenant may need space soon — proactive outreach beats waiting for a listing.",
   ];
-  return parts.filter(Boolean).join(" ");
+
+  if (action === "tenant_rollover") {
+    return [
+      "LEASE ROLLOVER OUTREACH (to tenant):",
+      ...base,
+      rolloverHint(entry.daysUntilExpiry),
+      "The tenant may need space soon — proactive outreach beats waiting for a listing.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (action === "owner_sale") {
+    return [
+      "LEASE EXPIRY — OWNER SALE / TIMING:",
+      ...base,
+      "Discuss whether an approaching vacancy changes sale timing or marketing strategy.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return [
+    "LEASE EXPIRY — OWNER RENEWAL / VACANCY:",
+    ...base,
+    "Discuss renewal strategy, rollover risk, and backfill timing with ownership.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Prefer contact_type=owner, then lower tier (1 best).
+ * Used when building property → owner_contact maps.
+ */
+export function preferOwnerContactCandidate(
+  existing: { id: string; tier: number; isOwnerType: boolean } | undefined,
+  candidate: { id: string; tier: number; isOwnerType: boolean },
+): boolean {
+  if (!existing) return true;
+  if (candidate.isOwnerType && !existing.isOwnerType) return true;
+  if (!candidate.isOwnerType && existing.isOwnerType) return false;
+  return candidate.tier < existing.tier;
 }
 
 export const BUCKET_META: Record<

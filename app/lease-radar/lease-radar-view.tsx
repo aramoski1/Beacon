@@ -19,10 +19,13 @@ import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } fro
 import {
   type LeaseRadarEntry,
   type LeaseRadarBucket,
+  type RadarActionType,
+  type RadarContactRef,
   leaseLabel,
   fmtExpiry,
   rolloverHint,
   leaseOutreachContext,
+  resolveOutreachContact,
   BUCKET_META,
 } from "@/lib/lease-radar";
 
@@ -131,18 +134,27 @@ function DraftPanel({
 function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
   const [draft, setDraft] = useState<DraftState>({ tag: "idle" });
   const [brokerContext, setBrokerContext] = useState("");
+  const [activeAction, setActiveAction] = useState<RadarActionType>("tenant_rollover");
+  const [activeContact, setActiveContact] = useState<RadarContactRef | null>(null);
   const styles = urgencyStyles(entry.urgency);
-  const contact = entry.owner_contact;
+  const resolution = resolveOutreachContact(activeAction, entry);
 
   useEffect(() => {
     const saved = localStorage.getItem("beacon_broker_context");
     if (saved) setBrokerContext(saved);
   }, []);
 
-  async function handleCompose() {
-    if (!contact?.id) return;
+  // Reset draft target when entry/action changes
+  useEffect(() => {
+    setDraft({ tag: "idle" });
+    setActiveContact(null);
+  }, [entry.id, activeAction]);
+
+  async function composeTo(contact: RadarContactRef, action: RadarActionType) {
+    setActiveContact(contact);
+    setActiveAction(action);
     setDraft({ tag: "generating" });
-    const context = [brokerContext, leaseOutreachContext(entry)].filter(Boolean).join("\n\n");
+    const context = [brokerContext, leaseOutreachContext(entry, action)].filter(Boolean).join("\n\n");
     const res = await generateDrafts([contact.id], context, "check-in");
     if (res.error || !res.drafts?.length) {
       setDraft({ tag: "error", message: res.error ?? "No draft returned." });
@@ -153,15 +165,17 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
   }
 
   async function handleSend(subject: string, body: string) {
-    if (!contact?.id) return;
+    if (!activeContact?.id) return;
     setDraft({ tag: "sending" });
-    const res = await logOutreach(contact.id, subject, body);
+    const res = await logOutreach(activeContact.id, subject, body);
     if (res.error) {
       setDraft({ tag: "error", message: res.error });
       return;
     }
     setDraft({ tag: "sent" });
   }
+
+  const contactForDraft = activeContact;
 
   return (
     <div className={cn("rounded-xl border bg-card overflow-hidden", styles.row)}>
@@ -205,23 +219,81 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
             <p className="text-xs text-muted-foreground">No property linked</p>
           )}
 
-          {contact ? (
-            <Link
-              href={`/contacts/${contact.id}`}
-              className="text-xs flex items-center gap-1 w-fit hover:underline underline-offset-2"
-            >
-              <User className="size-3 text-muted-foreground" />
-              <span className="font-medium">{contact.name ?? "Contact"}</span>
-              {contact.company && (
-                <span className="text-muted-foreground">· {contact.company}</span>
-              )}
-            </Link>
-          ) : entry.property_owner_name ? (
-            <p className="text-xs text-muted-foreground">
-              Owner: {entry.property_owner_name}
-              <span className="text-amber-600 dark:text-amber-400 ml-1">· No CRM contact linked</span>
+          {/* WHO + WHY */}
+          {resolution.kind === "ready" && (
+            <div className="space-y-0.5">
+              <Link
+                href={`/contacts/${resolution.contact.id}`}
+                className="text-xs flex items-center gap-1.5 w-fit hover:underline underline-offset-2"
+              >
+                <User className="size-3 text-muted-foreground" />
+                <span className="rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-muted border">
+                  {resolution.role}
+                </span>
+                <span className="font-medium">{resolution.contact.name ?? "Contact"}</span>
+                {resolution.contact.company && (
+                  <span className="text-muted-foreground">· {resolution.contact.company}</span>
+                )}
+              </Link>
+              <p className="text-[11px] text-muted-foreground">{resolution.why}</p>
+            </div>
+          )}
+
+          {resolution.kind === "needs_choice" && (
+            <div className="rounded-md border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 px-2.5 py-2 space-y-1.5">
+              <p className="text-[11px] text-amber-900 dark:text-amber-300">{resolution.why}</p>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href={`/abstracts/${entry.id}`}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                >
+                  Link tenant on abstract
+                  <ChevronRight className="size-3" />
+                </Link>
+                {resolution.ownerOption && draft.tag === "idle" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      composeTo(resolution.ownerOption!.contact, resolution.ownerOption!.action)
+                    }
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground hover:underline"
+                  >
+                    <Mail className="size-3" />
+                    Email owner instead
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {resolution.kind === "missing" && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              {resolution.why}
             </p>
-          ) : null}
+          )}
+
+          {/* Secondary: show the other party when both exist */}
+          {entry.tenant_contact && entry.owner_contact && resolution.kind === "ready" && (
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              {activeAction === "tenant_rollover" ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveAction("owner_renewal")}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                >
+                  Switch to owner (renewal / vacancy)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setActiveAction("tenant_rollover")}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                >
+                  Switch to tenant (rollover)
+                </button>
+              )}
+            </div>
+          )}
 
           <p className="text-[11px] text-muted-foreground">
             Expires {fmtExpiry(entry.expiration_date)} · {rolloverHint(entry.daysUntilExpiry)}
@@ -234,12 +306,17 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
               <CheckCircle2 className="size-3.5" />
               Logged
             </span>
-          ) : contact?.id ? (
+          ) : resolution.kind === "ready" ? (
             <>
               {draft.tag === "idle" && (
-                <Button size="sm" variant="default" className="h-8 text-xs gap-1.5" onClick={handleCompose}>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-8 text-xs gap-1.5"
+                  onClick={() => composeTo(resolution.contact, resolution.action)}
+                >
                   <Mail className="size-3.5" />
-                  Start outreach
+                  Email {resolution.role}
                 </Button>
               )}
               {draft.tag === "generating" && (
@@ -249,30 +326,40 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
                 </span>
               )}
               {draft.tag === "error" && (
-                <button type="button" onClick={handleCompose} className="text-xs text-destructive underline">
+                <button
+                  type="button"
+                  onClick={() => composeTo(resolution.contact, resolution.action)}
+                  className="text-xs text-destructive underline"
+                >
                   Retry
                 </button>
               )}
             </>
-          ) : entry.property_id ? (
+          ) : resolution.kind === "missing" ? (
             <Link
-              href={`/properties/${entry.property_id}`}
+              href={
+                resolution.linkHint === "abstract"
+                  ? `/abstracts/${entry.id}`
+                  : entry.property_id
+                    ? `/properties/${entry.property_id}`
+                    : `/abstracts/${entry.id}`
+              }
               className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline underline-offset-2"
             >
-              Add contact
+              {resolution.linkHint === "abstract" ? "Link tenant" : "Add owner contact"}
               <ChevronRight className="size-3" />
             </Link>
           ) : null}
         </div>
       </div>
 
-      {draft.tag === "ready" && (
+      {draft.tag === "ready" && contactForDraft && (
         <DraftPanel
-          email={contact?.email ?? null}
+          email={contactForDraft.email ?? null}
           subject={draft.subject}
           body={draft.body}
           onSend={handleSend}
-          onDiscard={() => setDraft({ tag: "idle" })}
+          onDiscard={() => { setDraft({ tag: "idle" }); setActiveContact(null); }}
           sending={false}
         />
       )}

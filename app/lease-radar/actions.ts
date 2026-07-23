@@ -5,10 +5,21 @@ import {
   daysUntilExpiry,
   leaseRadarBucket,
   leaseRadarUrgency,
+  preferOwnerContactCandidate,
   type LeaseRadarBucket,
   type LeaseRadarData,
   type LeaseRadarEntry,
+  type RadarContactRef,
 } from "@/lib/lease-radar";
+
+function toContactRef(c: {
+  id: string;
+  name: string | null;
+  email: string | null;
+  company: string | null;
+}): RadarContactRef {
+  return { id: c.id, name: c.name, email: c.email, company: c.company };
+}
 
 export async function getLeaseRadarData(): Promise<LeaseRadarData> {
   const supabase = await createClient();
@@ -28,7 +39,9 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
   const [{ data: leases }, { data: contacts }] = await Promise.all([
     supabase
       .from("lease_abstracts")
-      .select("id, expiration_date, source_document, base_rate, term, linked_property, properties(id, address, owner_name)")
+      .select(
+        "id, expiration_date, source_document, base_rate, term, linked_property, tenant_contact_id, properties(id, address, owner_name)",
+      )
       .eq("owner_id", user.id)
       .not("expiration_date", "is", null)
       .gte("expiration_date", today)
@@ -36,24 +49,27 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
       .order("expiration_date", { ascending: true }),
     supabase
       .from("contacts")
-      .select("id, name, email, company, contact_tier, linked_properties")
+      .select("id, name, email, company, contact_tier, contact_type, linked_properties")
       .eq("owner_id", user.id),
   ]);
 
-  /** First linked contact per property — prefer Tier 1, then earliest in list. */
-  const contactByProperty = new Map<string, LeaseRadarEntry["owner_contact"] & { tier: number }>();
+  type Ranked = RadarContactRef & { tier: number; isOwnerType: boolean };
+  const ownerByProperty = new Map<string, Ranked>();
+  const contactById = new Map<string, RadarContactRef>();
+
   for (const c of contacts ?? []) {
+    contactById.set(c.id, toContactRef(c));
     const tier = c.contact_tier ?? 99;
+    const isOwnerType = c.contact_type === "owner";
+    const candidate = {
+      ...toContactRef(c),
+      tier,
+      isOwnerType,
+    };
     for (const pid of c.linked_properties ?? []) {
-      const existing = contactByProperty.get(pid);
-      if (!existing || tier < existing.tier) {
-        contactByProperty.set(pid, {
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          company: c.company,
-          tier,
-        });
+      const existing = ownerByProperty.get(pid);
+      if (preferOwnerContactCandidate(existing, candidate)) {
+        ownerByProperty.set(pid, candidate);
       }
     }
   }
@@ -73,7 +89,8 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
       owner_name: string | null;
     } | null;
     const propertyId = (row.linked_property as string | null) ?? prop?.id ?? null;
-    const linked = propertyId ? contactByProperty.get(propertyId) : undefined;
+    const linked = propertyId ? ownerByProperty.get(propertyId) : undefined;
+    const tenantId = row.tenant_contact_id as string | null;
 
     const entry: LeaseRadarEntry = {
       id: row.id,
@@ -90,6 +107,7 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
       owner_contact: linked
         ? { id: linked.id, name: linked.name, email: linked.email, company: linked.company }
         : null,
+      tenant_contact: tenantId ? (contactById.get(tenantId) ?? null) : null,
     };
 
     if (bucket === "3mo") within3.push(entry);
@@ -130,17 +148,25 @@ function followUpDueDate(bucket: LeaseRadarBucket): string {
   return d.toISOString().slice(0, 10);
 }
 
-function followUpDescription(bucket: LeaseRadarBucket, address: string | null, role: "owner" | "tenant"): string {
+function followUpDescription(
+  bucket: LeaseRadarBucket,
+  address: string | null,
+  role: "owner" | "tenant",
+): string {
   const loc = address ? ` at ${address}` : "";
-  const bucketLabel = bucket === "3mo" ? "within 3 months" : bucket === "6mo" ? "within 6 months" : "within 12 months";
-  if (role === "owner") return `Lease rollover (${bucketLabel})${loc} — contact owner`;
+  const bucketLabel =
+    bucket === "3mo" ? "within 3 months" : bucket === "6mo" ? "within 6 months" : "within 12 months";
+  if (role === "owner") {
+    return `Lease expiry (${bucketLabel})${loc} — owner renewal / vacancy strategy`;
+  }
   return `Lease rollover (${bucketLabel})${loc} — reach out to tenant`;
 }
 
 /**
- * Creates follow-ups for owner and tenant contacts on leases approaching expiration.
- * Called on every lease-radar page load; idempotent via unique index on
- * (owner_id, lease_id, lease_bucket, contact_id).
+ * Creates follow-ups aligned to action type:
+ * - tenant_contact → tenant rollover task
+ * - owner CRM contact on property → owner renewal/vacancy task
+ * Idempotent via unique index on (owner_id, lease_id, lease_bucket, contact_id).
  */
 export async function syncLeaseFollowUps(): Promise<void> {
   const supabase = await createClient();
@@ -151,7 +177,6 @@ export async function syncLeaseFollowUps(): Promise<void> {
   const today = now.toISOString().slice(0, 10);
   const cutoff12 = new Date(now.getTime() + 365 * 86_400_000).toISOString().slice(0, 10);
 
-  // Fetch leases expiring within 12 months, with tenant contact
   const [{ data: leases }, { data: contactRows }] = await Promise.all([
     supabase
       .from("lease_abstracts")
@@ -168,20 +193,19 @@ export async function syncLeaseFollowUps(): Promise<void> {
 
   if (!leases || leases.length === 0) return;
 
-  // Build propertyId → best owner contact map (prefer owner type, then lowest tier)
-  const ownerByProperty = new Map<string, { id: string; tier: number }>();
+  const ownerByProperty = new Map<string, { id: string; tier: number; isOwnerType: boolean }>();
   for (const c of contactRows ?? []) {
     const tier = (c.contact_tier as number | null) ?? 99;
     const isOwnerType = c.contact_type === "owner";
+    const candidate = { id: c.id, tier, isOwnerType };
     for (const pid of (c.linked_properties as string[] | null) ?? []) {
       const existing = ownerByProperty.get(pid);
-      if (!existing || (isOwnerType && c.contact_type !== "owner") || tier < existing.tier) {
-        ownerByProperty.set(pid, { id: c.id, tier });
+      if (preferOwnerContactCandidate(existing, candidate)) {
+        ownerByProperty.set(pid, candidate);
       }
     }
   }
 
-  // Collect all (lease, bucket, contact) pairs that need a follow-up
   type FollowUpCandidate = {
     lease_id: string;
     bucket: LeaseRadarBucket;
@@ -202,22 +226,35 @@ export async function syncLeaseFollowUps(): Promise<void> {
     const propertyId = (row.linked_property as string | null) ?? prop?.id ?? null;
     const address = prop?.address ?? null;
 
-    // Owner contact
+    // Owner-facing follow-up (renewal / vacancy strategy)
     const ownerContact = propertyId ? ownerByProperty.get(propertyId) : undefined;
     if (ownerContact) {
-      candidates.push({ lease_id: row.id, bucket, contact_id: ownerContact.id, property_id: propertyId, address, role: "owner" });
+      candidates.push({
+        lease_id: row.id,
+        bucket,
+        contact_id: ownerContact.id,
+        property_id: propertyId,
+        address,
+        role: "owner",
+      });
     }
 
-    // Tenant contact
+    // Tenant rollover follow-up
     const tenantContactId = row.tenant_contact_id as string | null;
     if (tenantContactId) {
-      candidates.push({ lease_id: row.id, bucket, contact_id: tenantContactId, property_id: propertyId, address, role: "tenant" });
+      candidates.push({
+        lease_id: row.id,
+        bucket,
+        contact_id: tenantContactId,
+        property_id: propertyId,
+        address,
+        role: "tenant",
+      });
     }
   }
 
   if (candidates.length === 0) return;
 
-  // Fetch existing lease-triggered follow-ups to skip duplicates
   const { data: existing } = await supabase
     .from("follow_ups")
     .select("lease_id, lease_bucket, contact_id")
@@ -226,25 +263,25 @@ export async function syncLeaseFollowUps(): Promise<void> {
     .not("lease_id", "is", null);
 
   const existingSet = new Set(
-    (existing ?? []).map((r) => `${r.lease_id}|${r.lease_bucket}|${r.contact_id}`)
+    (existing ?? []).map((r) => `${r.lease_id}|${r.lease_bucket}|${r.contact_id}`),
   );
 
   const toCreate = candidates.filter(
-    (c) => !existingSet.has(`${c.lease_id}|${c.bucket}|${c.contact_id}`)
+    (c) => !existingSet.has(`${c.lease_id}|${c.bucket}|${c.contact_id}`),
   );
 
   if (toCreate.length === 0) return;
 
   await supabase.from("follow_ups").insert(
     toCreate.map((c) => ({
-      owner_id:     user.id,
-      contact_id:   c.contact_id,
-      property_id:  c.property_id,
-      due_date:     followUpDueDate(c.bucket),
-      description:  followUpDescription(c.bucket, c.address, c.role),
-      source_type:  "lease_expiry",
-      lease_id:     c.lease_id,
+      owner_id: user.id,
+      contact_id: c.contact_id,
+      property_id: c.property_id,
+      due_date: followUpDueDate(c.bucket),
+      description: followUpDescription(c.bucket, c.address, c.role),
+      source_type: "lease_expiry",
+      lease_id: c.lease_id,
       lease_bucket: c.bucket,
-    }))
+    })),
   );
 }

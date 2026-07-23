@@ -34,7 +34,7 @@ export default async function LeaseRadarPage() {
             </p>
             <h1 className="text-xl font-semibold tracking-tight">Lease expiration radar</h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-xl leading-relaxed">
-              Tenants planning a move often decide months before a listing hits the market.
+              Rollover outreach goes to the tenant when linked; owner actions stay with ownership.
               Reach out while you still have an edge.
             </p>
           </div>
@@ -47,7 +47,8 @@ export default async function LeaseRadarPage() {
             {data.urgentCount} lease{data.urgentCount !== 1 ? "s" : ""} expiring within 90 days
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            These tenants are your highest-priority outreach — start conversations before competitors see the signal.
+            Highest-priority expirations — email the tenant for rollover, or the owner for vacancy strategy.
+            Each row shows who will be contacted and why.
           </p>
         </div>
       )}
