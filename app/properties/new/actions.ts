@@ -48,7 +48,7 @@ function dorCodeToPropertyType(code: string | null): string {
   return "other";
 }
 
-function bcpaSaleDate(yr: number | null, mo: string | null): string | null {
+function bcpaSaleDate(yr: number | null, mo: string | number | null): string | null {
   if (!yr) return null;
   return `${yr}-${String(mo ?? "01").padStart(2, "0")}-01`;
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Loader2, Building2, X, Search, CheckCircle2 } from "lucide-react";
+import { Loader2, Building2, Search, CheckCircle2 } from "lucide-react";
 import { setLeaseProperty } from "./actions";
 import { getAllPropertiesForPicker } from "../new/actions";
 
@@ -40,10 +40,10 @@ export function PropertyLinker({
       )
     : allProperties;
 
-  async function link(prop: PropertyOption | null) {
+  async function link(prop: PropertyOption) {
     setError(null);
     setSaving(true);
-    const res = await setLeaseProperty(leaseId, prop?.id ?? null);
+    const res = await setLeaseProperty(leaseId, prop.id);
     setSaving(false);
     if (res.error) { setError(res.error); return; }
     setLinked(prop);
@@ -72,7 +72,9 @@ export function PropertyLinker({
       )}
 
       <p className="text-xs text-muted-foreground mb-1.5">
-        {linked ? "Change linked property:" : "Link a property:"}
+        {linked
+          ? "Relink to a different property (clearing is blocked — Lease radar needs a property):"
+          : "Link a property — required for Lease radar and follow-ups:"}
       </p>
 
       <div className="relative">
@@ -119,18 +121,6 @@ export function PropertyLinker({
           </div>
         )}
       </div>
-
-      {linked && (
-        <button
-          type="button"
-          onClick={() => link(null)}
-          disabled={saving}
-          className="text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1 disabled:opacity-50"
-        >
-          {saving ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3" />}
-          Unlink property
-        </button>
-      )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>

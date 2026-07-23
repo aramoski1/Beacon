@@ -338,7 +338,7 @@ function LeasePreviewCard({
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
-          Required — the lease will appear on the property page and in lease radar.
+          Required — without a property, Lease radar can&apos;t track this expiration.
         </p>
         <PropertyPicker
           value={linkedPropertyId}
@@ -348,7 +348,7 @@ function LeasePreviewCard({
         />
         {!linkedPropertyId && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
-            Select a property above to enable saving.
+            This lease isn&apos;t on a property — radar can&apos;t track expiration. Select a property to save.
           </p>
         )}
       </div>

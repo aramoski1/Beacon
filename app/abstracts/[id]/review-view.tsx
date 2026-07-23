@@ -621,7 +621,7 @@ export function LeaseReviewView({
             <FieldSection title="Property">
               {!linkedProperty && (
                 <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 mb-2">
-                  This lease is not linked to a property — it won't appear on a property page or in lease radar.
+                  This lease isn&apos;t on a property — radar can&apos;t track expiration. Link a property below.
                 </div>
               )}
               <PropertyLinker

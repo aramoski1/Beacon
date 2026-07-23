@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  requireLinkedPropertyId,
+  LEASE_PROPERTY_UNLINK_BLOCKED_MSG,
+} from "@/lib/lease-property";
 import type { FieldReviews, ReviewStatus } from "./review-utils";
 
 export async function setLeaseProperty(
@@ -11,6 +15,23 @@ export async function setLeaseProperty(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  // Clearing to null is blocked — radar/follow-ups go dark silently otherwise.
+  if (!propertyId?.trim()) {
+    return { error: LEASE_PROPERTY_UNLINK_BLOCKED_MSG };
+  }
+  const linkErr = requireLinkedPropertyId(propertyId);
+  if (linkErr) return { error: linkErr };
+
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (!prop) {
+    return { error: "That property isn't in your book." };
+  }
 
   const { error } = await supabase
     .from("lease_abstracts")

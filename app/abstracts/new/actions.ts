@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { fetchFieldDefs, buildCustomFieldsSchema } from "@/lib/custom-fields";
+import { requireLinkedPropertyId } from "@/lib/lease-property";
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
@@ -250,11 +251,28 @@ export async function saveAbstractLease(
     return { error: "Invalid storage path." };
   }
 
+  const linkErr = requireLinkedPropertyId(preview.linked_property);
+  if (linkErr) return { error: linkErr };
+
+  const linkedProperty = preview.linked_property!.trim();
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("id", linkedProperty)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (!prop) {
+    return {
+      error:
+        "That property isn't in your book. Pick one of your properties so Lease radar can track this expiration.",
+    };
+  }
+
   const { data: record, error: dbError } = await supabase
     .from("lease_abstracts")
     .insert({
       owner_id: user.id,
-      linked_property: preview.linked_property ?? null,
+      linked_property: linkedProperty,
       source_document: preview.storagePath,
       execution_date: preview.execution_date || null,
       expiration_date: preview.expiration_date || null,
