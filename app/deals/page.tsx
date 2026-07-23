@@ -4,11 +4,16 @@ import { createClient } from "@/lib/supabase/server";
 import { getDeals } from "./actions";
 import { DealsView } from "./deals-view";
 
-export default async function DealsPage() {
+export default async function DealsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const sp = await searchParams;
   const deals = await getDeals();
   const totalCount = deals.length;
 
@@ -28,7 +33,7 @@ export default async function DealsPage() {
         </div>
       </div>
 
-      <DealsView initialDeals={deals} />
+      <DealsView initialDeals={deals} autoOpenCreate={sp.new === "1"} />
     </div>
   );
 }

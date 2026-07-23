@@ -8,6 +8,7 @@ import {
   Briefcase, CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
   CheckSquare, Settings2, LogOut, Menu, X,
+  ShieldAlert, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
@@ -101,7 +102,7 @@ const NEW_MENU_ITEMS = [
   { href: "/properties/new", label: "Add property" },
   { href: "/contacts/new",   label: "Add contact" },
   { href: "/abstracts/new",  label: "Abstract lease" },
-  { href: "/deals",          label: "New pursuit" },
+  { href: "/deals?new=1",    label: "New pursuit" },
 ];
 
 function Sidebar({
@@ -218,6 +219,38 @@ function Sidebar({
             />
           );
         })}
+
+        <div className="pt-3 mt-2 border-t space-y-0.5">
+          <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+            Advanced
+          </p>
+          <Link
+            href="/properties/audit"
+            onClick={onClose}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs transition-colors",
+              pathname.startsWith("/properties/audit")
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <ShieldAlert className="size-3.5 shrink-0 text-muted-foreground/70" />
+            Data audit
+          </Link>
+          <Link
+            href="/properties/errors"
+            onClick={onClose}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs transition-colors",
+              pathname.startsWith("/properties/errors")
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <AlertCircle className="size-3.5 shrink-0 text-muted-foreground/70" />
+            Ingestion errors
+          </Link>
+        </div>
       </nav>
 
       {/* User + sign out */}

@@ -2202,17 +2202,19 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           </a>
           <Link
             href="/properties/audit"
-            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground hover:text-destructive"
+            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground"
+            title="Advanced — property data audit"
           >
             <ShieldAlert className="size-3.5" />
-            Data audit
+            Advanced: audit
           </Link>
           <Link
             href="/properties/errors"
-            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground hover:text-destructive"
+            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground"
+            title="Advanced — ingestion errors"
           >
             <AlertCircle className="size-3.5" />
-            Errors
+            Advanced: errors
           </Link>
         </div>
       </header>

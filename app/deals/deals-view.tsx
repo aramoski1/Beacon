@@ -340,7 +340,13 @@ function ListView({
   );
 }
 
-export function DealsView({ initialDeals }: { initialDeals: Deal[] }) {
+export function DealsView({
+  initialDeals,
+  autoOpenCreate = false,
+}: {
+  initialDeals: Deal[];
+  autoOpenCreate?: boolean;
+}) {
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [typeFilter, setTypeFilter] = useState<DealType | "all">("all");
@@ -438,7 +444,7 @@ export function DealsView({ initialDeals }: { initialDeals: Deal[] }) {
               List
             </button>
           </div>
-          <CreateDealDialog onCreated={handleCreated} />
+          <CreateDealDialog onCreated={handleCreated} defaultOpen={autoOpenCreate} />
         </div>
       </div>
 

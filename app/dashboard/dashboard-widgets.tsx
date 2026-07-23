@@ -88,7 +88,7 @@ export function UnworkedOpportunitiesPanel({ items }: { items: UnworkedOpportuni
             <p className="text-xs text-muted-foreground truncate">
               {p.owner_contact_name ?? p.owner_name}
               <span className="mx-1">·</span>
-              <span className="text-amber-600 dark:text-amber-400">No CRM contact yet</span>
+              <span className="text-amber-600 dark:text-amber-400">No contact linked yet</span>
             </p>
           </div>
           <ArrowRight className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0 transition-opacity" />

@@ -13,6 +13,8 @@ type Props = {
   /** If provided, locks the property on the new deal. */
   propertyId?: string;
   propertyAddress?: string | null;
+  /** Open the dialog on mount (e.g. /deals?new=1). */
+  defaultOpen?: boolean;
   /** Render a custom trigger; if omitted, a default "New pursuit" button is shown. */
   trigger?: React.ReactNode;
   onCreated?: (deal: Deal) => void;
@@ -23,10 +25,11 @@ export function CreateDealDialog({
   contactName,
   propertyId,
   propertyAddress,
+  defaultOpen = false,
   trigger,
   onCreated,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
