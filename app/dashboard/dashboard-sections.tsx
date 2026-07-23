@@ -25,6 +25,7 @@ import type {
   OwnershipChangedProperty,
 } from "./actions";
 import type { LeaseRadarEntry } from "@/lib/lease-radar";
+import { fmtKpiMoney, fmtKpiSqft, type LeaseExposureKpi } from "@/lib/dashboard-kpis";
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
@@ -87,25 +88,106 @@ export function DashboardHero({
             <p className="text-sm text-muted-foreground mt-0.5">{date}</p>
           </div>
           <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">{playbookLine}</p>
-          {search && <div className="max-w-md pt-1">{search}</div>}
-        </div>
-        <div className="flex flex-wrap gap-3 shrink-0">
-          <HeroMetric
-            label="Building SF"
-            value={fmtSqft(portfolio.totalSqft)}
-            sub={portfolio.addedThisWeek > 0 ? `+${portfolio.addedThisWeek} this week` : undefined}
-          />
-          {portfolio.totalValue > 0 && (
-            <HeroMetric label="Sale value" value={fmtMoney(portfolio.totalValue)} />
+          {search && (
+            <div className="max-w-md pt-1 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Ask Beacon
+              </p>
+              {search}
+            </div>
           )}
-          <HeroMetric
-            label="Cadence"
-            value={`${cadence.compliancePct}%`}
-            sub={`${cadence.onTrack} on track`}
-            highlight={cadence.compliancePct < 60}
-          />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Top KPI strip — real DB numbers, deep-linked. */
+export function BrokerKpiStrip({
+  activePursuits,
+  estimatedCommission,
+  leaseExposure,
+  tier1Overdue,
+  ownershipChanges,
+  bookProperties,
+  bookSqft,
+}: {
+  activePursuits: number;
+  estimatedCommission: number;
+  leaseExposure: LeaseExposureKpi;
+  tier1Overdue: number;
+  ownershipChanges: number;
+  bookProperties: number;
+  bookSqft: number;
+}) {
+  const cells: Array<{
+    label: string;
+    value: string;
+    sub?: string;
+    href: string;
+    highlight?: boolean;
+  }> = [
+    {
+      label: "Active pursuits",
+      value: String(activePursuits),
+      sub: estimatedCommission > 0 ? `${fmtKpiMoney(estimatedCommission)} est. fee` : "Pipeline",
+      href: "/deals",
+      highlight: activePursuits === 0,
+    },
+    {
+      label: "Leases ≤90d",
+      value: String(leaseExposure.count90),
+      sub: leaseExposure.sqft90 > 0 ? fmtKpiSqft(leaseExposure.sqft90) : "expiring",
+      href: "/lease-radar",
+      highlight: leaseExposure.count90 > 0,
+    },
+    {
+      label: "Tier-1 overdue",
+      value: String(tier1Overdue),
+      sub: "vs your cadence",
+      href: "/outreach",
+      highlight: tier1Overdue > 0,
+    },
+    {
+      label: "Ownership changes",
+      value: String(ownershipChanges),
+      sub: "open signals",
+      href: "/crm?tab=properties",
+      highlight: ownershipChanges > 0,
+    },
+    {
+      label: "Book size",
+      value: String(bookProperties),
+      sub: bookSqft > 0 ? fmtKpiSqft(bookSqft) : "properties",
+      href: "/crm",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      {cells.map((c) => (
+        <Link
+          key={c.label}
+          href={c.href}
+          className={cn(
+            "rounded-xl border bg-card px-4 py-3 hover:bg-muted/30 transition-colors",
+            c.highlight && "border-amber-500/40",
+          )}
+        >
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {c.label}
+          </p>
+          <p
+            className={cn(
+              "text-xl font-bold tabular-nums tracking-tight mt-0.5",
+              c.highlight ? "text-amber-700 dark:text-amber-400" : "text-foreground",
+            )}
+          >
+            {c.value}
+          </p>
+          {c.sub && <p className="text-[10px] text-muted-foreground mt-0.5">{c.sub}</p>}
+        </Link>
+      ))}
     </div>
   );
 }
@@ -166,7 +248,13 @@ export function StatCard({
 // ─── Cadence panel ────────────────────────────────────────────────────────────
 
 export function CadencePanel({ cadence }: { cadence: CadenceHealth }) {
-  if (cadence.tierBreakdown.length === 0) return null;
+  if (cadence.tierBreakdown.length === 0) {
+    return (
+      <div className="rounded-xl border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+        No tiered contacts yet — assign Tier 1–3 in Workspace to track cadence.
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -311,7 +399,7 @@ export function PortfolioPanel({ portfolio }: { portfolio: PortfolioSnapshot }) 
           <TrendingUp className="size-3.5 text-muted-foreground" />
           Book composition
         </span>
-        <Link href="/crm" className="text-xs text-primary hover:underline underline-offset-2">CRM →</Link>
+        <Link href="/crm" className="text-xs text-primary hover:underline underline-offset-2">Workspace →</Link>
       </div>
       <div className="p-4 space-y-4">
         {portfolio.byType.length === 0 ? (
@@ -375,7 +463,13 @@ export function PortfolioPanel({ portfolio }: { portfolio: PortfolioSnapshot }) 
 // ─── Data health ──────────────────────────────────────────────────────────────
 
 export function DataHealthPanel({ health }: { health: DataHealth }) {
-  if (health.totalProperties === 0 && health.ingestionErrors === 0) return null;
+  if (health.totalProperties === 0 && health.ingestionErrors === 0) {
+    return (
+      <div className="rounded-xl border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+        No properties in your book yet — import or add one to start tracking data health.
+      </div>
+    );
+  }
 
   const cleanPct = health.totalProperties > 0
     ? Math.round(((health.totalProperties - health.flaggedProperties) / health.totalProperties) * 100)
@@ -582,7 +676,13 @@ export function ActivityTimeline({ activities }: { activities: RecentActivity[] 
 // ─── Ownership changes ────────────────────────────────────────────────────────
 
 export function OwnershipChangedPanel({ items }: { items: OwnershipChangedProperty[] }) {
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+        No open ownership-change signals. Miami-Dade tax-roll enrich surfaces these when owners flip.
+      </div>
+    );
+  }
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center justify-between">

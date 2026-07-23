@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { Briefcase, Building2, Users, FileText, CheckSquare, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getEnrichedActionItems } from "./enriched-action-items";
 import { getFollowUpsDashboard, getUpcomingFollowUps } from "@/app/follow-ups/actions";
@@ -32,16 +31,17 @@ import { getDealsDashboard } from "@/app/deals/actions";
 import {
   DashboardHero,
   ActivityTimeline,
-  StatCard,
-  ExpiringLeasesPanel,
+  BrokerKpiStrip,
   SectionHeader,
   PriorityPills,
   CadencePanel,
   PortfolioPanel,
   DataHealthPanel,
   OwnershipChangedPanel,
+  ExpiringLeasesPanel,
 } from "./dashboard-sections";
 import { StaleTier1OwnersPanel } from "./stale-owner-panel";
+import { aggregateLeaseExposure } from "@/lib/dashboard-kpis";
 
 function greeting() {
   const h = new Date().getHours();
@@ -102,8 +102,37 @@ export default async function DashboardPage() {
     getDealsDashboard(),
   ]);
 
+  // Lease SF for ≤90/180d — join property size when linked
+  const leasePropIds = [
+    ...new Set(
+      [...leaseRadar.within3, ...leaseRadar.within6]
+        .map((e) => e.property_id)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const sqftByProp = new Map<string, number>();
+  if (leasePropIds.length > 0) {
+    const { data: props } = await supabase
+      .from("properties")
+      .select("id, size_sqft")
+      .eq("owner_id", user.id)
+      .in("id", leasePropIds);
+    for (const p of props ?? []) {
+      if (p.size_sqft != null) sqftByProp.set(p.id, Number(p.size_sqft));
+    }
+  }
+  const leaseExposure = aggregateLeaseExposure(
+    [...leaseRadar.within3, ...leaseRadar.within6, ...leaseRadar.within12].map((e) => ({
+      daysUntilExpiry: e.daysUntilExpiry,
+      sizeSqft: e.property_id ? (sqftByProp.get(e.property_id) ?? null) : null,
+    })),
+  );
+
   const overdueOutreach = enrichedItems.filter((c) => c.daysOverdue > 0).length;
   const dueTodayOutreach = enrichedItems.filter((c) => c.daysOverdue === 0).length;
+  const tier1Overdue = enrichedItems.filter(
+    (c) => c.contact_tier === 1 && c.daysOverdue > 0,
+  ).length;
   const attentionCount =
     overdueOutreach +
     dueTodayOutreach +
@@ -139,13 +168,21 @@ export default async function DashboardPage() {
         search={<BeaconCopilot />}
       />
 
+      <BrokerKpiStrip
+        activePursuits={dealsDashboard.activeCount}
+        estimatedCommission={dealsDashboard.estimatedCommissionTotal}
+        leaseExposure={leaseExposure}
+        tier1Overdue={tier1Overdue}
+        ownershipChanges={ownershipChangedProperties.length}
+        bookProperties={stats.properties}
+        bookSqft={portfolio.totalSqft}
+      />
+
       <PriorityPills metrics={briefing} />
-
       <WeekMomentumBar momentum={momentum} />
-
       <SinceLastVisit />
 
-      {/* Command center — do this now */}
+      {/* PRIMARY — do today */}
       <div className="grid lg:grid-cols-2 gap-6 items-start">
         <div className="space-y-6">
           <section className="space-y-3">
@@ -190,7 +227,7 @@ export default async function DashboardPage() {
                 ) : undefined
               }
               href="/crm"
-              hrefLabel="CRM →"
+              hrefLabel="Workspace →"
             />
             <UnworkedOpportunitiesPanel items={unworked} />
           </section>
@@ -229,55 +266,52 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <section className="space-y-3">
-        <SectionHeader
-          title="Lease expiration radar"
-          badge={
-            leaseRadar.urgentCount > 0 ? (
-              <span className="rounded-full bg-red-500/15 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
-                {leaseRadar.urgentCount} urgent
-              </span>
-            ) : leaseRadar.counts.total > 0 ? (
-              <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5">
-                {leaseRadar.counts.total} in 12mo
-              </span>
-            ) : undefined
-          }
-          href="/lease-radar"
-          hrefLabel="Full radar →"
-        />
-        <LeaseRadarView data={leaseRadar} compact />
-      </section>
+      {/* SECONDARY */}
+      <div className="grid xl:grid-cols-2 gap-6 items-start">
+        <section className="space-y-3">
+          <SectionHeader
+            title="Pipeline"
+            href="/deals"
+            hrefLabel="All pursuits →"
+          />
+          <DealsDashboardPanel summary={dealsDashboard} />
+        </section>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <StatCard href="/crm" icon={<Building2 className="size-4" />} label="Properties" value={stats.properties} />
-        <StatCard href="/crm?tab=contacts" icon={<Users className="size-4" />} label="Contacts" value={stats.contacts} />
-        <StatCard href="/crm?tab=leases" icon={<FileText className="size-4" />} label="Leases" value={stats.leases} />
-        <StatCard href="/follow-ups" icon={<CheckSquare className="size-4" />} label="Follow-ups due" value={stats.followUpsDue} highlight={stats.followUpsDue > 0} />
-        <StatCard href="/outreach" icon={<Zap className="size-4" />} label="Outreach overdue" value={overdueOutreach} highlight={overdueOutreach > 0} />
-        <StatCard href="/deals" icon={<Briefcase className="size-4" />} label="Active pursuits" value={dealsDashboard.activeCount} />
+        <section className="space-y-3">
+          <SectionHeader
+            title="Lease exposure"
+            badge={
+              leaseRadar.urgentCount > 0 ? (
+                <span className="rounded-full bg-red-500/15 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
+                  {leaseRadar.urgentCount} ≤90d
+                </span>
+              ) : undefined
+            }
+            href="/lease-radar"
+            hrefLabel="Full radar →"
+          />
+          <LeaseRadarView data={leaseRadar} compact />
+          <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
+        </section>
       </div>
 
-      <div className="grid xl:grid-cols-[1fr_300px] gap-6 items-start">
-        <div className="space-y-6 min-w-0">
+      <div className="grid xl:grid-cols-2 gap-6 items-start">
+        <section className="space-y-3">
+          <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
+          <PortfolioPanel portfolio={portfolio} />
+          <OwnershipChangedPanel items={ownershipChangedProperties} />
+          <CadencePanel cadence={cadence} />
+        </section>
+
+        <section className="space-y-3">
+          <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
+          <DataHealthPanel health={dataHealth} />
           <section className="space-y-3">
-            <SectionHeader title="Recent activity" href="/crm" hrefLabel="CRM →" />
+            <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
             <ActivityTimeline activities={recentActivities} />
           </section>
-          <CadencePanel cadence={cadence} />
-        </div>
-
-        <div className="space-y-4">
-          <DealsDashboardPanel summary={dealsDashboard} />
-          <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
-          {ownershipChangedProperties.length > 0 && (
-            <OwnershipChangedPanel items={ownershipChangedProperties} />
-          )}
-          <PortfolioPanel portfolio={portfolio} />
-          <DataHealthPanel health={dataHealth} />
-        </div>
+        </section>
       </div>
-
     </div>
   );
 }

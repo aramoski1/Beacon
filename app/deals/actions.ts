@@ -17,6 +17,7 @@ import {
   type CreateDealInput,
   type ValidationError,
 } from "@/lib/deals";
+import { sumEstimatedCommission } from "@/lib/dashboard-kpis";
 
 export async function getDeals(): Promise<Deal[]> {
   const supabase = await createClient();
@@ -35,13 +36,16 @@ export async function getDeals(): Promise<Deal[]> {
 export type DealsDashboard = {
   activeCount: number;
   staleCount: number;
+  estimatedCommissionTotal: number;
   recentActive: Deal[];
 };
 
 export async function getDealsDashboard(): Promise<DealsDashboard> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { activeCount: 0, staleCount: 0, recentActive: [] };
+  if (!user) {
+    return { activeCount: 0, staleCount: 0, estimatedCommissionTotal: 0, recentActive: [] };
+  }
 
   const { data } = await supabase
     .from("deals")
@@ -49,14 +53,18 @@ export async function getDealsDashboard(): Promise<DealsDashboard> {
     .eq("owner_id", user.id)
     .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .limit(50);
 
   const deals = (data ?? []) as Deal[];
   const staleCount = deals.filter((d) => isDealStale(d)).length;
+  const estimatedCommissionTotal = sumEstimatedCommission(
+    deals.map((d) => d.estimated_commission),
+  );
 
   return {
     activeCount: deals.length,
     staleCount,
+    estimatedCommissionTotal,
     recentActive: deals.slice(0, 5),
   };
 }

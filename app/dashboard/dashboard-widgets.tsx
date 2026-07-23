@@ -263,6 +263,11 @@ export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
           <span className="text-xs font-bold tabular-nums text-foreground bg-muted rounded-full px-2 py-0.5">
             {summary.activeCount}
           </span>
+          {summary.estimatedCommissionTotal > 0 && (
+            <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium tabular-nums">
+              {fmtCommission(summary.estimatedCommissionTotal)} est.
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {summary.staleCount > 0 && (
