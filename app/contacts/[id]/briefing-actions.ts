@@ -2,6 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { loadPropertyIdsForContact } from "@/lib/contact-properties";
 
 /** Cheaper model — briefings run on demand and may refresh often. */
 const BRIEFING_MODEL = "claude-haiku-4-5-20251001";
@@ -41,7 +42,12 @@ async function gatherBriefingContext(contactId: string, userId: string) {
 
   if (contactErr || !contact) return { error: "Contact not found." as const };
 
-  const propertyIds = contact.linked_properties ?? [];
+  const propertyIds = await loadPropertyIdsForContact(
+    supabase,
+    userId,
+    contactId,
+    contact.linked_properties as string[] | null,
+  );
 
   const [propsResult, activitiesResult, followUpsResult, leasesResult] = await Promise.all([
     propertyIds.length > 0

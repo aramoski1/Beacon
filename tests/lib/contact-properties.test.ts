@@ -19,4 +19,12 @@ describe("resolveLinkedPropertyIds", () => {
   it("dedupes", () => {
     expect(resolveLinkedPropertyIds(["a", "a"], null)).toEqual(["a"]);
   });
+
+  it("auth-isolation: empty join + empty legacy never invents cross-user ids", () => {
+    expect(resolveLinkedPropertyIds(undefined, undefined)).toEqual([]);
+  });
+
+  it("does not merge legacy when join has rows (join is source of truth)", () => {
+    expect(resolveLinkedPropertyIds(["join-only"], ["legacy-extra"])).toEqual(["join-only"]);
+  });
 });

@@ -171,3 +171,132 @@ export function resolveLinkedPropertyIds(
   if (legacyIds && legacyIds.length > 0) return [...new Set(legacyIds)];
   return [];
 }
+
+/**
+ * Load property IDs for one contact: join table first, legacy array fallback.
+ */
+export async function loadPropertyIdsForContact(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  contactId: string,
+  legacyIds?: string[] | null,
+): Promise<string[]> {
+  let joinIds: string[] = [];
+  try {
+    joinIds = await propertyIdsForContact(supabase, userId, contactId);
+  } catch {
+    joinIds = [];
+  }
+  return resolveLinkedPropertyIds(joinIds, legacyIds);
+}
+
+/**
+ * Build property_id → contact_id[] using join table first, legacy array fallback.
+ */
+export async function loadContactsByPropertyMap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  contacts: Array<{
+    id: string;
+    linked_properties?: string[] | null;
+  }>,
+): Promise<Map<string, string[]>> {
+  const contactIds = contacts.map((c) => c.id);
+  let byContact = new Map<string, string[]>();
+  try {
+    byContact = await propertyIdsByContactIds(supabase, userId, contactIds);
+  } catch {
+    byContact = new Map();
+  }
+
+  const map = new Map<string, string[]>();
+  for (const c of contacts) {
+    const propIds = resolveLinkedPropertyIds(
+      byContact.get(c.id) ?? [],
+      c.linked_properties ?? [],
+    );
+    for (const pid of propIds) {
+      const list = map.get(pid) ?? [];
+      if (!list.includes(c.id)) list.push(c.id);
+      map.set(pid, list);
+    }
+  }
+  return map;
+}
+
+/** Count of properties linked to a contact (join-first). */
+export async function countPropertiesForContact(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  contactId: string,
+  legacyIds?: string[] | null,
+): Promise<number> {
+  return (await loadPropertyIdsForContact(supabase, userId, contactId, legacyIds)).length;
+}
+
+/** Count of contacts linked to a property (join-first, legacy fallback via contacts scan). */
+export async function countContactsForProperty(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  propertyId: string,
+): Promise<number> {
+  return (await loadContactIdsForProperty(supabase, userId, propertyId)).length;
+}
+
+/**
+ * Contact IDs on a property: join table first, then legacy contains() fallback.
+ */
+export async function loadContactIdsForProperty(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  propertyId: string,
+): Promise<string[]> {
+  try {
+    const ids = await contactIdsForProperty(supabase, userId, propertyId);
+    if (ids.length > 0) return ids;
+  } catch {
+    // fall through
+  }
+  const { data } = await supabase
+    .from("contacts")
+    .select("id")
+    .eq("owner_id", userId)
+    .contains("linked_properties", [propertyId]);
+  return (data ?? []).map((r: { id: string }) => r.id);
+}
+
+/**
+ * Replace each contact's linked_properties with join-first resolved IDs.
+ */
+export async function hydrateContactLinkedProperties<
+  T extends { id: string; linked_properties?: string[] | null },
+>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  contacts: T[],
+): Promise<(T & { linked_properties: string[] })[]> {
+  if (contacts.length === 0) return [];
+  let byContact = new Map<string, string[]>();
+  try {
+    byContact = await propertyIdsByContactIds(
+      supabase,
+      userId,
+      contacts.map((c) => c.id),
+    );
+  } catch {
+    byContact = new Map();
+  }
+  return contacts.map((c) => ({
+    ...c,
+    linked_properties: resolveLinkedPropertyIds(
+      byContact.get(c.id) ?? [],
+      c.linked_properties ?? [],
+    ),
+  }));
+}

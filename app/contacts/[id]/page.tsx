@@ -13,6 +13,7 @@ import {
   FileText,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { loadPropertyIdsForContact } from "@/lib/contact-properties";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -173,17 +174,24 @@ export default async function ContactPage({
   if (error || !data) notFound();
   const c = data as Contact;
 
+  const linkedPropIds = await loadPropertyIdsForContact(
+    supabase,
+    user.id,
+    id,
+    c.linked_properties,
+  );
+
   const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
       .eq("entity_type", "contact")
       .order("created_at", { ascending: true }),
-    c.linked_properties?.length
+    linkedPropIds.length
       ? supabase
           .from("properties")
           .select("id, address, city, property_type, size_sqft")
-          .in("id", c.linked_properties)
+          .in("id", linkedPropIds)
       : Promise.resolve({ data: [] }),
     fetchActivitiesByContact(id),
     supabase
@@ -290,7 +298,7 @@ export default async function ContactPage({
           </div>
         )}
 
-        {(c.linked_properties?.length ?? 0) > 0 && (
+        {linkedPropIds.length > 0 && (
           <OwnerPortfolioLink contactId={id} variant="button" label="Ownership portfolio" />
         )}
         <CreateDealDialog

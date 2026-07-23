@@ -30,7 +30,7 @@ import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { getUserSettings } from "@/app/settings/actions";
 import { Suspense } from "react";
 import { TaxRollCompsSection } from "./tax-roll-comps";
-import { contactIdsForProperty } from "@/lib/contact-properties";
+import { loadContactIdsForProperty } from "@/lib/contact-properties";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ export default async function PropertyPage({
   if (error || !data) notFound();
   const p = data as Property;
 
-  const linkedContactIds = await contactIdsForProperty(supabase, user.id, id);
+  const linkedContactIds = await loadContactIdsForProperty(supabase, user.id, id);
 
   const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings] = await Promise.all([
     supabase

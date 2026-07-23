@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
 
 export type ContactRow = {
   id: string;
@@ -24,5 +25,6 @@ export async function getContacts(): Promise<ContactRow[]> {
     .eq("owner_id", user.id)
     .order("name", { ascending: true });
 
-  return (data ?? []) as ContactRow[];
+  const rows = (data ?? []) as ContactRow[];
+  return hydrateContactLinkedProperties(supabase, user.id, rows);
 }

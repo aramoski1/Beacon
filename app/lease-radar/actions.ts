@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { loadContactsByPropertyMap } from "@/lib/contact-properties";
 import {
   daysUntilExpiry,
   leaseRadarBucket,
@@ -59,14 +60,21 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
 
   for (const c of contacts ?? []) {
     contactById.set(c.id, toContactRef(c));
-    const tier = c.contact_tier ?? 99;
-    const isOwnerType = c.contact_type === "owner";
-    const candidate = {
-      ...toContactRef(c),
-      tier,
-      isOwnerType,
-    };
-    for (const pid of c.linked_properties ?? []) {
+  }
+
+  const propToContactIds = await loadContactsByPropertyMap(
+    supabase,
+    user.id,
+    contacts ?? [],
+  );
+
+  for (const [pid, cids] of propToContactIds) {
+    for (const cid of cids) {
+      const c = (contacts ?? []).find((row) => row.id === cid);
+      if (!c) continue;
+      const tier = c.contact_tier ?? 99;
+      const isOwnerType = c.contact_type === "owner";
+      const candidate = { ...toContactRef(c), tier, isOwnerType };
       const existing = ownerByProperty.get(pid);
       if (preferOwnerContactCandidate(existing, candidate)) {
         ownerByProperty.set(pid, candidate);
@@ -194,11 +202,18 @@ export async function syncLeaseFollowUps(): Promise<void> {
   if (!leases || leases.length === 0) return;
 
   const ownerByProperty = new Map<string, { id: string; tier: number; isOwnerType: boolean }>();
-  for (const c of contactRows ?? []) {
-    const tier = (c.contact_tier as number | null) ?? 99;
-    const isOwnerType = c.contact_type === "owner";
-    const candidate = { id: c.id, tier, isOwnerType };
-    for (const pid of (c.linked_properties as string[] | null) ?? []) {
+  const propToContactIds = await loadContactsByPropertyMap(
+    supabase,
+    user.id,
+    contactRows ?? [],
+  );
+  for (const [pid, cids] of propToContactIds) {
+    for (const cid of cids) {
+      const c = (contactRows ?? []).find((row) => row.id === cid);
+      if (!c) continue;
+      const tier = (c.contact_tier as number | null) ?? 99;
+      const isOwnerType = c.contact_type === "owner";
+      const candidate = { id: c.id, tier, isOwnerType };
       const existing = ownerByProperty.get(pid);
       if (preferOwnerContactCandidate(existing, candidate)) {
         ownerByProperty.set(pid, candidate);

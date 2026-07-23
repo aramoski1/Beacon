@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity-logger";
 import { getUserSettings } from "@/app/settings/actions";
 import { validateOutreach } from "@/lib/validation";
+import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,16 +77,18 @@ export async function getDueContacts(): Promise<DueContact[]> {
 
   if (!contacts) return [];
 
+  const hydrated = await hydrateContactLinkedProperties(supabase, user.id, contacts);
+
   const cadence: Record<number, number> = {
     1: settings.cadence_tier1_days,
     2: settings.cadence_tier2_days,
     3: settings.cadence_tier3_days,
   };
 
-  const dueContacts: DueContact[] = contacts
+  const dueContacts: DueContact[] = hydrated
     .map((c) => ({
       ...c,
-      linked_properties: c.linked_properties ?? [],
+      linked_properties: c.linked_properties,
       daysOverdue: computeDaysOverdue(c, cadence),
     }))
     .filter((c) => c.daysOverdue >= -7)
@@ -139,15 +142,17 @@ export async function getAllContactsForOutreach(): Promise<DueContact[]> {
 
   if (!contacts?.length) return [];
 
+  const hydrated = await hydrateContactLinkedProperties(supabase, user.id, contacts);
+
   const cadence: Record<number, number> = {
     1: settings.cadence_tier1_days,
     2: settings.cadence_tier2_days,
     3: settings.cadence_tier3_days,
   };
 
-  const list: DueContact[] = contacts.map((c) => ({
+  const list: DueContact[] = hydrated.map((c) => ({
     ...c,
-    linked_properties: c.linked_properties ?? [],
+    linked_properties: c.linked_properties,
     daysOverdue: computeDaysOverdue(c, cadence),
   }));
 
@@ -201,15 +206,17 @@ export async function getContactsByIds(ids: string[]): Promise<DueContact[]> {
 
   if (!contacts?.length) return [];
 
+  const hydrated = await hydrateContactLinkedProperties(supabase, user.id, contacts);
+
   const cadence: Record<number, number> = {
     1: settings.cadence_tier1_days,
     2: settings.cadence_tier2_days,
     3: settings.cadence_tier3_days,
   };
 
-  const dueContacts: DueContact[] = contacts.map((c) => ({
+  const dueContacts: DueContact[] = hydrated.map((c) => ({
     ...c,
-    linked_properties: c.linked_properties ?? [],
+    linked_properties: c.linked_properties,
     daysOverdue: computeDaysOverdue(c, cadence),
   }));
 
@@ -250,6 +257,8 @@ export async function generateDrafts(
 
   if (!contacts || contacts.length === 0) return { error: "Contacts not found." };
 
+  const hydratedContacts = await hydrateContactLinkedProperties(supabase, user.id, contacts);
+
   // Build broker signature from profile settings
   const senderName = settings.sender_name || settings.display_name;
   const senderNameMissing = !senderName;
@@ -257,7 +266,7 @@ export async function generateDrafts(
   const brokerSignature = signatureLines.length > 0 ? signatureLines.join("\n") : null;
 
   // Fetch linked properties + lease abstracts in parallel
-  const allPropIds = [...new Set(contacts.flatMap((c) => c.linked_properties ?? []))];
+  const allPropIds = [...new Set(hydratedContacts.flatMap((c) => c.linked_properties))];
   type PropRecord = {
     address: string | null; city: string | null; property_type: string | null;
     size_sqft: number | null; last_sale_date: string | null; asset_description: string | null;
@@ -336,7 +345,7 @@ export async function generateDrafts(
     return `in ${months} months`;
   }
 
-  const contactSummaries = contacts.map((c) => {
+  const contactSummaries = hydratedContacts.map((c) => {
     const activities = activityMap.get(c.id) ?? [];
 
     const tierTone =
@@ -350,7 +359,7 @@ export async function generateDrafts(
       ? Math.floor((Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000)
       : null;
 
-    const linkedProperties = (c.linked_properties ?? []).flatMap((pid: string) => {
+    const linkedProperties = c.linked_properties.flatMap((pid: string) => {
       const p = propMap.get(pid);
       if (!p) return [];
       const leases = (leaseMap.get(pid) ?? [])

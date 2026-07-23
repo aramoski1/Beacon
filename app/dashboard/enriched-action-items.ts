@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserSettings } from "@/app/settings/actions";
 import { daysUntilExpiry } from "@/lib/lease-radar";
+import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
 import {
   buildSignals,
   formatWhyNow,
@@ -47,6 +48,12 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
   ]);
 
   if (!contacts) return [];
+
+  const hydratedContacts = await hydrateContactLinkedProperties(
+    supabase,
+    user.id,
+    contacts,
+  );
 
   const cadence: Record<number, number> = {
     1: settings.cadence_tier1_days,
@@ -109,7 +116,7 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
 
   const SHOW_WITHIN_DAYS = 7;
 
-  const items: EnrichedActionItem[] = contacts
+  const items: EnrichedActionItem[] = hydratedContacts
     .map((c) => {
       const tier = c.contact_tier as number | null;
       const cadenceDays = cadence[tier ?? 0] ?? 90;
@@ -122,7 +129,7 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
         ? daysSinceContact - cadenceDays
         : cadenceDays;
 
-      const linkedPropIds: string[] = (c.linked_properties as string[] | null) ?? [];
+      const linkedPropIds: string[] = c.linked_properties;
       const resolvedProperties: EnrichedProperty[] = linkedPropIds
         .map((pid) => propMap.get(pid))
         .filter(Boolean)
