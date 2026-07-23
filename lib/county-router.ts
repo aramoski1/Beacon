@@ -116,6 +116,34 @@ const BROWARD: ReadonlySet<string> = new Set([
   "NORTH ANDREWS GARDENS",
 ]);
 
+// ─── City extraction ──────────────────────────────────────────────────────────
+
+/**
+ * Extracts the city name from a free-form address string.
+ *
+ * Handles all common formats:
+ *   "2116 Sherman St, Hollywood"           → "Hollywood"
+ *   "2116 Sherman St, Hollywood, FL"       → "Hollywood"
+ *   "2116 Sherman St, Hollywood, FL 33020" → "Hollywood"
+ *   "2116 Sherman St, Hollywood FL 33020"  → "Hollywood"
+ *
+ * Strategy: take the segment immediately after the first comma (street/city
+ * boundary), stop at the next comma if present, then strip any trailing
+ * state abbreviation and ZIP code.
+ */
+export function parseCityFromAddress(address: string): string | undefined {
+  const firstComma = address.indexOf(",");
+  if (firstComma === -1) return undefined;
+
+  const afterStreet = address.slice(firstComma + 1);
+  const nextComma = afterStreet.indexOf(",");
+  const segment = (nextComma !== -1 ? afterStreet.slice(0, nextComma) : afterStreet).trim();
+
+  // Strip trailing "FL", "FL 33020", or "FL 33020-1234"
+  const city = segment.replace(/\s+[A-Z]{2}(\s+\d{5}(-\d{4})?)?$/i, "").trim();
+  return city || undefined;
+}
+
 // ─── County detection ─────────────────────────────────────────────────────────
 
 /** Returns the county for a given city name, or null if unknown. Case-insensitive. */
@@ -158,10 +186,7 @@ export async function searchParcelsByAddress(
 
   // Broward — extract city from address suffix so bcpaSearch can try a fast
   // single-page city-scoped query before falling back to full pagination.
-  const commaIdx = rawAddress.indexOf(",");
-  const city = commaIdx !== -1
-    ? rawAddress.slice(commaIdx + 1).trim().replace(/\s+[A-Z]{2}\s*\d{5}.*$/i, "").trim() || undefined
-    : undefined;
+  const city = parseCityFromAddress(rawAddress);
 
   const result = await bcpaSearch(rawAddress, city);
   if (result.kind !== "ok") return result;

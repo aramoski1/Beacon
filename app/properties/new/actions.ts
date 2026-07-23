@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
+import { detectCounty, parseCityFromAddress, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
 import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
@@ -96,10 +96,7 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
   // Route to a single county when the city suffix is recognisable; only fall
   // back to parallel search when the city is absent or unknown. This stops
   // Broward noise polluting Miami-Dade results and vice versa.
-  const commaIdx = address.indexOf(",");
-  const rawCity = commaIdx !== -1
-    ? address.slice(commaIdx + 1).trim().replace(/\s+[A-Z]{2}\s*\d{5}.*$/i, "").trim()
-    : null;
+  const rawCity = parseCityFromAddress(address) ?? null;
   const knownCounty = rawCity ? detectCounty(rawCity) : null;
 
   let matches: FolioMatch[];

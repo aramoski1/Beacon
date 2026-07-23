@@ -13,7 +13,7 @@ function okParcels(result: GISSearchResult): BCPAParcel[] {
   if (result.kind !== "ok") throw new Error(`Expected kind "ok", got "${result.kind}"`);
   return result.parcels;
 }
-import { detectCounty } from "../../lib/county-router";
+import { detectCounty, parseCityFromAddress } from "../../lib/county-router";
 
 // ─── folioToStrap ─────────────────────────────────────────────────────────────
 
@@ -479,5 +479,51 @@ describe("detectCounty", () => {
 
   it("returns null for an empty string", () => {
     expect(detectCounty("")).toBeNull();
+  });
+});
+
+// ─── parseCityFromAddress ──────────────────────────────────────────────────────
+
+describe("parseCityFromAddress", () => {
+  it("extracts city when only city follows street", () => {
+    expect(parseCityFromAddress("2116 Sherman St, Hollywood")).toBe("Hollywood");
+  });
+
+  it("extracts city when state follows city after a comma", () => {
+    expect(parseCityFromAddress("2116 Sherman St, Hollywood, FL")).toBe("Hollywood");
+  });
+
+  it("extracts city when state and ZIP follow city after a comma", () => {
+    expect(parseCityFromAddress("2116 Sherman St, Hollywood, FL 33020")).toBe("Hollywood");
+  });
+
+  it("extracts city when state and ZIP are in the same segment as the city (no comma before FL)", () => {
+    expect(parseCityFromAddress("2116 Sherman St, Hollywood FL 33020")).toBe("Hollywood");
+  });
+
+  it("returns undefined when there is no comma", () => {
+    expect(parseCityFromAddress("2116 Sherman St")).toBeUndefined();
+  });
+
+  it("routes all four Hollywood formats to Broward", () => {
+    const formats = [
+      "2116 Sherman St, Hollywood",
+      "2116 Sherman St, Hollywood, FL",
+      "2116 Sherman St, Hollywood, FL 33020",
+      "2116 Sherman St, Hollywood FL 33020",
+    ];
+    for (const addr of formats) {
+      const city = parseCityFromAddress(addr);
+      expect(city, `city extracted from "${addr}"`).toBeTruthy();
+      expect(detectCounty(city!), `county for "${addr}"`).toBe("broward");
+    }
+  });
+
+  it("handles multi-word cities", () => {
+    expect(parseCityFromAddress("200 W Broward Blvd, Fort Lauderdale, FL 33301")).toBe("Fort Lauderdale");
+  });
+
+  it("strips hyphenated ZIP extension", () => {
+    expect(parseCityFromAddress("200 W Broward Blvd, Fort Lauderdale FL 33301-1234")).toBe("Fort Lauderdale");
   });
 });
