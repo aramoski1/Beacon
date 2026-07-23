@@ -100,75 +100,92 @@ export async function searchByAddressGIS(rawAddress: string): Promise<BCPAParcel
   }
 
   const { houseNum, streetKeyword, directional, streetType } = parsed;
-
-  // Server-side filter: county + house number prefix only.
-  // ArcGIS on this service rejects LIKE patterns with '%keyword%' (wildcard in the
-  // middle of a value). Keyword, directional, and street-type filtering is done in JS
-  // on the ≤15 results returned per call.
-  // CO_NO equality also fails on this service; BETWEEN is the reliable workaround.
-  const where = `CO_NO BETWEEN ${BROWARD_CO_NO} AND ${BROWARD_CO_NO} AND PHY_ADDR1 LIKE '${houseNum} %'`;
-
-  const url = new URL(STATEWIDE_URL);
-  url.searchParams.set("where", where);
-  url.searchParams.set("outFields", SEARCH_FIELDS);
-  url.searchParams.set("f", "json");
-  url.searchParams.set("returnGeometry", "false");
-  url.searchParams.set("resultRecordCount", "15");
-
-  const res = await fetch(url.toString(), {
-    next: { revalidate: 0 },
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) throw new Error(`BCPA statewide GIS search failed: HTTP ${res.status}`);
-
-  const data = (await res.json()) as {
-    features?: { attributes: { PARCEL_ID: string; PHY_ADDR1: string; PHY_CITY: string } }[];
-    error?: { message: string };
-  };
-
-  if (data.error) throw new Error(`GIS error: ${data.error.message}`);
-  if (!data.features || data.features.length === 0) return [];
-
-  const parcels: BCPAParcel[] = data.features.map((f) => {
-    const attr = f.attributes;
-    const folio = (attr.PARCEL_ID ?? "").replace(/-/g, "");
-    return {
-      folio,
-      strap: folioToStrap(folio),
-      address: (attr.PHY_ADDR1 ?? "").trim().toUpperCase(),
-      city: (attr.PHY_CITY ?? "").trim().toUpperCase(),
-    };
-  });
-
-  // JS-side: keep only parcels whose address contains the street keyword.
-  // Numbered keywords (e.g. "3RD") are checked as a whole word to avoid
-  // substring false positives: "3RD" in "13RD" must not match.
   const kw = streetKeyword.toUpperCase();
-  const isNumbered = /^\d/.test(kw);
-  const matchesKeyword = (addr: string): boolean =>
-    isNumbered
-      ? addr.includes(` ${kw}`) || addr.endsWith(kw)  // word-boundary check
-      : addr.includes(kw);
+  const dir = directional?.toUpperCase() ?? null;
 
-  const keyword_filtered = parcels.filter((p) => matchesKeyword(p.address));
-  const results = keyword_filtered.length > 0 ? keyword_filtered : parcels;
+  // Progressive WHERE patterns — ArcGIS on this service allows trailing-% LIKE
+  // but rejects wildcards in the middle of a value. Build the tightest possible
+  // prefix from the parsed components and fall back to looser patterns only when
+  // the server returns no features. CO_NO equality fails; BETWEEN is the workaround.
+  const patterns: { where: string; limit: number }[] = [];
 
-  // Sort: directional match (2 pts) + street-type suffix match (1 pt).
-  if ((directional || streetType) && results.length > 1) {
-    const dirPrefix = directional ? `${houseNum} ${directional} ` : null;
-    const typeSuffix = streetType ? ` ${streetType}` : null;
-    results.sort((a, b) => {
-      const aScore =
-        (dirPrefix && a.address.startsWith(dirPrefix) ? 2 : 0) +
-        (typeSuffix && a.address.endsWith(typeSuffix) ? 1 : 0);
-      const bScore =
-        (dirPrefix && b.address.startsWith(dirPrefix) ? 2 : 0) +
-        (typeSuffix && b.address.endsWith(typeSuffix) ? 1 : 0);
-      return bScore - aScore;
+  if (dir) {
+    // Tightest: house + directional + street keyword
+    patterns.push({
+      where: `CO_NO BETWEEN ${BROWARD_CO_NO} AND ${BROWARD_CO_NO} AND PHY_ADDR1 LIKE '${houseNum} ${dir} ${kw}%'`,
+      limit: 15,
     });
   }
+  // Medium: house + street keyword (no directional — handles cases where GIS omits it)
+  patterns.push({
+    where: `CO_NO BETWEEN ${BROWARD_CO_NO} AND ${BROWARD_CO_NO} AND PHY_ADDR1 LIKE '${houseNum} ${kw}%'`,
+    limit: 15,
+  });
+  // Last resort: house number only — raise the cap so JS filtering has enough candidates
+  patterns.push({
+    where: `CO_NO BETWEEN ${BROWARD_CO_NO} AND ${BROWARD_CO_NO} AND PHY_ADDR1 LIKE '${houseNum} %'`,
+    limit: 25,
+  });
 
-  return results;
+  // JS-side keyword match — word-boundary check for numbered streets ("3RD" must not match "13RD")
+  const isNumbered = /^\d/.test(kw);
+  const matchesKeyword = (addr: string): boolean =>
+    isNumbered ? addr.includes(` ${kw}`) || addr.endsWith(kw) : addr.includes(kw);
+
+  for (const { where, limit } of patterns) {
+    const url = new URL(STATEWIDE_URL);
+    url.searchParams.set("where", where);
+    url.searchParams.set("outFields", SEARCH_FIELDS);
+    url.searchParams.set("f", "json");
+    url.searchParams.set("returnGeometry", "false");
+    url.searchParams.set("resultRecordCount", String(limit));
+
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`BCPA statewide GIS search failed: HTTP ${res.status}`);
+
+    const data = (await res.json()) as {
+      features?: { attributes: { PARCEL_ID: string; PHY_ADDR1: string; PHY_CITY: string } }[];
+      error?: { message: string };
+    };
+
+    if (data.error) throw new Error(`GIS error: ${data.error.message}`);
+    if (!data.features || data.features.length === 0) continue;
+
+    const parcels: BCPAParcel[] = data.features.map((f) => {
+      const attr = f.attributes;
+      const folio = (attr.PARCEL_ID ?? "").replace(/-/g, "");
+      return {
+        folio,
+        strap: folioToStrap(folio),
+        address: (attr.PHY_ADDR1 ?? "").trim().toUpperCase(),
+        city: (attr.PHY_CITY ?? "").trim().toUpperCase(),
+      };
+    });
+
+    const filtered = parcels.filter((p) => matchesKeyword(p.address));
+    // Nothing matched the street keyword — try the next (looser) pattern rather than
+    // returning unrelated parcels that happen to share the house number.
+    if (filtered.length === 0) continue;
+
+    // Sort: directional match (2 pts) + street-type suffix match (1 pt)
+    if ((dir || streetType) && filtered.length > 1) {
+      const dirPrefix = dir ? `${houseNum} ${dir} ` : null;
+      const typeSuffix = streetType ? ` ${streetType}` : null;
+      filtered.sort((a, b) => {
+        const score = (p: BCPAParcel) =>
+          (dirPrefix && p.address.startsWith(dirPrefix) ? 2 : 0) +
+          (typeSuffix && p.address.endsWith(typeSuffix) ? 1 : 0);
+        return score(b) - score(a);
+      });
+    }
+
+    return filtered;
+  }
+
+  return [];
 }
 
 // ─── Folio detail ─────────────────────────────────────────────────────────────

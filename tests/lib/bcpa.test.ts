@@ -119,50 +119,69 @@ describe("searchByAddressGIS (Broward)", () => {
     return capturedUrls;
   }
 
+  // Returns different feature sets per call — for testing progressive fallback.
+  function stubFetchSequence(
+    sequence: { PARCEL_ID: string; PHY_ADDR1: string; PHY_CITY: string }[][]
+  ) {
+    const capturedUrls: string[] = [];
+    let callCount = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      capturedUrls.push(url);
+      const features = sequence[callCount] ?? [];
+      callCount++;
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+    return capturedUrls;
+  }
+
   function whereFrom(rawUrl: string): string {
     return new URL(rawUrl).searchParams.get("where") ?? "";
   }
 
   // ── WHERE clause structure ────────────────────────────────────────────────
-  // Server-side filter uses only CO_NO BETWEEN and house-number LIKE prefix.
-  // Keyword, directional, and street-type matching happens in JS post-fetch.
+  // The tightest WHERE embeds house + directional + keyword so the server does
+  // most of the work; JS keyword filter is a second-pass guard on whatever the
+  // server returns.
 
   it("200 W Broward Blvd — WHERE uses Broward CO_NO BETWEEN filter", async () => {
-    const urls = stubFetch();
+    const urls = stubFetch([{ PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" }]);
     await searchByAddressGIS("200 W Broward Blvd");
     const where = whereFrom(urls[0]);
     expect(where).toContain("CO_NO BETWEEN 16 AND 16");
   });
 
-  it("200 W Broward Blvd — WHERE uses house-number-prefix LIKE", async () => {
-    const urls = stubFetch();
+  it("200 W Broward Blvd — tightest WHERE embeds directional and keyword", async () => {
+    const urls = stubFetch([{ PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" }]);
     await searchByAddressGIS("200 W Broward Blvd");
     const where = whereFrom(urls[0]);
-    expect(where).toMatch(/PHY_ADDR1 LIKE '200 %'/);
+    expect(where).toContain("PHY_ADDR1 LIKE '200 W BROWARD%'");
   });
 
-  it("200 W Broward Blvd — WHERE does NOT embed keyword or directional", async () => {
-    const urls = stubFetch();
+  it("200 W Broward Blvd — tightest WHERE includes both directional W and keyword BROWARD", async () => {
+    const urls = stubFetch([{ PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" }]);
     await searchByAddressGIS("200 W Broward Blvd");
     const where = whereFrom(urls[0]);
-    // Keyword and directional matching is JS-side, not in the server WHERE
-    expect(where).not.toContain("BROWARD");
-    expect(where).not.toContain("200 W %");
+    expect(where).toContain("BROWARD");
+    expect(where).toContain("200 W BROWARD");
   });
 
-  it("1000 SE 3rd Ave — WHERE uses house number 1000 prefix", async () => {
-    const urls = stubFetch();
+  it("1000 SE 3rd Ave — tightest WHERE embeds directional SE and keyword 3RD", async () => {
+    const urls = stubFetch([{ PARCEL_ID: "494101070090", PHY_ADDR1: "1000 SE 3RD AVE", PHY_CITY: "FORT LAUDERDALE" }]);
     await searchByAddressGIS("1000 SE 3rd Ave");
     const where = whereFrom(urls[0]);
-    expect(where).toMatch(/PHY_ADDR1 LIKE '1000 %'/);
+    expect(where).toContain("PHY_ADDR1 LIKE '1000 SE 3RD%'");
   });
 
-  it("100 Himmarshee St — WHERE still includes CO_NO filter", async () => {
-    const urls = stubFetch();
+  it("100 Himmarshee St — WHERE includes CO_NO filter and keyword (no directional)", async () => {
+    const urls = stubFetch([{ PARCEL_ID: "494101070090", PHY_ADDR1: "100 HIMMARSHEE ST", PHY_CITY: "FORT LAUDERDALE" }]);
     await searchByAddressGIS("100 Himmarshee St");
     const where = whereFrom(urls[0]);
     expect(where).toContain("CO_NO BETWEEN 16 AND 16");
-    expect(where).toMatch(/PHY_ADDR1 LIKE '100 %'/);
+    // No directional — first pattern tried is house + keyword (medium pattern)
+    expect(where).toContain("PHY_ADDR1 LIKE '100 HIMMARSHEE%'");
   });
 
   // ── result mapping and JS-side filtering ──────────────────────────────────
@@ -220,6 +239,42 @@ describe("searchByAddressGIS (Broward)", () => {
   it("throws when address has no house number", async () => {
     stubFetch();
     await expect(searchByAddressGIS("Broward Blvd")).rejects.toThrow();
+  });
+
+  // ── progressive fallback ──────────────────────────────────────────────────
+
+  it("falls back to medium pattern (house+keyword) when tightest returns no features", async () => {
+    const urls = stubFetchSequence([
+      [], // tightest (LIKE '200 W BROWARD%') → server returns nothing
+      [{ PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" }],
+    ]);
+    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    expect(parcels).toHaveLength(1);
+    expect(whereFrom(urls[0])).toContain("LIKE '200 W BROWARD%'");
+    expect(whereFrom(urls[1])).toContain("LIKE '200 BROWARD%'");
+  });
+
+  it("falls back to loose pattern (house only) when both tightest and medium return no features", async () => {
+    const urls = stubFetchSequence([
+      [], // tightest → nothing
+      [], // medium → nothing
+      [{ PARCEL_ID: "494101070090", PHY_ADDR1: "200 W BROWARD BLVD", PHY_CITY: "FORT LAUDERDALE" }],
+    ]);
+    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    expect(parcels).toHaveLength(1);
+    expect(whereFrom(urls[2])).toContain("LIKE '200 %'");
+    expect(new URL(urls[2]).searchParams.get("resultRecordCount")).toBe("25");
+  });
+
+  it("returns empty (not junk) when all patterns return features that fail the keyword filter", async () => {
+    const wrongStreet = [
+      { PARCEL_ID: "494101070099", PHY_ADDR1: "200 W OAK ST", PHY_CITY: "FORT LAUDERDALE" },
+      { PARCEL_ID: "494101070098", PHY_ADDR1: "200 W ELM AVE", PHY_CITY: "FORT LAUDERDALE" },
+    ];
+    stubFetchSequence([wrongStreet, wrongStreet, wrongStreet]);
+    const parcels = await searchByAddressGIS("200 W Broward Blvd");
+    // None contain "BROWARD" — must return empty, never the unfiltered junk list
+    expect(parcels).toHaveLength(0);
   });
 
   // ── sorting: directional (2pts) + street-type suffix (1pt) ───────────────
