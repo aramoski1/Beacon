@@ -247,7 +247,7 @@ function ContactRow({
         <div className="border-t px-4 py-3">
           <FollowUpNudge
             contactId={c.id}
-            suggestedDays={({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[c.contact_tier ?? 0] ?? 14}
+            suggestedDays={c.cadenceDays}
             onDone={() => onEditState({ tag: "sent" })}
           />
         </div>

@@ -545,6 +545,7 @@ export default async function PropertyPage({
       <PropertyContactsSection
         propertyId={id}
         initialContacts={linkedContacts}
+        cadenceSettings={userSettings}
       />
 
       {/* Linked leases */}
@@ -605,6 +606,7 @@ export default async function PropertyPage({
         linkedContacts={activityContacts}
         initialActivities={propertyActivities as Activity[]}
         initialFollowUps={(propFollowUps ?? []) as PropertyFollowUpInput[]}
+        cadenceSettings={userSettings}
       />
 
       {/* Building composition */}

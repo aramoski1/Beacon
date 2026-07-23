@@ -24,6 +24,8 @@ import { fetchActivitiesByContact, type Activity } from "@/app/activities/action
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { RelationshipBriefingPanel } from "./relationship-briefing";
+import { getUserSettings } from "@/app/settings/actions";
+import { cadenceMapFromSettings, cadenceDaysForTier, suggestedCadenceDays } from "@/lib/cadence";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,8 +86,6 @@ function daysSince(iso: string | null): number | null {
   if (!iso) return null;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
-
-const CADENCE_DAYS: Record<number, number> = { 1: 14, 2: 30, 3: 90 };
 
 function tierLabel(tier: number | null) {
   if (tier === 1) return "Tier 1";
@@ -181,7 +181,7 @@ export default async function ContactPage({
     c.linked_properties,
   );
 
-  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }] = await Promise.all([
+  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -200,6 +200,7 @@ export default async function ContactPage({
       .eq("contact_id", id)
       .eq("owner_id", user.id)
       .order("due_date", { ascending: true }),
+    getUserSettings(),
   ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -209,8 +210,10 @@ export default async function ContactPage({
   const assetFocus = c.asset_focus ?? [];
 
   const days = daysSince(c.last_contacted_at);
-  const threshold = CADENCE_DAYS[c.contact_tier ?? 0] ?? null;
+  const cadence = cadenceMapFromSettings(settings);
+  const threshold = cadenceDaysForTier(c.contact_tier, cadence);
   const overdue = threshold !== null && (days === null || days > threshold);
+  const contactCadenceDays = suggestedCadenceDays(c.contact_tier, cadence);
 
   const es = effectiveStage(c);
   const displayRole = c.title_role || c.role;
@@ -563,6 +566,7 @@ export default async function ContactPage({
       <ContactActivitySection
         contactId={id}
         contactTier={c.contact_tier}
+        cadenceDays={contactCadenceDays}
         initialActivities={activities as Activity[]}
         initialFollowUps={(contactFollowUps ?? []).map((fu): FollowUpInput => ({
           id: fu.id,

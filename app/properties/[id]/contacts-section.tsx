@@ -16,6 +16,7 @@ import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { suggestedCadenceDays, type CadenceSettingsSlice, cadenceMapFromSettings } from "@/lib/cadence";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,8 +52,6 @@ const ACTIVITY_TYPES: { value: ActivityType; label: string }[] = [
   { value: "meeting", label: "Meeting" },
   { value: "note",    label: "Note" },
 ];
-
-const CADENCE_DAYS: Record<number, number> = { 1: 14, 2: 30, 3: 90 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -252,10 +251,13 @@ function InlineDraftPanel({
 export function PropertyContactsSection({
   propertyId,
   initialContacts,
+  cadenceSettings,
 }: {
   propertyId: string;
   initialContacts: LinkedContact[];
+  cadenceSettings?: CadenceSettingsSlice | null;
 }) {
+  const cadence = cadenceMapFromSettings(cadenceSettings);
   const [contacts, setContacts] = useState<LinkedContact[]>(initialContacts);
   const [showForm, setShowForm] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
@@ -495,7 +497,7 @@ export function PropertyContactsSection({
                               <FollowUpNudge
                                 contactId={c.id}
                                 propertyId={propertyId}
-                                suggestedDays={CADENCE_DAYS[c.contact_tier ?? 0] ?? 14}
+                                suggestedDays={suggestedCadenceDays(c.contact_tier, cadence)}
                                 onDone={() => setPhase(c.id, { tag: "idle" })}
                               />
                             </div>

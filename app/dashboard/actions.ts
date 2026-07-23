@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getUserSettings } from "@/app/settings/actions";
+import { cadenceMapFromSettings } from "@/lib/cadence";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -267,11 +268,7 @@ export async function getCadenceHealth(): Promise<CadenceHealth> {
     getUserSettings(),
   ]);
 
-  const cadence: Record<number, number> = {
-    1: settings.cadence_tier1_days,
-    2: settings.cadence_tier2_days,
-    3: settings.cadence_tier3_days,
-  };
+  const cadence = cadenceMapFromSettings(settings);
 
   const contacts = data ?? [];
   let overdue = 0;

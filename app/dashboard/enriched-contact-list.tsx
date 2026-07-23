@@ -295,11 +295,7 @@ function EnrichedRow({
         <div className="border-t px-4 py-3">
           <FollowUpNudge
             contactId={item.id}
-            suggestedDays={
-              ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[
-                item.contact_tier ?? 0
-              ] ?? 14
-            }
+            suggestedDays={item.cadenceDays}
             onDone={() => onEditState({ tag: "sent" })}
           />
         </div>

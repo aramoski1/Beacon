@@ -2,6 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -250,9 +251,9 @@ async function runTool(
         supabase.from("user_settings").select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days").eq("owner_id", userId).maybeSingle(),
       ]);
       const cadence: Record<number, number> = {
-        1: settingsRaw?.cadence_tier1_days ?? 14,
-        2: settingsRaw?.cadence_tier2_days ?? 30,
-        3: settingsRaw?.cadence_tier3_days ?? 90,
+        1: settingsRaw?.cadence_tier1_days ?? DEFAULT_CADENCE_TIER_DAYS[1],
+        2: settingsRaw?.cadence_tier2_days ?? DEFAULT_CADENCE_TIER_DAYS[2],
+        3: settingsRaw?.cadence_tier3_days ?? DEFAULT_CADENCE_TIER_DAYS[3],
       };
       const overdueOutreach = (contactsRaw ?? []).filter((c) => {
         const threshold = cadence[c.contact_tier as 1 | 2 | 3] ?? 90;

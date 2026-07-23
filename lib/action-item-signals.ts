@@ -54,6 +54,8 @@ export type EnrichedActionItem = {
   last_contacted_at: string | null;
   daysSinceContact: number;
   daysOverdue: number;
+  /** Cadence interval for this contact's tier (from user_settings). */
+  cadenceDays: number;
   signals: ActionSignal[];
   /** Full reason sentence including name, e.g. "John Smith — 42,000 SF Doral lease expires in 14 months, …" */
   whyNow: string;

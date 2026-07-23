@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
 
 export type UserSettings = {
   display_name: string | null;
@@ -35,9 +36,9 @@ const DEFAULTS: UserSettings = {
   email_signature: null,
   sender_name: null,
   sender_email: null,
-  cadence_tier1_days: 14,
-  cadence_tier2_days: 30,
-  cadence_tier3_days: 90,
+  cadence_tier1_days: DEFAULT_CADENCE_TIER_DAYS[1],
+  cadence_tier2_days: DEFAULT_CADENCE_TIER_DAYS[2],
+  cadence_tier3_days: DEFAULT_CADENCE_TIER_DAYS[3],
   costar_enabled: true,
   onboarding_completed_at: null,
   email_provider: null,

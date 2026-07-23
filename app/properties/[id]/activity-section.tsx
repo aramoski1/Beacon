@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { createActivity, type Activity, type ActivityType } from "@/app/activities/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { suggestedCadenceDays, cadenceMapFromSettings, type CadenceSettingsSlice } from "@/lib/cadence";
 import {
   ActivityTimeline,
   type ActivityEvent,
@@ -47,12 +48,15 @@ export function PropertyActivitySection({
   linkedContacts,
   initialActivities,
   initialFollowUps = [],
+  cadenceSettings,
 }: {
   propertyId: string;
   linkedContacts: ActivityContact[];
   initialActivities: Activity[];
   initialFollowUps?: PropertyFollowUpInput[];
+  cadenceSettings?: CadenceSettingsSlice | null;
 }) {
+  const cadence = cadenceMapFromSettings(cadenceSettings);
   const [activities, setActivities] = useState<Activity[]>(initialActivities);
   const [phase, setPhase] = useState<Phase>("idle");
   const [nudgeContactId, setNudgeContactId] = useState<string | null>(null);
@@ -109,7 +113,7 @@ export function PropertyActivitySection({
   }
 
   const nudgeContact = linkedContacts.find((c) => c.id === nudgeContactId);
-  const nudgeCadence = ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[nudgeContact?.contact_tier ?? 0] ?? 14;
+  const nudgeCadence = suggestedCadenceDays(nudgeContact?.contact_tier, cadence);
 
   // ─── Build unified timeline ─────────────────────────────────────────────────
 

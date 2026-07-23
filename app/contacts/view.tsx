@@ -5,10 +5,7 @@ import Link from "next/link";
 import { Search, Users, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ContactRow } from "./actions";
-
-// ─── Constants ─────────────────────────────────────────────────────────────────
-
-const CADENCE_DAYS: Record<number, number> = { 1: 14, 2: 30, 3: 90 };
+import { DEFAULT_CADENCE_TIER_DAYS, cadenceDaysForTier } from "@/lib/cadence";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -17,9 +14,9 @@ function daysSince(iso: string | null): number | null {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
 
-function isOverdue(c: ContactRow): boolean {
+function isOverdue(c: ContactRow, cadence: Record<number, number>): boolean {
   if (!c.contact_tier) return false;
-  const threshold = CADENCE_DAYS[c.contact_tier] ?? 90;
+  const threshold = cadenceDaysForTier(c.contact_tier, cadence) ?? 90;
   const d = daysSince(c.last_contacted_at);
   if (d === null) return true;
   return d > threshold;
@@ -113,7 +110,13 @@ function FilterBar({
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 
-export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
+export function ContactsView({
+  contacts,
+  cadenceDays = DEFAULT_CADENCE_TIER_DAYS,
+}: {
+  contacts: ContactRow[];
+  cadenceDays?: Record<number, number>;
+}) {
   const [q, setQ]       = useState("");
   const [tier, setTier] = useState("");
   const [stage, setStage] = useState("");
@@ -205,7 +208,7 @@ export function ContactsView({ contacts }: { contacts: ContactRow[] }) {
             <tbody className="divide-y divide-border/50">
               {filtered.map((c) => {
                 const d = daysSince(c.last_contacted_at);
-                const overdue = isOverdue(c);
+                const overdue = isOverdue(c, cadenceDays);
                 const propCount = (c.linked_properties ?? []).length;
                 const es = effectiveStage(c);
 

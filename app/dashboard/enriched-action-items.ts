@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserSettings } from "@/app/settings/actions";
 import { daysUntilExpiry } from "@/lib/lease-radar";
 import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
+import { cadenceMapFromSettings, suggestedCadenceDays } from "@/lib/cadence";
 import {
   buildSignals,
   formatWhyNow,
@@ -55,11 +56,7 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
     contacts,
   );
 
-  const cadence: Record<number, number> = {
-    1: settings.cadence_tier1_days,
-    2: settings.cadence_tier2_days,
-    3: settings.cadence_tier3_days,
-  };
+  const cadence = cadenceMapFromSettings(settings);
 
   // Build property lookup map
   type RawProp = {
@@ -119,7 +116,7 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
   const items: EnrichedActionItem[] = hydratedContacts
     .map((c) => {
       const tier = c.contact_tier as number | null;
-      const cadenceDays = cadence[tier ?? 0] ?? 90;
+      const cadenceDays = suggestedCadenceDays(tier, cadence);
       const daysSinceContact = c.last_contacted_at
         ? Math.floor(
             (Date.now() - new Date(c.last_contacted_at).getTime()) / 86_400_000
@@ -157,6 +154,7 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
         last_contacted_at: c.last_contacted_at as string | null,
         daysSinceContact,
         daysOverdue,
+        cadenceDays,
         signals,
         whyNow: formatWhyNow(signals, c.name as string | null, daysSinceContact),
         composeContext: formatComposeContext(signals, daysSinceContact),

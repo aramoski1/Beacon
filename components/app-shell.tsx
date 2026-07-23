@@ -10,6 +10,7 @@ import {
   CheckSquare, Settings2, LogOut, Menu, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/login/actions";
 import { BeaconBrand } from "@/components/beacon-logo";
@@ -276,9 +277,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ]);
 
     const cadence: Record<number, number> = {
-      1: settingsData?.cadence_tier1_days ?? 14,
-      2: settingsData?.cadence_tier2_days ?? 30,
-      3: settingsData?.cadence_tier3_days ?? 90,
+      1: settingsData?.cadence_tier1_days ?? DEFAULT_CADENCE_TIER_DAYS[1],
+      2: settingsData?.cadence_tier2_days ?? DEFAULT_CADENCE_TIER_DAYS[2],
+      3: settingsData?.cadence_tier3_days ?? DEFAULT_CADENCE_TIER_DAYS[3],
     };
 
     const overdue =

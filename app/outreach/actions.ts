@@ -6,6 +6,7 @@ import { logActivity } from "@/lib/activity-logger";
 import { getUserSettings } from "@/app/settings/actions";
 import { validateOutreach } from "@/lib/validation";
 import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
+import { cadenceMapFromSettings, suggestedCadenceDays } from "@/lib/cadence";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ export type DueContact = {
   linked_properties: string[];
   // computed:
   daysOverdue: number; // positive=overdue, negative=days until due
+  /** Cadence interval for this contact's tier (from user_settings). */
+  cadenceDays: number;
   resolvedProperties?: Array<{
     id: string;
     address: string | null;
@@ -79,17 +82,14 @@ export async function getDueContacts(): Promise<DueContact[]> {
 
   const hydrated = await hydrateContactLinkedProperties(supabase, user.id, contacts);
 
-  const cadence: Record<number, number> = {
-    1: settings.cadence_tier1_days,
-    2: settings.cadence_tier2_days,
-    3: settings.cadence_tier3_days,
-  };
+  const cadence = cadenceMapFromSettings(settings);
 
   const dueContacts: DueContact[] = hydrated
     .map((c) => ({
       ...c,
       linked_properties: c.linked_properties,
       daysOverdue: computeDaysOverdue(c, cadence),
+      cadenceDays: suggestedCadenceDays(c.contact_tier, cadence),
     }))
     .filter((c) => c.daysOverdue >= -7)
     .sort((a, b) => b.daysOverdue - a.daysOverdue);
@@ -144,16 +144,13 @@ export async function getAllContactsForOutreach(): Promise<DueContact[]> {
 
   const hydrated = await hydrateContactLinkedProperties(supabase, user.id, contacts);
 
-  const cadence: Record<number, number> = {
-    1: settings.cadence_tier1_days,
-    2: settings.cadence_tier2_days,
-    3: settings.cadence_tier3_days,
-  };
+  const cadence = cadenceMapFromSettings(settings);
 
   const list: DueContact[] = hydrated.map((c) => ({
     ...c,
     linked_properties: c.linked_properties,
     daysOverdue: computeDaysOverdue(c, cadence),
+      cadenceDays: suggestedCadenceDays(c.contact_tier, cadence),
   }));
 
   return attachResolvedProperties(supabase, user.id, list);
@@ -208,16 +205,13 @@ export async function getContactsByIds(ids: string[]): Promise<DueContact[]> {
 
   const hydrated = await hydrateContactLinkedProperties(supabase, user.id, contacts);
 
-  const cadence: Record<number, number> = {
-    1: settings.cadence_tier1_days,
-    2: settings.cadence_tier2_days,
-    3: settings.cadence_tier3_days,
-  };
+  const cadence = cadenceMapFromSettings(settings);
 
   const dueContacts: DueContact[] = hydrated.map((c) => ({
     ...c,
     linked_properties: c.linked_properties,
     daysOverdue: computeDaysOverdue(c, cadence),
+      cadenceDays: suggestedCadenceDays(c.contact_tier, cadence),
   }));
 
   return attachResolvedProperties(supabase, user.id, dueContacts);
@@ -533,15 +527,11 @@ export async function logOutreach(
     method: "email",
   };
 
-  const cadence: Record<number, number> = {
-    1: settings.cadence_tier1_days,
-    2: settings.cadence_tier2_days,
-    3: settings.cadence_tier3_days,
-  };
+  const cadence = cadenceMapFromSettings(settings);
 
   const history = [...((contact.outreach_history as object[]) ?? []), newEntry];
   const now = new Date().toISOString();
-  const cadenceDays = cadence[contact.contact_tier ?? 0] ?? 90;
+  const cadenceDays = suggestedCadenceDays(contact.contact_tier, cadence);
   const nextActionDue = new Date(
     Date.now() + cadenceDays * 86_400_000
   ).toISOString();

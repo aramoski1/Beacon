@@ -3,6 +3,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { loadPropertyIdsForContact } from "@/lib/contact-properties";
+import { cadenceMapFromSettings, cadenceDaysForTier } from "@/lib/cadence";
+import { getUserSettings } from "@/app/settings/actions";
 
 /** Cheaper model — briefings run on demand and may refresh often. */
 const BRIEFING_MODEL = "claude-haiku-4-5-20251001";
@@ -12,8 +14,6 @@ export type RelationshipBriefing = {
   suggestedNextMove: string;
   generatedAt: string;
 };
-
-const CADENCE_DAYS: Record<number, number> = { 1: 14, 2: 30, 3: 90 };
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -85,7 +85,11 @@ async function gatherBriefingContext(contactId: string, userId: string) {
   const followUps = followUpsResult.data ?? [];
   const leases = leasesResult.data ?? [];
 
-  const threshold = CADENCE_DAYS[contact.contact_tier ?? 0] ?? null;
+  const settings = await getUserSettings();
+  const threshold = cadenceDaysForTier(
+    contact.contact_tier as number | null,
+    cadenceMapFromSettings(settings),
+  );
   const days = daysSince(contact.last_contacted_at);
   const cadenceStatus =
     threshold == null

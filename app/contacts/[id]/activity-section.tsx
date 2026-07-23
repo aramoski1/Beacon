@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { createActivity, type Activity, type ActivityType } from "@/app/activities/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { suggestedCadenceDays } from "@/lib/cadence";
 import {
   ActivityTimeline,
   type ActivityEvent,
@@ -49,12 +50,15 @@ type Phase = "idle" | "logging" | "nudging";
 export function ContactActivitySection({
   contactId,
   contactTier,
+  cadenceDays: cadenceDaysProp,
   initialActivities,
   initialFollowUps = [],
   initialOutreach = [],
 }: {
   contactId: string;
   contactTier?: number | null;
+  /** From user_settings — preferred over hardcoded defaults. */
+  cadenceDays?: number;
   initialActivities: Activity[];
   initialFollowUps?: FollowUpInput[];
   initialOutreach?: OutreachEntry[];
@@ -68,7 +72,7 @@ export function ContactActivitySection({
     .toISOString()
     .slice(0, 16);
 
-  const cadenceDays = ({ 1: 14, 2: 30, 3: 90 } as Record<number, number>)[contactTier ?? 0] ?? 14;
+  const cadenceDays = cadenceDaysProp ?? suggestedCadenceDays(contactTier);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
