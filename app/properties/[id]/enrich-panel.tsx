@@ -104,9 +104,14 @@ type DocPhase =
   | { tag: "error"; message: string }
   | { tag: "previewing"; preview: DocumentEnhancementPreview }
   | { tag: "saving" }
-  | { tag: "done"; fieldsApplied: number };
+  | { tag: "done"; fieldsApplied: number; sourceKind: DocumentEnhancementPreview["sourceKind"] };
 
 const DOC_ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.txt";
+
+// Human-readable noun for "Enriched from ___" status copy.
+function docSourceNoun(kind: DocumentEnhancementPreview["sourceKind"]): string {
+  return kind === "document" ? "document" : kind === "url" ? "URL" : "pasted text";
+}
 
 // ── Reusable sub-elements ─────────────────────────────────────────────────────
 
@@ -381,7 +386,7 @@ export function EnrichPanel({
         preview.sourceDetail,
       );
       if ("error" in res) { setDoc({ tag: "error", message: res.error }); return; }
-      setDoc({ tag: "done", fieldsApplied: res.fieldsApplied });
+      setDoc({ tag: "done", fieldsApplied: res.fieldsApplied, sourceKind: preview.sourceKind });
       router.refresh();
     });
   }
@@ -399,13 +404,13 @@ export function EnrichPanel({
 
   if (!open) {
     const sources = [
-      needsCountyEnhancement && "County data",
-      isEntityOwner && "Sunbiz owners",
-      costarEnabled && "CoStar upload",
+      needsCountyEnhancement && "County records",
+      isEntityOwner && "Owner lookup (Sunbiz)",
+      costarEnabled && "CoStar export",
     ].filter(Boolean) as string[];
 
     const done: string[] = [];
-    if (!needsCountyEnhancement && isMdpa) done.push("County ✓");
+    if (!needsCountyEnhancement && isMdpa) done.push("County records ✓");
     if (ownerContacts.length > 0) done.push(`${ownerContacts.length} owner${ownerContacts.length !== 1 ? "s" : ""} saved`);
 
     return (
@@ -444,7 +449,7 @@ export function EnrichPanel({
         {/* ── Step 1: County data ─────────────────────────────────────── */}
         {needsCountyEnhancement && (
           <section className="space-y-3">
-            <SubHeader icon={MapPin} title="County data" />
+            <SubHeader icon={MapPin} title="County records" />
 
             {county.tag === "idle" && (
               <div className="flex items-center justify-between gap-4">
@@ -644,8 +649,8 @@ export function EnrichPanel({
                 <div>
                   <span className="text-green-700">
                     {county.changesCount === 0
-                      ? "County data matched existing values — no changes made."
-                      : `${county.changesCount} field${county.changesCount !== 1 ? "s" : ""} updated with county data.`}
+                      ? "County records matched existing values — no changes made."
+                      : `Enriched from county records — ${county.changesCount} field${county.changesCount !== 1 ? "s" : ""} updated.`}
                   </span>
                   {county.ownerContactsSaved > 0 && (
                     <p className="text-xs text-muted-foreground mt-0.5">
@@ -658,10 +663,10 @@ export function EnrichPanel({
           </section>
         )}
 
-        {/* ── Step 2: Florida Sunbiz (entity owners only) ─────────────── */}
+        {/* ── Step 2: Owner lookup — Florida Sunbiz (entity owners only) ── */}
         {isEntityOwner && (
           <section className="space-y-3">
-            <SubHeader icon={Building2} title="Florida Sunbiz" />
+            <SubHeader icon={Building2} title="Owner lookup (Sunbiz)" />
 
             {/* Persons already on file */}
             {ownerContacts.length > 0 && sunbiz.tag !== "results" && sunbiz.tag !== "saving" && (
@@ -888,7 +893,7 @@ export function EnrichPanel({
           )}
         </section>
 
-        {/* ── Enhance from document (collapsible) ─────────────────────── */}
+        {/* ── Document or URL (collapsible) ─────────────────────────────── */}
         <section>
           <button
             onClick={() => setDocOpen((v) => !v)}
@@ -896,7 +901,7 @@ export function EnrichPanel({
           >
             {docOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
             <FileText className="size-3.5" />
-            Enhance from document
+            Document or URL
           </button>
 
           {docOpen && (
@@ -1104,14 +1109,14 @@ export function EnrichPanel({
                   <p className="text-sm flex items-center gap-2">
                     <CheckCircle2 className="size-4 text-green-600 shrink-0" />
                     {doc.fieldsApplied === 0
-                      ? "No fields were applied."
-                      : `${doc.fieldsApplied} field${doc.fieldsApplied !== 1 ? "s" : ""} updated.`}
+                      ? "No changes made."
+                      : `Enriched from ${docSourceNoun(doc.sourceKind)} — ${doc.fieldsApplied} field${doc.fieldsApplied !== 1 ? "s" : ""} updated.`}
                   </p>
                   <button
                     onClick={resetDoc}
                     className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
                   >
-                    Enhance from another source
+                    Enrich from another source
                   </button>
                 </div>
               )}
@@ -1119,7 +1124,7 @@ export function EnrichPanel({
           )}
         </section>
 
-        {/* ── CoStar upload (collapsible) ─────────────────────────────── */}
+        {/* ── CoStar export (collapsible) ───────────────────────────────── */}
         {costarEnabled && <section>
           <button
             onClick={() => setCostarOpen((v) => !v)}
@@ -1127,7 +1132,7 @@ export function EnrichPanel({
           >
             {costarOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
             <FileText className="size-3.5" />
-            CoStar upload
+            CoStar export
           </button>
 
           {costarOpen && (
