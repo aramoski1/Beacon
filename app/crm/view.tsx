@@ -27,7 +27,7 @@ import {
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { resolvePropertyOwnerContacts, preferDisplayOwnerContact, stagingDiffersFromCrm, type StoredOwnerContact } from "@/lib/owner-contacts";
+import { resolvePropertyOwnerContacts, preferDisplayOwnerContact, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { cadenceChipForContact, cadenceMapFromSettings, type CadenceSettingsSlice } from "@/lib/cadence";
 import { createActivity, savePropertyGridActivity } from "@/app/activities/actions";
 import { formatCallOutcomeNote } from "@/lib/activity-touch";
@@ -1042,7 +1042,7 @@ function PropertiesTable({
                   />
                 </td>
 
-                {/* Owner Contact — CRM preferred; staging on property when unlinked */}
+                {/* Owner Contact — CRM preferred when linked; else editable staging */}
                 <td className={cn(tdCls, "min-w-[100px]", col("contact"))}>
                   {displayOwner?.source === "crm" && displayOwner.contactId ? (
                     <div className="space-y-0.5">
@@ -1061,15 +1061,9 @@ function PropertiesTable({
                         displayClassName="truncate block font-medium"
                         onSave={(v) => saveCrmField("name", v)}
                       />
-                      {stagingDiffersFromCrm(displayOwner.staging, displayOwner.name) && (
-                        <p className="text-[10px] text-amber-700 dark:text-amber-400 truncate" title="Staging on property differs from CRM">
-                          On property: {displayOwner.staging[0]?.name}
-                        </p>
-                      )}
                     </div>
                   ) : ownerContacts.length > 0 ? (
                     <div className="space-y-0.5">
-                      <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">On property</span>
                       {ownerContacts.map((oc, i) => (
                         <EditableText
                           key={i}
@@ -1089,23 +1083,20 @@ function PropertiesTable({
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">On property</span>
-                      <EditableText
-                        value={null}
-                        placeholder="—"
-                        displayClassName="truncate block font-medium"
-                        onSave={(v) =>
-                          onSave(
-                            p.id,
-                            "owner_contacts",
-                            v?.trim()
-                              ? [{ name: v.trim(), title: "", address: null }]
-                              : []
-                          )
-                        }
-                      />
-                    </div>
+                    <EditableText
+                      value={null}
+                      placeholder="—"
+                      displayClassName="truncate block font-medium"
+                      onSave={(v) =>
+                        onSave(
+                          p.id,
+                          "owner_contacts",
+                          v?.trim()
+                            ? [{ name: v.trim(), title: "", address: null }]
+                            : []
+                        )
+                      }
+                    />
                   )}
                 </td>
 
