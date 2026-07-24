@@ -30,6 +30,7 @@ import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { getUserSettings } from "@/app/settings/actions";
 import { Suspense } from "react";
 import { TaxRollCompsSection } from "./tax-roll-comps";
+import { LeaseCompsSection } from "./lease-comps";
 import { loadContactIdsForProperty } from "@/lib/contact-properties";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -373,6 +374,21 @@ export default async function PropertyPage({
         }
       >
         <TaxRollCompsSection sourceUrl={p.source_url} address={p.address} />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold">Lease comps</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">Loading lease comps from your abstracts…</p>
+            </CardContent>
+          </Card>
+        }
+      >
+        <LeaseCompsSection propertyId={id} />
       </Suspense>
 
       {/* Uncertain / ambiguous fields — yellow */}
