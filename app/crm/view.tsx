@@ -37,6 +37,12 @@ import {
   GRID_ACTIVITY_TIP,
   isPropertyActivityField,
 } from "@/lib/property-grid-activity";
+import {
+  contactsExportHref,
+  exportIdsQuery,
+  MAX_EXPORT_IDS,
+  propertiesExportHref,
+} from "@/lib/crm-export";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1922,17 +1928,15 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [enrichPanelOpen, setEnrichPanelOpen] = useState(false);
 
+  // Clear selection when the query context changes — not on every row reload
+  // (reload mid-enrich / optimistic edits must not wipe the selection).
   useEffect(() => {
     setSelectedPropIds(new Set());
-  }, [properties]);
+  }, [propPage, propFilters, activeSearch]);
 
   useEffect(() => {
     setSelectedContactIds(new Set());
-  }, [contacts]);
-
-  useEffect(() => {
-    setSelectedContactIds(new Set());
-  }, [tab]);
+  }, [conPage, conFilters, activeSearch, tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2501,25 +2505,28 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
         <div className="hidden sm:flex items-center gap-2 ml-auto shrink-0">
           <a
-            href="/api/export/properties"
+            href={propertiesExportHref()}
             download="beacon-properties.xlsx"
             className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors"
+            title="Full book — all properties"
           >
-            Export properties ↓
+            Export all properties ↓
           </a>
           <a
             href="/api/export/leases"
             download="beacon-leases.xlsx"
             className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors"
+            title="Full book — all leases"
           >
-            Export leases ↓
+            Export all leases ↓
           </a>
           <a
-            href="/api/export/contacts"
+            href={contactsExportHref()}
             download="beacon-contacts.xlsx"
             className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors"
+            title="Full book — all contacts"
           >
-            Export contacts ↓
+            Export all contacts ↓
           </a>
           <Link
             href="/properties/audit"
@@ -2708,14 +2715,44 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
                         {selectedPropIds.size > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setEnrichPanelOpen(true)}
-                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-primary/40 bg-primary/5 text-primary font-medium hover:bg-primary/10 transition-colors"
+                          <>
+                            <a
+                              href={
+                                exportIdsQuery([...selectedPropIds])
+                                  ? propertiesExportHref([...selectedPropIds])
+                                  : undefined
+                              }
+                              download="beacon-properties-selected.xlsx"
+                              onClick={(e) => {
+                                if (selectedPropIds.size > MAX_EXPORT_IDS) {
+                                  e.preventDefault();
+                                  window.alert(`Export selected caps at ${MAX_EXPORT_IDS} rows. Narrow your selection.`);
+                                }
+                              }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                              title={`Export ${selectedPropIds.size} selected (max ${MAX_EXPORT_IDS})`}
+                            >
+                              Export selected
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setEnrichPanelOpen(true)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-primary/40 bg-primary/5 text-primary font-medium hover:bg-primary/10 transition-colors"
+                            >
+                              <Sparkles className="size-3" />
+                              Enrich {selectedPropIds.size} selected
+                            </button>
+                          </>
+                        )}
+                        {properties.length > 0 && (
+                          <a
+                            href={propertiesExportHref(properties.map((p) => p.id))}
+                            download="beacon-properties-page.xlsx"
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title={`This page only (${properties.length} rows) — not the full filtered set if paginated`}
                           >
-                            <Sparkles className="size-3" />
-                            Enrich {selectedPropIds.size} selected
-                          </button>
+                            Export this page
+                          </a>
                         )}
                         <button
                           type="button"
@@ -2755,14 +2792,44 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
                         {selectedContactIds.size > 0 && (
-                          <button
-                            type="button"
-                            onClick={handleOutreachSelected}
-                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-violet-500/40 bg-violet-600 text-white font-medium hover:bg-violet-700 transition-colors"
+                          <>
+                            <a
+                              href={
+                                exportIdsQuery([...selectedContactIds])
+                                  ? contactsExportHref([...selectedContactIds])
+                                  : undefined
+                              }
+                              download="beacon-contacts-selected.xlsx"
+                              onClick={(e) => {
+                                if (selectedContactIds.size > MAX_EXPORT_IDS) {
+                                  e.preventDefault();
+                                  window.alert(`Export selected caps at ${MAX_EXPORT_IDS} rows. Narrow your selection.`);
+                                }
+                              }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                              title={`Export ${selectedContactIds.size} selected (max ${MAX_EXPORT_IDS})`}
+                            >
+                              Export selected
+                            </a>
+                            <button
+                              type="button"
+                              onClick={handleOutreachSelected}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-violet-500/40 bg-violet-600 text-white font-medium hover:bg-violet-700 transition-colors"
+                            >
+                              <Zap className="size-3" />
+                              Outreach {selectedContactIds.size} selected
+                            </button>
+                          </>
+                        )}
+                        {contacts.length > 0 && (
+                          <a
+                            href={contactsExportHref(contacts.map((c) => c.id))}
+                            download="beacon-contacts-page.xlsx"
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title={`This page only (${contacts.length} rows) — not the full filtered set if paginated`}
                           >
-                            <Zap className="size-3" />
-                            Outreach {selectedContactIds.size} selected
-                          </button>
+                            Export this page
+                          </a>
                         )}
                         <button
                           type="button"

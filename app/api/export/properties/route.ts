@@ -1,20 +1,32 @@
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { MAX_EXPORT_IDS } from "@/lib/crm-export";
 
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
+  const url = new URL(req.url);
+  const idsParam = url.searchParams.get("ids");
+  const ids = idsParam
+    ? idsParam.split(",").map((s) => s.trim()).filter(Boolean).slice(0, MAX_EXPORT_IDS)
+    : null;
+
+  let propQuery = supabase
+    .from("properties")
+    .select(
+      "id, address, city, submarket, owner_name, ownership_type, property_type, size_sqft, size_category, geographic_category, last_sale_date, last_sale_price, source, ingested_at, custom_fields"
+    )
+    .eq("owner_id", user.id)
+    .order("created_at", { ascending: false });
+  if (ids && ids.length > 0) {
+    propQuery = propQuery.in("id", ids);
+  }
+
   const [{ data: properties, error }, { data: fieldDefs }] = await Promise.all([
-    supabase
-      .from("properties")
-      .select(
-        "id, address, city, submarket, owner_name, ownership_type, property_type, size_sqft, size_category, geographic_category, last_sale_date, last_sale_price, source, ingested_at, custom_fields"
-      )
-      .eq("owner_id", user.id)
-      .order("created_at", { ascending: false }),
+    propQuery,
     supabase
       .from("field_definitions")
       .select("*")
@@ -52,10 +64,14 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, ws, "Properties");
   const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as unknown as Uint8Array<ArrayBuffer>;
 
+  const filename = ids?.length
+    ? "beacon-properties-selected.xlsx"
+    : "beacon-properties.xlsx";
+
   return new Response(new Blob([buf]), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": 'attachment; filename="beacon-properties.xlsx"',
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 }
