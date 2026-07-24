@@ -16,7 +16,6 @@ import {
   getOwnershipChangedProperties,
 } from "./actions";
 import { BeaconCopilot } from "@/components/beacon-copilot";
-import { NeedsAttentionToday } from "./needs-attention";
 import { UpcomingFollowUpList } from "./follow-up-list";
 import { SinceLastVisit } from "./since-last-visit";
 import { getLeaseRadarData } from "@/app/lease-radar/actions";
@@ -41,7 +40,10 @@ import {
   ExpiringLeasesPanel,
 } from "./dashboard-sections";
 import { StaleTier1OwnersPanel } from "./stale-owner-panel";
+import { signalPriorityScore } from "@/lib/action-item-signals";
 import { aggregateLeaseExposure } from "@/lib/dashboard-kpis";
+import { buildTodayDeskItems } from "@/lib/today-desk";
+import { TodayDesk } from "./today-desk";
 
 function greeting() {
   const h = new Date().getHours();
@@ -133,11 +135,47 @@ export default async function DashboardPage() {
   const tier1Overdue = enrichedItems.filter(
     (c) => c.contact_tier === 1 && c.daysOverdue > 0,
   ).length;
-  const attentionCount =
-    overdueOutreach +
-    dueTodayOutreach +
-    followUpsDash.overdue.length +
-    followUpsDash.today.length;
+
+  const todayDeskItems = buildTodayDeskItems({
+    today: new Date().toISOString().slice(0, 10),
+    outreach: enrichedItems.map((c) => ({
+      id: c.id,
+      name: c.name,
+      whyNow: c.whyNow,
+      daysOverdue: c.daysOverdue,
+      priorityScore: signalPriorityScore(c.signals),
+    })),
+    followUps: [...followUpsDash.overdue, ...followUpsDash.today].map((f) => ({
+      id: f.id,
+      description: f.description,
+      due_date: f.due_date,
+      contact_name: f.contact_name,
+      property_address: f.property_address,
+    })),
+    deals: (dealsDashboard.activeDeals ?? dealsDashboard.recentActive).map((d) => ({
+      id: d.id,
+      name: d.name,
+      next_action: d.next_action,
+      next_action_due: d.next_action_due,
+      contact_name: d.contacts?.name ?? null,
+      property_address: d.properties?.address ?? null,
+    })),
+    ownership: ownershipChangedProperties.map((o) => ({
+      id: o.id,
+      address: o.address,
+      previous_owner: o.previous_owner,
+      new_owner: o.new_owner,
+    })),
+    leases: leaseRadar.within3.map((e) => ({
+      id: e.id,
+      property_address: e.property_address,
+      daysUntilExpiry: e.daysUntilExpiry,
+      property_id: e.property_id,
+    })),
+    limit: 12,
+  });
+
+  const attentionCount = todayDeskItems.length;
 
   const briefing = await getBriefingMetrics(
     overdueOutreach,
@@ -187,7 +225,7 @@ export default async function DashboardPage() {
         <div className="space-y-6">
           <section className="space-y-3">
             <SectionHeader
-              title="Needs attention today"
+              title="Do these today"
               badge={
                 attentionCount > 0 ? (
                   <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
@@ -198,18 +236,14 @@ export default async function DashboardPage() {
               href="/outreach"
               hrefLabel="Outreach →"
             />
-            <NeedsAttentionToday
-              enrichedItems={enrichedItems}
-              followUpsOverdue={followUpsDash.overdue}
-              followUpsToday={followUpsDash.today}
-            />
+            <TodayDesk items={todayDeskItems} />
           </section>
 
           <section className="space-y-3">
             <SectionHeader
               title="Upcoming follow-ups"
               href="/follow-ups"
-              hrefLabel="All follow-ups →"
+              hrefLabel="All tasks →"
             />
             <UpcomingFollowUpList items={upcomingFollowUps} />
           </section>

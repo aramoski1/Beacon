@@ -55,6 +55,35 @@ function mapRow(row: {
   };
 }
 
+export async function listFollowUpLinkOptions(): Promise<{
+  contacts: { id: string; name: string | null }[];
+  properties: { id: string; address: string | null }[];
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { contacts: [], properties: [] };
+
+  const [contactsRes, propsRes] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("id, name")
+      .eq("owner_id", user.id)
+      .order("name", { ascending: true })
+      .limit(200),
+    supabase
+      .from("properties")
+      .select("id, address")
+      .eq("owner_id", user.id)
+      .order("address", { ascending: true })
+      .limit(200),
+  ]);
+
+  return {
+    contacts: contactsRes.data ?? [],
+    properties: propsRes.data ?? [],
+  };
+}
+
 // ─── createFollowUp ───────────────────────────────────────────────────────────
 
 export async function createFollowUp(params: {

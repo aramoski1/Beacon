@@ -38,13 +38,21 @@ export type DealsDashboard = {
   staleCount: number;
   estimatedCommissionTotal: number;
   recentActive: Deal[];
+  /** All non-terminal deals loaded for dashboard (up to 50) — for Today desk. */
+  activeDeals: Deal[];
 };
 
 export async function getDealsDashboard(): Promise<DealsDashboard> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return { activeCount: 0, staleCount: 0, estimatedCommissionTotal: 0, recentActive: [] };
+    return {
+      activeCount: 0,
+      staleCount: 0,
+      estimatedCommissionTotal: 0,
+      recentActive: [],
+      activeDeals: [],
+    };
   }
 
   const { data } = await supabase
@@ -66,6 +74,7 @@ export async function getDealsDashboard(): Promise<DealsDashboard> {
     staleCount,
     estimatedCommissionTotal,
     recentActive: deals.slice(0, 5),
+    activeDeals: deals,
   };
 }
 

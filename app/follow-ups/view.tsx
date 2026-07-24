@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import {
   CheckSquare, CheckCircle2, Plus, Loader2, Building2, User,
@@ -13,6 +13,7 @@ import {
   markFollowUpDone,
   createFollowUp,
   getFollowUps,
+  listFollowUpLinkOptions,
   type FollowUpRow,
 } from "./actions";
 
@@ -198,8 +199,23 @@ function AddFollowUpForm({
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [contactId, setContactId] = useState("");
+  const [propertyId, setPropertyId] = useState("");
+  const [options, setOptions] = useState<{
+    contacts: { id: string; name: string | null }[];
+    properties: { id: string; address: string | null }[];
+  }>({ contacts: [], properties: [] });
 
   const defaultDate = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  const missingLink = !contactId && !propertyId;
+
+  useEffect(() => {
+    let cancelled = false;
+    void listFollowUpLinkOptions().then((opts) => {
+      if (!cancelled) setOptions(opts);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -210,9 +226,13 @@ function AddFollowUpForm({
     if (!description || !due_date) return;
 
     startTransition(async () => {
-      const res = await createFollowUp({ description, due_date });
+      const res = await createFollowUp({
+        description,
+        due_date,
+        contact_id: contactId || null,
+        property_id: propertyId || null,
+      });
       if (res.error) { setError(res.error); return; }
-      // Reload page data via re-fetch to get the new row with linked data
       const all = await getFollowUps("open");
       const newRow = all.find((r) => r.id === res.id);
       if (newRow) onAdded(newRow);
@@ -254,7 +274,40 @@ function AddFollowUpForm({
             className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background outline-none focus:ring-2 ring-ring"
           />
         </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Contact (recommended)</label>
+          <select
+            value={contactId}
+            onChange={(e) => setContactId(e.target.value)}
+            disabled={isPending}
+            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background outline-none focus:ring-2 ring-ring"
+          >
+            <option value="">— None —</option>
+            {options.contacts.map((c) => (
+              <option key={c.id} value={c.id}>{c.name ?? c.id.slice(0, 8)}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <label className="text-xs font-medium text-muted-foreground">Property (recommended)</label>
+          <select
+            value={propertyId}
+            onChange={(e) => setPropertyId(e.target.value)}
+            disabled={isPending}
+            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background outline-none focus:ring-2 ring-ring"
+          >
+            <option value="">— None —</option>
+            {options.properties.map((p) => (
+              <option key={p.id} value={p.id}>{p.address ?? p.id.slice(0, 8)}</option>
+            ))}
+          </select>
+        </div>
       </div>
+      {missingLink && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          Link a contact or property so this task shows on their page and in Today. You can still save without one.
+        </p>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={isPending}>
