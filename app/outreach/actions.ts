@@ -14,6 +14,7 @@ export type DueContact = {
   id: string;
   name: string | null;
   email: string | null;
+  phone: string | null;
   company: string | null;
   role: string | null;
   contact_tier: number | null;
@@ -71,7 +72,7 @@ export async function getDueContacts(): Promise<DueContact[]> {
     supabase
       .from("contacts")
       .select(
-        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+        "id, name, email, phone, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
       )
       .eq("owner_id", user.id)
       .not("contact_tier", "is", null),
@@ -133,7 +134,7 @@ export async function getAllContactsForOutreach(): Promise<DueContact[]> {
     supabase
       .from("contacts")
       .select(
-        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+        "id, name, email, phone, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
       )
       .eq("owner_id", user.id)
       .order("name", { ascending: true }),
@@ -194,7 +195,7 @@ export async function getContactsByIds(ids: string[]): Promise<DueContact[]> {
     supabase
       .from("contacts")
       .select(
-        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties",
+        "id, name, email, phone, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties",
       )
       .eq("owner_id", user.id)
       .in("id", ids),
@@ -242,7 +243,7 @@ export async function generateDrafts(
     supabase
       .from("contacts")
       .select(
-        "id, name, email, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+        "id, name, email, phone, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
       )
       .eq("owner_id", user.id)
       .in("id", contactIds),

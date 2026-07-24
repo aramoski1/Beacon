@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Clock, CalendarDays, PenLine, Loader2, X } from "lucide-react";
+import { Mail, Clock, CalendarDays, PenLine, Loader2, X, Phone, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { createFollowUp } from "@/app/follow-ups/actions";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
 import { ComposeOutreach } from "@/components/compose-outreach";
+import { formatCallOutcomeNote, type CallOutcome } from "@/lib/activity-touch";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -203,6 +204,8 @@ export function QuickActions({
 }) {
   const [panel, setPanel]       = useState<Panel>(null);
   const [subPhase, setSubPhase] = useState<SubPhase>("form");
+  const [quickPending, startQuick] = useTransition();
+  const [quickError, setQuickError] = useState<string | null>(null);
   const router = useRouter();
 
   function openPanel(p: Panel) {
@@ -236,6 +239,31 @@ export function QuickActions({
     router.refresh();
   }
 
+  function quickLog(
+    activity_type: "call" | "meeting",
+    notes: string,
+  ) {
+    setQuickError(null);
+    startQuick(async () => {
+      const result = await createActivity({
+        contact_id: contactId,
+        activity_type,
+        notes,
+      });
+      if (result.error) {
+        setQuickError(result.error);
+        return;
+      }
+      setPanel("activity");
+      setSubPhase("nudging");
+      router.refresh();
+    });
+  }
+
+  function logCall(outcome: CallOutcome) {
+    quickLog("call", formatCallOutcomeNote(outcome));
+  }
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex flex-wrap gap-2 items-center">
@@ -245,6 +273,26 @@ export function QuickActions({
         >
           <Mail className="size-3.5 text-primary" />
           Email
+        </button>
+        <button
+          type="button"
+          disabled={quickPending}
+          onClick={() => logCall("connected")}
+          className={btnCls}
+          title="Log call — connected (bumps cadence)"
+        >
+          {quickPending ? <Loader2 className="size-3.5 animate-spin" /> : <Phone className="size-3.5" />}
+          Log call
+        </button>
+        <button
+          type="button"
+          disabled={quickPending}
+          onClick={() => quickLog("meeting", "Tour / meeting logged")}
+          className={btnCls}
+          title="Log tour / meeting (bumps cadence)"
+        >
+          <MapPin className="size-3.5" />
+          Log tour
         </button>
         <button
           onClick={() => openPanel(panel === "activity" ? null : "activity")}
@@ -272,6 +320,25 @@ export function QuickActions({
             <X className="size-3.5" />
           </button>
         )}
+      </div>
+      {quickError && <p className="text-xs text-destructive">{quickError}</p>}
+      <div className="flex flex-wrap gap-1.5">
+        <span className="text-[10px] text-muted-foreground self-center">Call outcome:</span>
+        {([
+          ["connected", "Connected"],
+          ["left_vm", "Left VM"],
+          ["no_answer", "No answer"],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            disabled={quickPending}
+            onClick={() => logCall(value)}
+            className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 disabled:opacity-50"
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {panel === "email" && (

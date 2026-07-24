@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { shouldBumpLastContacted, type TouchActivityType } from "@/lib/activity-touch";
 
 export type ActivityType = "letter" | "email" | "call" | "note" | "meeting";
 
@@ -60,6 +61,8 @@ export async function createActivity(params: {
     if (!property) return { error: "Property not found." };
   }
 
+  const activityDate = params.activity_date ?? new Date().toISOString();
+
   const { data, error } = await supabase
     .from("activities")
     .insert({
@@ -67,13 +70,25 @@ export async function createActivity(params: {
       contact_id: params.contact_id ?? null,
       property_id: params.property_id ?? null,
       activity_type: params.activity_type,
-      activity_date: params.activity_date ?? new Date().toISOString(),
+      activity_date: activityDate,
       notes: params.notes ?? null,
     })
     .select("id")
     .single();
 
   if (error) return { error: error.message };
+
+  if (
+    params.contact_id &&
+    shouldBumpLastContacted(params.activity_type as TouchActivityType)
+  ) {
+    await supabase
+      .from("contacts")
+      .update({ last_contacted_at: activityDate })
+      .eq("id", params.contact_id)
+      .eq("owner_id", user.id);
+  }
+
   return { id: data.id };
 }
 

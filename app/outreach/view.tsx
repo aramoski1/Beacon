@@ -69,6 +69,7 @@ export default function OutreachView({
   senderName?: string | null;
 }) {
   const [listMode, setListMode] = useState<ListMode>("due");
+  const [channelFilter, setChannelFilter] = useState<"all" | "email" | "phone">("all");
   const [dueContactsCache] = useState<DueContact[]>(initialContacts);
   const [allContactsCache, setAllContactsCache] = useState<DueContact[] | null>(null);
   const [contacts, setContacts] = useState<DueContact[]>(initialContacts);
@@ -151,10 +152,16 @@ export default function OutreachView({
     setContacts(all);
   }
 
-  const overdueInList = contacts.filter((c) => c.daysOverdue > 0);
-  const tier1Contacts   = contacts.filter((c) => c.contact_tier === 1);
-  const tier2Contacts   = contacts.filter((c) => c.contact_tier === 2);
-  const tier3Contacts   = contacts.filter((c) => c.contact_tier === 3 || c.contact_tier === null);
+  const channelFiltered = contacts.filter((c) => {
+    if (channelFilter === "email") return !!c.email?.trim();
+    if (channelFilter === "phone") return !!c.phone?.trim();
+    return true;
+  });
+
+  const overdueInList = channelFiltered.filter((c) => c.daysOverdue > 0);
+  const tier1Contacts   = channelFiltered.filter((c) => c.contact_tier === 1);
+  const tier2Contacts   = channelFiltered.filter((c) => c.contact_tier === 2);
+  const tier3Contacts   = channelFiltered.filter((c) => c.contact_tier === 3 || c.contact_tier === null);
 
   function toggleContact(id: string) {
     setSelected((prev) => {
@@ -166,7 +173,7 @@ export default function OutreachView({
   }
 
   function selectAllVisible() {
-    setSelected(new Set(contacts.map((c) => c.id)));
+    setSelected(new Set(channelFiltered.map((c) => c.id)));
   }
 
   function selectAllOverdue() {
@@ -282,31 +289,54 @@ export default function OutreachView({
         </div>
 
         {listMode !== "selection" && (
-          <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
-            <button
-              type="button"
-              onClick={() => switchMode("due")}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                listMode === "due"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Due now
-            </button>
-            <button
-              type="button"
-              onClick={() => switchMode("all")}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                listMode === "all"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              All contacts
-            </button>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
+              <button
+                type="button"
+                onClick={() => switchMode("due")}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                  listMode === "due"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Due now
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode("all")}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                  listMode === "all"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                All contacts
+              </button>
+            </div>
+            <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
+              {([
+                ["all", "All channels"],
+                ["email", "Has email"],
+                ["phone", "Has phone"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setChannelFilter(value)}
+                  className={cn(
+                    "px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                    channelFilter === value
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
