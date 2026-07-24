@@ -8,7 +8,7 @@ import {
   Briefcase, CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
   CheckSquare, Settings2, LogOut, Menu, X,
-  ShieldAlert, AlertCircle,
+  ShieldAlert, AlertCircle, MapPinned,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
@@ -222,6 +222,19 @@ function Sidebar({
           <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
             Advanced
           </p>
+          <Link
+            href="/book-map"
+            onClick={onClose}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs transition-colors",
+              pathname.startsWith("/book-map")
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <MapPinned className="size-3.5 shrink-0 text-muted-foreground/70" />
+            Book map
+          </Link>
           <Link
             href="/follow-ups"
             onClick={onClose}
