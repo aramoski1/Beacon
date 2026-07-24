@@ -26,7 +26,7 @@ import {
 } from "@/lib/owner-portfolio";
 import type { MdpaSearchQuery } from "@/lib/owner-portfolio";
 import { buildPortfolioAttentionFlags } from "@/lib/portfolio-attention";
-import { PortfolioMdpaSection } from "./portfolio-mdpa-section";
+import { PortfolioTaxRollSection } from "./portfolio-tax-roll-section";
 import { PortfolioBriefing } from "./portfolio-briefing";
 import { ComposeOutreach } from "@/components/compose-outreach";
 
@@ -224,7 +224,7 @@ export function OwnerPortfolioView({
       )}
 
       {data.mdpaSearch && data.mdpaSearch.queries.length > 0 && (
-        <PortfolioMdpaSection queries={data.mdpaSearch.queries} />
+        <PortfolioTaxRollSection queries={data.mdpaSearch.queries} />
       )}
 
       <section className="space-y-3">

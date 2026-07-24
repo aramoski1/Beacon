@@ -5,6 +5,8 @@ import {
   searchByAddressGIS,
   getPropertyDetail,
   extractOwnerMailing,
+  searchParcelsByOwnerName,
+  searchParcelsByOwnerQueries,
   type BCPAParcel,
   type BCPARecord,
   type GISSearchResult,
@@ -386,6 +388,154 @@ describe("extractOwnerMailing (Broward)", () => {
   it("omits zip when OWN_ZIPCD is null", () => {
     const result = extractOwnerMailing(record({ OWN_ZIPCD: null }));
     expect(result).toBe("PO BOX 12345, FORT LAUDERDALE, FL");
+  });
+});
+
+// ─── searchParcelsByOwnerName (Broward tax roll owner search) ────────────────
+
+describe("searchParcelsByOwnerName (Broward)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  type FakeOwnerFeature = {
+    PARCELNO: string;
+    OWN_NAME: string;
+    PHY_ADDR1?: string;
+    PHY_CITY?: string;
+    TOT_LVG_AREA?: number;
+  };
+
+  function stubOwnerFetch(pages: FakeOwnerFeature[][]) {
+    const capturedUrls: string[] = [];
+    let call = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      capturedUrls.push(url);
+      const features = pages[call] ?? [];
+      call++;
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+    return capturedUrls;
+  }
+
+  function whereFrom(rawUrl: string): string {
+    return new URL(rawUrl).searchParams.get("where") ?? "";
+  }
+
+  it("builds an entity WHERE clause against OWN_NAME using the top 2 significant tokens", async () => {
+    const urls = stubOwnerFetch([[]]);
+    await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(whereFrom(urls[0])).toBe("(UPPER(OWN_NAME) LIKE '%HOLDINGS%' AND UPPER(OWN_NAME) LIKE '%ACME%')");
+  });
+
+  it("builds a person WHERE clause ANDing every name part against OWN_NAME", async () => {
+    const urls = stubOwnerFetch([[]]);
+    await searchParcelsByOwnerName("John Smith", "person");
+    expect(whereFrom(urls[0])).toBe(
+      "(UPPER(OWN_NAME) LIKE UPPER('%John%') AND UPPER(OWN_NAME) LIKE UPPER('%Smith%'))",
+    );
+  });
+
+  it("maps matching features to BcpaOwnerParcelHit with folio, strap, and building sqft", async () => {
+    stubOwnerFetch([
+      [
+        {
+          PARCELNO: "514209051449",
+          OWN_NAME: "PB2 REAL ESTATE LLC",
+          PHY_ADDR1: "2116 SHERMAN ST",
+          PHY_CITY: "HOLLYWOOD",
+          TOT_LVG_AREA: 7776,
+        },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("PB2 Real Estate LLC", "entity");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toEqual({
+      folio: "514209051449",
+      strap: "51-4209-05-1449",
+      ownerName: "PB2 REAL ESTATE LLC",
+      address: "2116 SHERMAN ST",
+      city: "HOLLYWOOD",
+      buildingSqft: 7776,
+    });
+  });
+
+  it("filters out rows whose OWN_NAME does not actually match the entity query (LIKE false positives)", async () => {
+    stubOwnerFetch([
+      [
+        { PARCELNO: "1", OWN_NAME: "ACME HOLDINGS LLC" },
+        { PARCELNO: "2", OWN_NAME: "BETA ACME PARTNERS LLC" },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(hits.map((h) => h.ownerName)).toEqual(["ACME HOLDINGS LLC"]);
+  });
+
+  it("filters person search to owners containing every name part", async () => {
+    stubOwnerFetch([
+      [
+        { PARCELNO: "1", OWN_NAME: "SMITH JOHN" },
+        { PARCELNO: "2", OWN_NAME: "SMITH JANE" },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("John Smith", "person");
+    expect(hits.map((h) => h.ownerName)).toEqual(["SMITH JOHN"]);
+  });
+
+  it("dedupes by folio when the same parcel appears twice", async () => {
+    stubOwnerFetch([
+      [
+        { PARCELNO: "1", OWN_NAME: "ACME HOLDINGS LLC", PHY_ADDR1: "A" },
+        { PARCELNO: "1", OWN_NAME: "ACME HOLDINGS LLC", PHY_ADDR1: "A" },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(hits).toHaveLength(1);
+  });
+
+  it("throws when the owner name is too short to search", async () => {
+    stubOwnerFetch([[]]);
+    await expect(searchParcelsByOwnerName("A", "entity")).rejects.toThrow();
+  });
+
+  it("skips rows with a blank OWN_NAME", async () => {
+    stubOwnerFetch([[{ PARCELNO: "1", OWN_NAME: "" }]]);
+    const hits = await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(hits).toHaveLength(0);
+  });
+});
+
+describe("searchParcelsByOwnerQueries (Broward)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("merges hits from multiple queries by folio and dedupes repeated queries", async () => {
+    let call = 0;
+    vi.stubGlobal("fetch", async () => {
+      call++;
+      const features =
+        call === 1
+          ? [{ PARCELNO: "1", OWN_NAME: "ACME HOLDINGS LLC", PHY_ADDR1: "A ST" }]
+          : [{ PARCELNO: "2", OWN_NAME: "JOHN SMITH", PHY_ADDR1: "B ST" }];
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+
+    const hits = await searchParcelsByOwnerQueries([
+      { query: "Acme Holdings LLC", mode: "entity" },
+      { query: "acme holdings llc", mode: "entity" }, // duplicate — should be skipped
+      { query: "John Smith", mode: "person" },
+    ]);
+
+    expect(hits.map((h) => h.folio).sort()).toEqual(["000000000001", "000000000002"]);
+    // Only 2 fetch calls: the duplicate normalized query was skipped before any fetch.
+    expect(call).toBe(2);
   });
 });
 

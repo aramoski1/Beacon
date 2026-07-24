@@ -10,6 +10,8 @@
 // parseAddressForGIS is shared from lib/mdpa since address parsing logic is identical.
 
 import { parseAddressForGIS } from "./mdpa";
+import { normalizeOwnerName } from "@/lib/owner-contacts";
+import { entityOwnerNamesMatch } from "./mdpa-owner-search";
 
 export { parseAddressForGIS };
 
@@ -251,4 +253,210 @@ export function extractOwnerMailing(raw: unknown): string | null {
   if (cityState) parts.push(cityState);
 
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+// ─── Owner name search (tax roll portfolio discovery) ────────────────────────
+// Same FeatureServer as address search / folio detail above, filtered by
+// OWN_NAME instead of PHY_ADDR1/PARCELNO. Broward's parcel service only
+// exposes a single owner field (no OWNER2/OWNER3 like Miami-Dade), so the
+// WHERE clause and match verification are simpler than lib/mdpa-owner-search.ts.
+// entityOwnerNamesMatch is reused from there since it operates on generic
+// owner-name strings, not Miami-Dade-specific data.
+
+export type BcpaSearchMode = "entity" | "person";
+
+export type BcpaOwnerParcelHit = {
+  folio: string;
+  strap: string;
+  ownerName: string;
+  address: string | null;
+  city: string | null;
+  buildingSqft: number | null;
+};
+
+type OwnerSearchAttributes = {
+  PARCELNO?: string;
+  OWN_NAME?: string | null;
+  PHY_ADDR1?: string | null;
+  PHY_CITY?: string | null;
+  TOT_LVG_AREA?: number | null;
+};
+
+const OWNER_SEARCH_FIELDS = "PARCELNO,OWN_NAME,PHY_ADDR1,PHY_CITY,TOT_LVG_AREA";
+
+const OWNER_PAGE_SIZE = 1000;
+const OWNER_MAX_PARCELS = 3000;
+
+const ENTITY_STOP_WORDS = new Set([
+  "LLC", "INC", "CORP", "LP", "LLP", "LLLP", "LTD", "CO", "PA", "PL", "PLLC",
+  "THE", "AND", "OF", "A", "FL", "FLORIDA",
+]);
+
+function sanitizeOwnerLikeToken(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ownerEntitySearchTokens(query: string): string[] {
+  const upper = sanitizeOwnerLikeToken(query).toUpperCase();
+  let tokens = upper
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !ENTITY_STOP_WORDS.has(w));
+  if (tokens.length === 0) {
+    tokens = upper.split(/\s+/).filter((w) => w.length >= 2);
+  }
+  tokens.sort((a, b) => b.length - a.length);
+  return tokens.slice(0, 2);
+}
+
+function buildOwnerWhereClause(query: string, mode: BcpaSearchMode): string {
+  const safe = sanitizeOwnerLikeToken(query);
+  if (safe.length < 2) {
+    throw new Error("Owner name is too short to search the tax roll.");
+  }
+
+  if (mode === "person") {
+    const parts = safe.split(/\s+/).filter((p) => p.length >= 2);
+    if (parts.length === 0) {
+      throw new Error("Owner name is too short to search the tax roll.");
+    }
+    const andParts = parts
+      .map((p) => `UPPER(OWN_NAME) LIKE UPPER('%${p}%')`)
+      .join(" AND ");
+    return `(${andParts})`;
+  }
+
+  const tokens = ownerEntitySearchTokens(query);
+  if (tokens.length === 0) {
+    throw new Error("Could not build a tax roll search from that owner name.");
+  }
+  const andParts = tokens.map((p) => `UPPER(OWN_NAME) LIKE '%${p}%'`).join(" AND ");
+  return `(${andParts})`;
+}
+
+function personMatchesOwnerField(personName: string, ownerField: string): boolean {
+  if (normalizeOwnerName(ownerField) === normalizeOwnerName(personName)) return true;
+  const parts = normalizeOwnerName(personName).split(/\s+/).filter((p) => p.length >= 2);
+  const ownerNorm = normalizeOwnerName(ownerField);
+  return parts.length > 0 && parts.every((p) => ownerNorm.includes(p));
+}
+
+function ownerParcelMatchesQuery(
+  ownerName: string | null | undefined,
+  query: string,
+  mode: BcpaSearchMode,
+): boolean {
+  if (!ownerName?.trim()) return false;
+  if (mode === "entity") return entityOwnerNamesMatch(query, ownerName);
+  return personMatchesOwnerField(query, ownerName);
+}
+
+function hitFromOwnerAttributes(attrs: OwnerSearchAttributes): BcpaOwnerParcelHit | null {
+  const folioRaw = attrs.PARCELNO?.trim();
+  if (!folioRaw) return null;
+  const folio = folioRaw.replace(/-/g, "").padStart(12, "0");
+  const ownerName = attrs.OWN_NAME?.trim();
+  if (!ownerName) return null;
+
+  const sqft = attrs.TOT_LVG_AREA;
+  return {
+    folio,
+    strap: folioToStrap(folio),
+    ownerName,
+    address: attrs.PHY_ADDR1?.trim() || null,
+    city: attrs.PHY_CITY?.trim() || null,
+    buildingSqft: typeof sqft === "number" && sqft > 0 ? Math.round(sqft) : null,
+  };
+}
+
+async function fetchOwnerParcelsPage(
+  where: string,
+  offset: number,
+): Promise<{ features: { attributes: OwnerSearchAttributes }[]; exceededTransferLimit?: boolean }> {
+  const url = new URL(BCPA_URL);
+  url.searchParams.set("where", where);
+  url.searchParams.set("outFields", OWNER_SEARCH_FIELDS);
+  url.searchParams.set("returnGeometry", "false");
+  url.searchParams.set("resultRecordCount", String(OWNER_PAGE_SIZE));
+  url.searchParams.set("resultOffset", String(offset));
+  url.searchParams.set("f", "json");
+
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 0 },
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Broward tax roll owner search failed: HTTP ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    features?: { attributes: OwnerSearchAttributes }[];
+    error?: { message: string };
+    exceededTransferLimit?: boolean;
+  };
+
+  if (data.error) {
+    throw new Error(`Tax roll search error: ${data.error.message}`);
+  }
+
+  return {
+    features: data.features ?? [],
+    exceededTransferLimit: data.exceededTransferLimit,
+  };
+}
+
+/** Search Broward tax roll by owner / entity name (OWN_NAME). */
+export async function searchParcelsByOwnerName(
+  query: string,
+  mode: BcpaSearchMode,
+): Promise<BcpaOwnerParcelHit[]> {
+  const where = buildOwnerWhereClause(query, mode);
+
+  const byFolio = new Map<string, BcpaOwnerParcelHit>();
+  let offset = 0;
+
+  while (byFolio.size < OWNER_MAX_PARCELS) {
+    const { features, exceededTransferLimit } = await fetchOwnerParcelsPage(where, offset);
+    if (features.length === 0) break;
+
+    for (const f of features) {
+      if (!ownerParcelMatchesQuery(f.attributes.OWN_NAME, query, mode)) continue;
+      const hit = hitFromOwnerAttributes(f.attributes);
+      if (hit) byFolio.set(hit.folio, hit);
+    }
+
+    offset += features.length;
+    if (features.length < OWNER_PAGE_SIZE) break;
+    if (exceededTransferLimit && offset >= OWNER_MAX_PARCELS) break;
+  }
+
+  return [...byFolio.values()].sort((a, b) =>
+    (a.address ?? a.folio).localeCompare(b.address ?? b.folio),
+  );
+}
+
+/** Run multiple tax roll owner searches and merge by folio. */
+export async function searchParcelsByOwnerQueries(
+  queries: { query: string; mode: BcpaSearchMode }[],
+): Promise<BcpaOwnerParcelHit[]> {
+  const byFolio = new Map<string, BcpaOwnerParcelHit>();
+  const seen = new Set<string>();
+
+  for (const { query, mode } of queries) {
+    const trimmed = query.trim();
+    if (!trimmed) continue;
+    const key = `${mode}:${normalizeOwnerName(trimmed)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const hits = await searchParcelsByOwnerName(trimmed, mode);
+    for (const hit of hits) {
+      byFolio.set(hit.folio, hit);
+    }
+  }
+
+  return [...byFolio.values()].sort((a, b) =>
+    (a.address ?? a.folio).localeCompare(b.address ?? b.folio),
+  );
 }
