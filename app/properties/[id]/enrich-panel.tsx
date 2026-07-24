@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
@@ -149,24 +150,32 @@ function Spinner({ label }: { label: string }) {
 
 export function EnrichPanel({
   propertyId,
+  address,
   ownerName,
   isEntityOwner,
   needsCountyEnhancement,
   isMdpa,
+  existingFolio,
+  countyEnrichedAt,
   initialOwnerContacts,
   costarEnabled,
 }: {
   propertyId: string;
+  address: string | null;
   ownerName: string | null;
   isEntityOwner: boolean;
   needsCountyEnhancement: boolean;
   isMdpa: boolean;
+  existingFolio: string | null;
+  countyEnrichedAt: string | null;
   initialOwnerContacts: StoredOwnerContact[];
   costarEnabled: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const pendingHashRef = useRef<string | null>(null);
 
   // County
   const [county, setCounty] = useState<CountyPhase>({ tag: "idle" });
@@ -200,6 +209,29 @@ export function EnrichPanel({
   const [docUrl, setDocUrl] = useState("");
   const [docConflictSel, setDocConflictSel] = useState<Set<string>>(new Set());
   const docFileRef = useRef<HTMLInputElement>(null);
+
+  // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar) ──
+
+  useEffect(() => {
+    function applyHash() {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (!hash.startsWith("enrich-")) return;
+      pendingHashRef.current = hash;
+      setOpen(true);
+      if (hash === "enrich-costar") setCostarOpen(true);
+      if (hash === "enrich-document") setDocOpen(true);
+    }
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  useEffect(() => {
+    if (pendingHashRef.current && open) {
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      pendingHashRef.current = null;
+    }
+  }, [open]);
 
   // ── County handlers ─────────────────────────────────────────────────────────
 
@@ -414,7 +446,7 @@ export function EnrichPanel({
     if (ownerContacts.length > 0) done.push(`${ownerContacts.length} owner${ownerContacts.length !== 1 ? "s" : ""} saved`);
 
     return (
-      <div className="rounded-xl border bg-card px-5 py-4 flex items-center justify-between gap-4">
+      <div ref={panelRef} className="rounded-xl border bg-card px-5 py-4 flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-semibold">Enrich property</p>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -431,6 +463,7 @@ export function EnrichPanel({
   // ── Open panel ───────────────────────────────────────────────────────────────
 
   return (
+    <div ref={panelRef}>
     <Card>
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
@@ -446,12 +479,12 @@ export function EnrichPanel({
 
       <CardContent className="space-y-7">
 
-        {/* ── Step 1: County data ─────────────────────────────────────── */}
-        {needsCountyEnhancement && (
-          <section className="space-y-3">
-            <SubHeader icon={MapPin} title="County records" />
+        {/* ── Step 1: County records ───────────────────────────────────── */}
+        <section className="space-y-3">
+          <SubHeader icon={MapPin} title="County records" />
 
-            {county.tag === "idle" && (
+          {county.tag === "idle" && (
+            needsCountyEnhancement ? (
               <div className="flex items-center justify-between gap-4">
                 <p className="text-sm text-muted-foreground">
                   Look up this property on the county property appraiser&apos;s records to fill in owner, sale, and building data.
@@ -463,7 +496,26 @@ export function EnrichPanel({
                   <MapPin className="size-3.5 mr-1.5" /> Run
                 </Button>
               </div>
-            )}
+            ) : (
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Enriched from county records
+                  {countyEnrichedAt && ` · Last enriched ${new Date(countyEnrichedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
+                </p>
+                {existingFolio && address ? (
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => startTransition(async () => { await countyDoPreview(existingFolio, address); })}
+                    className="shrink-0"
+                  >
+                    <MapPin className="size-3.5 mr-1.5" /> Re-run
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground shrink-0">Re-run unavailable — no folio on record</span>
+                )}
+              </div>
+            )
+          )}
 
             {(county.tag === "searching" || county.tag === "loading_preview" || county.tag === "saving") && (
               <Spinner label={
@@ -660,12 +712,10 @@ export function EnrichPanel({
                 </div>
               </div>
             )}
-          </section>
-        )}
+        </section>
 
-        {/* ── Step 2: Owner lookup — Florida Sunbiz (entity owners only) ── */}
-        {isEntityOwner && (
-          <section className="space-y-3">
+        {/* ── Step 2: Owner lookup (Sunbiz) ────────────────────────────── */}
+        <section className="space-y-3">
             <SubHeader icon={Building2} title="Owner lookup (Sunbiz)" />
 
             {/* Persons already on file */}
@@ -691,16 +741,24 @@ export function EnrichPanel({
             )}
 
             {sunbiz.tag === "idle" && (
-              <div className="flex items-center justify-between gap-4">
+              !ownerName ? (
+                <p className="text-sm text-muted-foreground">Run county records above to discover the owner first.</p>
+              ) : !isEntityOwner ? (
                 <p className="text-sm text-muted-foreground">
-                  {ownerContacts.length > 0
-                    ? `Re-run Sunbiz lookup for ${ownerName ?? "owner"}.`
-                    : `Look up "${ownerName ?? "owner"}" in Florida public records.`}
+                  Not applicable — {ownerName} doesn&apos;t look like a registered entity, so there&apos;s nothing to look up on Sunbiz.
                 </p>
-                <Button size="sm" variant="outline" onClick={handleSunbizLookup} className="shrink-0 flex items-center gap-1.5">
-                  <Search className="size-3.5" /> Look up
-                </Button>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-sm text-muted-foreground">
+                    {ownerContacts.length > 0
+                      ? `Re-run Sunbiz lookup for ${ownerName}.`
+                      : `Look up "${ownerName}" in Florida public records.`}
+                  </p>
+                  <Button size="sm" variant="outline" onClick={handleSunbizLookup} className="shrink-0 flex items-center gap-1.5">
+                    <Search className="size-3.5" /> Look up
+                  </Button>
+                </div>
+              )
             )}
 
             {sunbiz.tag === "loading" && <Spinner label="Searching Sunbiz and extracting persons…" />}
@@ -796,8 +854,7 @@ export function EnrichPanel({
                 </button>
               </div>
             )}
-          </section>
-        )}
+        </section>
 
         {/* ── Step 3: Promote owner contacts to CRM ───────────────────── */}
         <section className="space-y-3">
@@ -1125,17 +1182,31 @@ export function EnrichPanel({
         </section>
 
         {/* ── CoStar export (collapsible) ───────────────────────────────── */}
-        {costarEnabled && <section>
+        <section>
           <button
-            onClick={() => setCostarOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => costarEnabled && setCostarOpen((v) => !v)}
+            disabled={!costarEnabled}
+            className={cn(
+              "flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              costarEnabled ? "text-muted-foreground hover:text-foreground" : "text-muted-foreground/50 cursor-default",
+            )}
           >
             {costarOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
             <FileText className="size-3.5" />
             CoStar export
+            {!costarEnabled && <span className="normal-case font-normal">(disabled)</span>}
           </button>
 
-          {costarOpen && (
+          {!costarEnabled && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              CoStar export is disabled for your account.{" "}
+              <Link href="/settings" className="underline underline-offset-2 hover:text-foreground">
+                Enable it in Settings →
+              </Link>
+            </p>
+          )}
+
+          {costarEnabled && costarOpen && (
             <div className="mt-3 space-y-3">
               {costar.tag === "idle" && (
                 <>
@@ -1282,9 +1353,10 @@ export function EnrichPanel({
               )}
             </div>
           )}
-        </section>}
+        </section>
 
       </CardContent>
     </Card>
+    </div>
   );
 }

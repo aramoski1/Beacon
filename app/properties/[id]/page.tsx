@@ -68,6 +68,7 @@ type Property = {
   source: string | null;
   source_url: string | null;
   ingested_at: string | null;
+  created_at: string | null;
   confidence_flags: ConfidenceFlag[];
   custom_fields: Record<string, string | number | null> | null;
   field_sources: Record<string, string> | null;
@@ -102,6 +103,13 @@ function isEntityName(name: string | null): boolean {
 function folio(sourceUrl: string | null) {
   if (!sourceUrl?.startsWith("mdpa:")) return null;
   return sourceUrl.replace("mdpa:", "");
+}
+// County-agnostic strap/folio extraction (MDPA or BCPA) — used for re-running
+// county enhancement directly, since folio() above is Miami-Dade-only.
+function countyStrap(sourceUrl: string | null): string | null {
+  if (sourceUrl?.startsWith("mdpa:")) return sourceUrl.replace("mdpa:", "");
+  if (sourceUrl?.startsWith("bcpa:")) return sourceUrl.replace("bcpa:", "");
+  return null;
 }
 function sourceLabel(source: string | null) {
   if (source === "tax_roll") return "Tax roll · MDPA";
@@ -212,6 +220,47 @@ export default async function PropertyPage({
     const tagged = p.field_sources?.[key] as FieldSource | undefined;
     return tagged ?? (isMdpaSource ? "county" : undefined);
   }
+
+  // ── Data sources card: per-source enrichment status, derived entirely from
+  // field_sources / owner_contacts / linked-contact action_tags — no new tracking.
+
+  const existingFolio = countyStrap(p.source_url);
+
+  const countyDone = isMdpaSource;
+  const countyFieldCount = Object.values(p.field_sources ?? {}).filter((v) => v === "county").length;
+  const countyDetail = countyDone
+    ? [
+        p.ingested_at ? fmtDate(p.ingested_at) : null,
+        countyFieldCount > 0 ? `${countyFieldCount} field${countyFieldCount !== 1 ? "s" : ""}` : null,
+      ].filter(Boolean).join(" · ") || "Enriched"
+    : "Not yet enriched";
+
+  const sunbizDone = storedOwnerContacts.length > 0;
+  const sunbizDetail = sunbizDone
+    ? `${storedOwnerContacts.length} contact${storedOwnerContacts.length !== 1 ? "s" : ""} on file`
+    : !p.owner_name
+    ? "Needs an owner first"
+    : isEntityName(p.owner_name)
+    ? "Not yet run"
+    : "Not applicable";
+
+  const DOC_KIND_LABEL: Record<string, string> = { document: "document", url: "URL", pasted: "pasted text" };
+  const docFieldEntries = Object.entries(p.field_sources ?? {}).filter(
+    ([, v]) => v === "document" || v === "url" || v === "pasted"
+  );
+  const docDone = docFieldEntries.length > 0;
+  const docKinds = [...new Set(docFieldEntries.map(([, v]) => DOC_KIND_LABEL[v] ?? v))];
+  const docDetail = docDone
+    ? `${docFieldEntries.length} field${docFieldEntries.length !== 1 ? "s" : ""} from ${docKinds.join("/")}`
+    : "Not yet run";
+
+  const costarContactCount = linkedContacts.filter((c) => c.action_tags?.includes("costar")).length;
+  const costarDone = costarContactCount > 0;
+  const costarDetail = costarDone
+    ? `${costarContactCount} contact${costarContactCount !== 1 ? "s" : ""} imported`
+    : userSettings.costar_enabled
+    ? "Not yet run"
+    : "Disabled";
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
@@ -363,13 +412,35 @@ export default async function PropertyPage({
         />
       )}
 
-      {/* Enrich property — county data, Sunbiz owner discovery, owner contact promotion, CoStar upload */}
+      {/* Data sources — where this property's data came from and what's been enriched */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Data sources</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Added via {sourceLabel(p.source)}
+            {p.created_at && ` · ${fmtDate(p.created_at)}`}
+          </p>
+          <div className="divide-y rounded-lg border">
+            <DataSourceRow label="County records" done={countyDone} detail={countyDetail} href="#enrich-county" />
+            <DataSourceRow label="Owner lookup (Sunbiz)" done={sunbizDone} detail={sunbizDetail} href="#enrich-sunbiz" />
+            <DataSourceRow label="Document or URL" done={docDone} detail={docDetail} href="#enrich-document" />
+            <DataSourceRow label="CoStar export" done={costarDone} detail={costarDetail} href="#enrich-costar" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Enrich property — county records, Sunbiz owner discovery, document/URL, CoStar export */}
       <EnrichPanel
         propertyId={id}
+        address={p.address}
         ownerName={p.owner_name}
         isEntityOwner={isEntityName(p.owner_name)}
         needsCountyEnhancement={p.source !== "tax_roll" && !folioNumber}
         isMdpa={!!folioNumber}
+        existingFolio={existingFolio}
+        countyEnrichedAt={isMdpaSource ? p.ingested_at : null}
         initialOwnerContacts={storedOwnerContacts}
         costarEnabled={userSettings.costar_enabled}
       />
@@ -720,6 +791,33 @@ export default async function PropertyPage({
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+// Compact per-source enrichment status row — links into the Enrich panel below,
+// which opens itself and scrolls into view when it sees a matching #enrich-* hash.
+function DataSourceRow({
+  label,
+  done,
+  detail,
+  href,
+}: {
+  label: string;
+  done: boolean;
+  detail: string;
+  href: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-muted/30 transition-colors"
+    >
+      <span className="flex items-center gap-2 min-w-0">
+        <span className={cn("size-1.5 rounded-full shrink-0", done ? "bg-green-500" : "bg-muted-foreground/30")} />
+        <span className="font-medium truncate">{label}</span>
+      </span>
+      <span className="text-xs text-muted-foreground shrink-0">{detail}</span>
+    </a>
+  );
+}
 
 type FieldSource = "county" | "sunbiz" | "costar" | "manual" | "document" | "url" | "pasted";
 
