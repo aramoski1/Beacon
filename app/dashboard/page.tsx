@@ -14,6 +14,7 @@ import {
   getWeekMomentum,
   getStaleTier1Owners,
   getOwnershipChangedProperties,
+  getOwnershipWatchStats,
 } from "./actions";
 import { BeaconCopilot } from "@/components/beacon-copilot";
 import { UpcomingFollowUpList } from "./follow-up-list";
@@ -43,7 +44,9 @@ import { StaleTier1OwnersPanel } from "./stale-owner-panel";
 import { signalPriorityScore } from "@/lib/action-item-signals";
 import { aggregateLeaseExposure } from "@/lib/dashboard-kpis";
 import { buildTodayDeskItems } from "@/lib/today-desk";
+import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
 import { TodayDesk } from "./today-desk";
+import { OwnershipWatchBatchButton } from "./ownership-watch-batch";
 
 function greeting() {
   const h = new Date().getHours();
@@ -86,6 +89,7 @@ export default async function DashboardPage() {
     staleTier1Owners,
     ownershipChangedProperties,
     dealsDashboard,
+    ownershipWatchStats,
   ] = await Promise.all([
     getEnrichedActionItems(),
     getDashboardStats(),
@@ -102,6 +106,7 @@ export default async function DashboardPage() {
     getStaleTier1Owners(5),
     getOwnershipChangedProperties(),
     getDealsDashboard(),
+    getOwnershipWatchStats(),
   ]);
 
   // Lease SF for ≤90/180d — join property size when linked
@@ -333,7 +338,17 @@ export default async function DashboardPage() {
         <section className="space-y-3">
           <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
           <PortfolioPanel portfolio={portfolio} />
-          <OwnershipChangedPanel items={ownershipChangedProperties} />
+          <div className="space-y-2">
+            <OwnershipWatchBatchButton />
+            <OwnershipChangedPanel
+              items={ownershipChangedProperties}
+              emptyCopy={ownershipWatchEmptyCopy({
+                openSignals: ownershipChangedProperties.length,
+                enrolledCount: ownershipWatchStats.enrolledCount,
+                everChecked: ownershipWatchStats.everChecked,
+              })}
+            />
+          </div>
           <CadencePanel cadence={cadence} />
         </section>
 

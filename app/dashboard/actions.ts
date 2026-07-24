@@ -569,6 +569,32 @@ export async function getStaleTier1Owners(limit = 6): Promise<StaleTier1Owner[]>
   });
 }
 
+export async function getOwnershipWatchStats(): Promise<{
+  enrolledCount: number;
+  everChecked: boolean;
+}> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { enrolledCount: 0, everChecked: false };
+
+  const { count: enrolledCount } = await supabase
+    .from("properties")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", user.id)
+    .not("ownership_watch_enrolled_at", "is", null);
+
+  const { count: checkedCount } = await supabase
+    .from("properties")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", user.id)
+    .not("ownership_last_checked_at", "is", null);
+
+  return {
+    enrolledCount: enrolledCount ?? 0,
+    everChecked: (checkedCount ?? 0) > 0,
+  };
+}
+
 export async function getOwnershipChangedProperties(): Promise<OwnershipChangedProperty[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

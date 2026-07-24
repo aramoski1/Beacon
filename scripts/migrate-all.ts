@@ -136,6 +136,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-deal-type.ts",
     description: "Deals — deal_type column (tenant_rep / listing / investment_sale)",
   },
+  {
+    file: "migrate-ownership-watch.ts",
+    description: "Properties — ownership_watch_enrolled_at + ownership_last_checked_at for watch list",
+  },
 ];
 
 const hr = "─".repeat(60);

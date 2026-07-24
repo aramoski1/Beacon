@@ -48,6 +48,8 @@ const EXPECTED: TableSpec[] = [
       // migrate-custom-fields.ts
       { col: "custom_fields",         from: "migrate-custom-fields.ts" },
       { col: "entity_id",             from: "migrate-entities.ts" },
+      { col: "ownership_watch_enrolled_at", from: "migrate-ownership-watch.ts" },
+      { col: "ownership_last_checked_at",   from: "migrate-ownership-watch.ts" },
     ],
   },
   {

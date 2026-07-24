@@ -675,11 +675,18 @@ export function ActivityTimeline({ activities }: { activities: RecentActivity[] 
 
 // ─── Ownership changes ────────────────────────────────────────────────────────
 
-export function OwnershipChangedPanel({ items }: { items: OwnershipChangedProperty[] }) {
+export function OwnershipChangedPanel({
+  items,
+  emptyCopy,
+}: {
+  items: OwnershipChangedProperty[];
+  emptyCopy?: string;
+}) {
   if (items.length === 0) {
     return (
       <div className="rounded-xl border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-        No open ownership-change signals. Miami-Dade tax-roll enrich surfaces these when owners flip.
+        {emptyCopy ??
+          "No open ownership-change signals. Enroll properties on watch and re-check — empty can mean not checked yet."}
       </div>
     );
   }

@@ -16,6 +16,7 @@ import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMail
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
+import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
 
 export async function createOwnerContact(
   propertyId: string
@@ -678,20 +679,31 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
     newSaleDate = latestSale?.SaleDate?.slice(0, 10) ?? null;
   }
 
-  const norm = (s: string | null) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
-  const ownerChanged = norm(prop.owner_name as string | null) !== norm(newOwner);
+  const ownerChanged = ownersDiffer(prop.owner_name as string | null, newOwner);
   // For Broward, compare year-month only (no day in BCPA data)
   const storedDate = (prop.last_sale_date as string | null) ?? null;
-  const saleChanged = county === "broward"
-    ? storedDate?.slice(0, 7) !== newSaleDate?.slice(0, 7)
-    : storedDate?.slice(0, 10) !== newSaleDate;
+  const saleChanged = saleDatesDiffer(
+    storedDate,
+    newSaleDate,
+    county === "broward" ? "year_month" : "full",
+  );
 
-  if (!ownerChanged && !saleChanged) return { ok: true, changed: false };
+  const checkedAt = new Date().toISOString();
+
+  if (!ownerChanged && !saleChanged) {
+    await supabase
+      .from("properties")
+      .update({ ownership_last_checked_at: checkedAt })
+      .eq("id", propertyId)
+      .eq("owner_id", user.id);
+    return { ok: true, changed: false };
+  }
 
   await supabase
     .from("properties")
     .update({
-      ownership_change_detected_at: new Date().toISOString(),
+      ownership_change_detected_at: checkedAt,
+      ownership_last_checked_at: checkedAt,
       ownership_change_data: {
         previous_owner: prop.owner_name,
         new_owner: newOwner,
@@ -709,6 +721,59 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
     previousSaleDate: (prop.last_sale_date as string | null) ?? null,
     newSaleDate,
   };
+}
+
+export async function setOwnershipWatch(
+  propertyId: string,
+  enrolled: boolean,
+): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { error } = await supabase
+    .from("properties")
+    .update({
+      ownership_watch_enrolled_at: enrolled ? new Date().toISOString() : null,
+    })
+    .eq("id", propertyId)
+    .eq("owner_id", user.id);
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+/** Re-check up to `limit` enrolled properties (MDPA + BCPA via checkOwnershipChange). */
+export async function runOwnershipWatchBatch(
+  limit = 15,
+): Promise<{ checked: number; changed: number; errors: string[] }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { checked: 0, changed: 0, errors: ["Not authenticated."] };
+
+  const { data: rows } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("owner_id", user.id)
+    .not("ownership_watch_enrolled_at", "is", null)
+    .order("ownership_last_checked_at", { ascending: true })
+    .limit(Math.min(Math.max(limit, 1), 25));
+
+  let checked = 0;
+  let changed = 0;
+  const errors: string[] = [];
+
+  for (const row of rows ?? []) {
+    const res = await checkOwnershipChange(row.id);
+    checked += 1;
+    if ("error" in res) {
+      errors.push(`${row.id.slice(0, 8)}: ${res.error}`);
+      continue;
+    }
+    if (res.changed) changed += 1;
+  }
+
+  return { checked, changed, errors };
 }
 
 // Step 3: Broker confirmed — merge county data and save selected Sunbiz owner fields

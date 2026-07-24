@@ -347,7 +347,11 @@ export default async function PropertyPage({
 
       {/* Re-check ownership against MDPA (only for county-enhanced properties with a folio) */}
       {folioNumber && (
-        <OwnershipCheckPanel propertyId={id} />
+        <OwnershipCheckPanel
+          propertyId={id}
+          watchEnrolled={!!(p as { ownership_watch_enrolled_at?: string | null }).ownership_watch_enrolled_at}
+          lastCheckedAt={(p as { ownership_last_checked_at?: string | null }).ownership_last_checked_at ?? null}
+        />
       )}
 
       {/* Enrich property — county data, Sunbiz owner discovery, owner contact promotion, CoStar upload */}
