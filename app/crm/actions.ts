@@ -332,7 +332,14 @@ export async function deleteLease(id: string): Promise<{ error?: string }> {
  */
 export async function promotePropertyOwnerToCrm(
   propertyId: string,
-): Promise<{ id?: string; alreadyLinked?: boolean; error?: string }> {
+): Promise<{
+  id?: string;
+  name?: string | null;
+  email?: string | null;
+  mailing_address?: string | null;
+  alreadyLinked?: boolean;
+  error?: string;
+}> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -341,64 +348,111 @@ export async function promotePropertyOwnerToCrm(
 
   const { data: prop, error: propErr } = await supabase
     .from("properties")
-    .select("owner_name, owner_mailing_address, owner_email, owner_contacts")
+    .select(
+      "owner_name, owner_mailing_address, owner_email, owner_contacts, owner_contact_name, owner_contact_address",
+    )
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
 
-  if (propErr || !prop) return { error: "Property not found." };
+  if (propErr || !prop) return { error: propErr?.message ?? "Property not found." };
 
-  const { data: existingLinks } = await supabase
+  const { data: existingLinks, error: linkReadErr } = await supabase
     .from("contact_properties")
     .select("contact_id")
     .eq("owner_id", user.id)
     .eq("property_id", propertyId)
     .limit(1);
 
+  if (linkReadErr) {
+    return { error: `Could not check existing links: ${linkReadErr.message}` };
+  }
+
   if (existingLinks && existingLinks.length > 0) {
-    return { id: existingLinks[0]!.contact_id, alreadyLinked: true };
+    const contactId = existingLinks[0]!.contact_id;
+    const { data: existing } = await supabase
+      .from("contacts")
+      .select("id, name, email, mailing_address")
+      .eq("id", contactId)
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    return {
+      id: contactId,
+      name: existing?.name ?? null,
+      email: existing?.email ?? null,
+      mailing_address: existing?.mailing_address ?? null,
+      alreadyLinked: true,
+    };
   }
 
   const staging = resolvePropertyOwnerContacts(
     prop.owner_contacts,
     prop.owner_name,
     prop.owner_mailing_address,
+    {
+      owner_contact_name: prop.owner_contact_name,
+      owner_contact_address: prop.owner_contact_address,
+    },
   );
   const name =
     staging[0]?.name?.trim() ||
+    prop.owner_contact_name?.trim() ||
     prop.owner_name?.trim() ||
     null;
   if (!name) {
-    return { error: "No owner name on this property to promote. Add a staging owner contact first." };
+    return { error: "No owner name on this property to promote. Add an owner contact name first." };
   }
+
+  const email = prop.owner_email?.trim() || null;
+  const mailing_address =
+    staging[0]?.address?.trim() ||
+    prop.owner_contact_address?.trim() ||
+    prop.owner_mailing_address?.trim() ||
+    null;
+  const titleRole = staging[0]?.title?.trim() || null;
 
   const { data, error } = await supabase
     .from("contacts")
     .insert({
       owner_id: user.id,
       name,
-      email: prop.owner_email?.trim() || null,
-      mailing_address:
-        staging[0]?.address?.trim() ||
-        prop.owner_mailing_address?.trim() ||
-        null,
-      role: staging[0]?.title?.trim() || null,
+      email,
+      mailing_address,
+      title_role: titleRole,
+      role: titleRole,
       linked_properties: [propertyId],
       action_tags: ["promoted_from_property", "unverified"],
       outreach_history: [],
       custom_fields: {},
       contact_type: "owner",
+      ownership_role: "principal",
     })
-    .select("id")
+    .select("id, name, email, mailing_address")
     .single();
 
   if (error) return { error: error.message };
+
   try {
     await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
-  } catch {
-    // Contact row exists with array shim.
+  } catch (e) {
+    return {
+      error:
+        e instanceof Error
+          ? `Contact created but link failed: ${e.message}`
+          : "Contact created but link to property failed.",
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      mailing_address: data.mailing_address,
+    };
   }
-  return { id: data.id };
+
+  return {
+    id: data.id,
+    name: data.name,
+    email: data.email,
+    mailing_address: data.mailing_address,
+  };
 }
 
 

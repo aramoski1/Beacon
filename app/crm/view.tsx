@@ -800,7 +800,7 @@ function PropertiesTable({
   colVis: ReturnType<typeof useColVis>;
   onSave: (id: string, field: string, value: unknown) => void;
   onSaveContact: (contactId: string, field: string, value: unknown) => void;
-  onPromoted: () => void;
+  onPromoted: (propertyId: string, contact: LinkedContactInfo) => void;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
@@ -810,6 +810,8 @@ function PropertiesTable({
   onToggleAll: (allSelected: boolean) => void;
   totalInDb?: number;
 }) {
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+
   if (rows.length === 0) {
     const isFirstTime = totalInDb === 0;
     return (
@@ -931,12 +933,34 @@ function PropertiesTable({
               onSaveContact(displayOwner.contactId, field, value);
             }
             async function handlePromote() {
-              const res = await promotePropertyOwnerToCrm(p.id);
-              if (res.error) {
-                window.alert(res.error);
-                return;
+              setPromotingId(p.id);
+              try {
+                const res = await promotePropertyOwnerToCrm(p.id);
+                if (res.error && !res.id) {
+                  window.alert(res.error);
+                  return;
+                }
+                if (res.error && res.id) {
+                  window.alert(res.error);
+                }
+                if (!res.id) {
+                  window.alert("Promote failed — no contact was created.");
+                  return;
+                }
+                onPromoted(p.id, {
+                  id: res.id,
+                  name: res.name ?? null,
+                  email: res.email ?? null,
+                  mailing_address: res.mailing_address ?? null,
+                  last_activity_date: null,
+                  last_activity_type: null,
+                  last_activity_notes: null,
+                });
+              } catch (e) {
+                window.alert(e instanceof Error ? e.message : "Promote failed.");
+              } finally {
+                setPromotingId(null);
               }
-              onPromoted();
             }
             return (
               <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5", selectedIds.has(p.id) && "bg-primary/5")}>
@@ -1075,11 +1099,16 @@ function PropertiesTable({
                       ))}
                       <button
                         type="button"
-                        onClick={() => void handlePromote()}
-                        className="text-[10px] text-primary hover:underline underline-offset-2"
+                        disabled={promotingId === p.id}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handlePromote();
+                        }}
+                        className="text-[10px] text-primary hover:underline underline-offset-2 disabled:opacity-50"
                         title="Create a CRM contact for outreach and cadence"
                       >
-                        Promote to CRM
+                        {promotingId === p.id ? "Promoting…" : "Promote to CRM"}
                       </button>
                     </div>
                   ) : (
@@ -2882,7 +2911,18 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   colVis={propColVis}
                   onSave={saveProp}
                   onSaveContact={savePropContact}
-                  onPromoted={loadProperties}
+                  onPromoted={(propertyId, contact) => {
+                    setPropContacts((prev) => {
+                      const next = new Map(prev);
+                      const existing = next.get(propertyId) ?? [];
+                      next.set(propertyId, [
+                        contact,
+                        ...existing.filter((c) => c.id !== contact.id),
+                      ]);
+                      return next;
+                    });
+                    void loadProperties();
+                  }}
                   deletingId={deletingId}
                   onDeleteRequest={setDeletingId}
                   onDeleteConfirm={handleDeleteConfirm}
