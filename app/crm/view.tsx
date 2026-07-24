@@ -854,7 +854,7 @@ function PropertiesTable({
 
   return (
     <div>
-      <table className="w-full text-xs border-collapse">
+      <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={cn(thCls, "w-8 pl-3 pr-1")}>
