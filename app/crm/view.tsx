@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { syncPropertyEntity } from "@/lib/entities";
-import { contactIdsByPropertyIds, contactIdsForProperties } from "@/lib/contact-properties";
+import { contactIdsByPropertyIds, contactIdsForProperties, propertyIdsByContactIds } from "@/lib/contact-properties";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap, Phone, Layers, Briefcase } from "lucide-react";
 import { CustomFieldsPanel } from "@/components/custom-fields-panel";
 import type { EntityType } from "@/lib/custom-fields";
 import { ComposeOutreach } from "@/components/compose-outreach";
@@ -28,6 +28,11 @@ import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { resolvePropertyOwnerContacts, preferDisplayOwnerContact, stagingDiffersFromCrm, type StoredOwnerContact } from "@/lib/owner-contacts";
+import { cadenceChipForContact, cadenceMapFromSettings, type CadenceSettingsSlice } from "@/lib/cadence";
+import { createActivity } from "@/app/activities/actions";
+import { formatCallOutcomeNote } from "@/lib/activity-touch";
+import { ownerPortfolioHref } from "@/lib/owner-portfolio";
+import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +97,7 @@ type Contact = {
   ownership_type: string | null;
   contact_type: string | null;
   last_contacted_at: string | null;
+  linked_properties?: string[] | null;
 };
 
 type LeaseAbstract = {
@@ -200,6 +206,7 @@ const CON_COL_DEFS: ColDef[] = [
   { id: "geocat",      label: "Submarket" },
   { id: "ownership",   label: "Lead Source" },
   { id: "lastcontact", label: "Last contact" },
+  { id: "cadence",     label: "Cadence" },
 ];
 
 const LEASE_COL_DEFS: ColDef[] = [
@@ -1243,6 +1250,8 @@ function PropertiesTable({
 function ContactsTable({
   rows,
   onSave,
+  onTouchLogged,
+  cadenceMap,
   deletingId,
   onDeleteRequest,
   onDeleteConfirm,
@@ -1255,6 +1264,8 @@ function ContactsTable({
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
+  onTouchLogged: () => void;
+  cadenceMap: Record<number, number>;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
@@ -1269,10 +1280,26 @@ function ContactsTable({
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
   const [cPopup, setCPopup] = useState<CellPopup>(null);
   const [composeTarget, setComposeTarget] = useState<{ id: string; name: string | null; email: string | null } | null>(null);
+  const [logPendingId, setLogPendingId] = useState<string | null>(null);
 
   function cShowPopup(text: string, e: React.MouseEvent) {
     if (!text) return;
     setCPopup({ text, x: e.clientX, y: e.clientY });
+  }
+
+  async function logCall(contactId: string) {
+    setLogPendingId(contactId);
+    const res = await createActivity({
+      contact_id: contactId,
+      activity_type: "call",
+      notes: formatCallOutcomeNote("connected"),
+    });
+    setLogPendingId(null);
+    if (res.error) {
+      window.alert(res.error);
+      return;
+    }
+    onTouchLogged();
   }
 
   if (rows.length === 0) {
@@ -1287,6 +1314,13 @@ function ContactsTable({
     );
   }
 
+  const chipCls: Record<string, string> = {
+    overdue: "bg-destructive/10 text-destructive",
+    due_soon: "bg-amber-500/15 text-amber-800 dark:text-amber-400",
+    ok: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-400",
+    never: "bg-muted text-muted-foreground",
+    no_tier: "bg-muted text-muted-foreground",
+  };
   return (
     <>
     <div>
@@ -1316,12 +1350,19 @@ function ContactsTable({
             <th className={cn(thCls, col("geocat"))} style={cColStyle("geocat")}>Submarket<RH col="geocat" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("ownership"))} style={cColStyle("ownership")}>Lead Source<RH col="ownership" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("lastcontact"))} style={cColStyle("lastcontact")}>Last contact<RH col="lastcontact" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("cadence"))} style={cColStyle("cadence")}>Cadence<RH col="cadence" onStart={cStartResize} /></th>
             <th className={cn(thCls, "w-8 text-right pr-0")} />
             <th className={cn(thCls, "w-8 text-right pr-2")} />
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => (
+          {rows.map((c) => {
+            const chip = cadenceChipForContact(c, cadenceMap);
+            const portfolioHref =
+              (c.linked_properties?.length ?? 0) > 0
+                ? ownerPortfolioHref({ type: "contact", contactId: c.id })
+                : null;
+            return (
             <tr key={c.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5", selectedIds.has(c.id) && "bg-primary/5")}>
               <td className={cn(tdCls, "w-8 pl-3 pr-1")}>
                 <input
@@ -1384,16 +1425,54 @@ function ContactsTable({
                   {fmtDate(c.last_contacted_at) ?? "—"}
                 </span>
               </td>
-              {/* Email row action */}
-              <td className={cn(tdCls, "crm-row-action-cell w-8 text-right pr-0 whitespace-nowrap sticky right-8 bg-background")}>
-                <button
-                  type="button"
-                  onClick={() => setComposeTarget({ id: c.id, name: c.name, email: c.email })}
-                  className="crm-row-action text-muted-foreground hover:text-primary"
-                  title="Email"
-                >
-                  <Mail className="size-3.5" />
-                </button>
+              <td className={cn(tdCls, col("cadence"))}>
+                <span className={cn("inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap", chipCls[chip.status])}>
+                  {chip.label}
+                </span>
+              </td>
+              {/* Row actions */}
+              <td className={cn(tdCls, "crm-row-action-cell text-right pr-0 whitespace-nowrap sticky right-8 bg-background")}>
+                <div className="inline-flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    disabled={logPendingId === c.id}
+                    onClick={() => void logCall(c.id)}
+                    className="crm-row-action text-muted-foreground hover:text-primary disabled:opacity-50"
+                    title="Log call (bumps cadence)"
+                  >
+                    {logPendingId === c.id ? <Loader2 className="size-3.5 animate-spin" /> : <Phone className="size-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setComposeTarget({ id: c.id, name: c.name, email: c.email })}
+                    className="crm-row-action text-muted-foreground hover:text-primary"
+                    title="Email"
+                  >
+                    <Mail className="size-3.5" />
+                  </button>
+                  {portfolioHref && (
+                    <Link
+                      href={portfolioHref}
+                      className="crm-row-action text-muted-foreground hover:text-primary"
+                      title="Owner portfolio"
+                    >
+                      <Layers className="size-3.5" />
+                    </Link>
+                  )}
+                  <CreateDealDialog
+                    contactId={c.id}
+                    contactName={c.name}
+                    trigger={
+                      <button
+                        type="button"
+                        className="crm-row-action text-muted-foreground hover:text-primary"
+                        title="New pursuit"
+                      >
+                        <Briefcase className="size-3.5" />
+                      </button>
+                    }
+                  />
+                </div>
               </td>
               <DeleteCell
                 id={c.id}
@@ -1404,7 +1483,8 @@ function ContactsTable({
                 onDeleteCancel={onDeleteCancel}
               />
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1692,6 +1772,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [propsError, setPropsError] = useState<string | null>(null);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [leasesError, setLeasesError] = useState<string | null>(null);
+  const [cadenceMap, setCadenceMap] = useState<Record<number, number>>(() => cadenceMapFromSettings(null));
 
   // ── Filter options (full distinct-value scan, loaded once on mount) ────────
   const [propFilterOpts, setPropFilterOpts] = useState<{ sizeCat: string[]; geoCat: string[] }>({
@@ -1761,6 +1842,23 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   useEffect(() => {
     setSelectedContactIds(new Set());
   }, [tab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data } = await supabase
+        .from("user_settings")
+        .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days")
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      setCadenceMap(cadenceMapFromSettings(data as CadenceSettingsSlice | null));
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function togglePropSelection(id: string) {
     setSelectedPropIds((prev) => {
@@ -2018,7 +2116,23 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       setContactsLoading(false);
       return;
     }
-    setContacts((data ?? []).map((x: Contact) => ({ ...x, action_tags: x.action_tags ?? [] })));
+    const rows = (data ?? []).map((x: Contact) => ({ ...x, action_tags: x.action_tags ?? [] }));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && rows.length > 0) {
+      try {
+        const byContact = await propertyIdsByContactIds(
+          supabase,
+          user.id,
+          rows.map((c) => c.id),
+        );
+        for (const c of rows) {
+          c.linked_properties = byContact.get(c.id) ?? c.linked_properties ?? [];
+        }
+      } catch {
+        // Portfolio deep-links are best-effort.
+      }
+    }
+    setContacts(rows);
     setTotalCons(count ?? 0);
     setContactsLoading(false);
   }, [conPage, conFilters, activeSearch]);
@@ -2633,6 +2747,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                 <ContactsTable
                   rows={contacts}
                   onSave={saveContact}
+                  onTouchLogged={loadContacts}
+                  cadenceMap={cadenceMap}
                   deletingId={deletingContactId}
                   onDeleteRequest={setDeletingContactId}
                   onDeleteConfirm={handleDeleteContactConfirm}
