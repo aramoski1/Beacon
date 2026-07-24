@@ -670,7 +670,7 @@ function ColVisPopover({
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
 const thCls = "px-3 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative";
-const tdCls = "px-3 py-1 align-middle border-b border-border/50 text-xs leading-snug";
+const tdCls = "px-3 py-1.5 align-middle border-b border-border/50 text-xs leading-snug";
 const thR = cn(thCls, "text-right");
 const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
 
@@ -800,7 +800,7 @@ function PropertiesTable({
   colVis: ReturnType<typeof useColVis>;
   onSave: (id: string, field: string, value: unknown) => void;
   onSaveContact: (contactId: string, field: string, value: unknown) => void;
-  onPromoted: (propertyId: string, contact: LinkedContactInfo) => void;
+  onPromoted: (propertyId: string, contacts: LinkedContactInfo[]) => void;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
@@ -936,26 +936,29 @@ function PropertiesTable({
               setPromotingId(p.id);
               try {
                 const res = await promotePropertyOwnerToCrm(p.id);
-                if (res.error && !res.id) {
+                if (res.error && (!res.contacts || res.contacts.length === 0)) {
                   window.alert(res.error);
                   return;
                 }
-                if (res.error && res.id) {
+                if (res.error) {
                   window.alert(res.error);
                 }
-                if (!res.id) {
-                  window.alert("Promote failed — no contact was created.");
+                if (!res.contacts?.length) {
+                  window.alert("Promote failed — no contacts were created.");
                   return;
                 }
-                onPromoted(p.id, {
-                  id: res.id,
-                  name: res.name ?? null,
-                  email: res.email ?? null,
-                  mailing_address: res.mailing_address ?? null,
-                  last_activity_date: null,
-                  last_activity_type: null,
-                  last_activity_notes: null,
-                });
+                onPromoted(
+                  p.id,
+                  res.contacts.map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    email: c.email,
+                    mailing_address: c.mailing_address,
+                    last_activity_date: null,
+                    last_activity_type: null,
+                    last_activity_notes: null,
+                  })),
+                );
               } catch (e) {
                 window.alert(e instanceof Error ? e.message : "Promote failed.");
               } finally {
@@ -1066,25 +1069,36 @@ function PropertiesTable({
                   />
                 </td>
 
-                {/* Owner Contact — CRM preferred when linked; else editable staging */}
+                {/* Owner Contact — all linked CRM contacts, else staging + promote all */}
                 <td className={cn(tdCls, "min-w-[100px]", col("contact"))}>
-                  {displayOwner?.source === "crm" && displayOwner.contactId ? (
+                  {cs.length > 0 ? (
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-1">
                         <span className="text-[9px] font-semibold uppercase tracking-wide text-primary shrink-0">CRM</span>
-                        <Link
-                          href={`/contacts/${displayOwner.contactId}`}
-                          className="text-[10px] text-muted-foreground hover:text-primary truncate"
-                        >
-                          open
-                        </Link>
+                        {cs[0] && (
+                          <Link
+                            href={`/contacts/${cs[0].id}`}
+                            className="text-[10px] text-muted-foreground hover:text-primary truncate"
+                          >
+                            open
+                          </Link>
+                        )}
                       </div>
-                      <EditableText
-                        value={displayOwner.name}
-                        placeholder="—"
-                        displayClassName="truncate block font-medium"
-                        onSave={(v) => saveCrmField("name", v)}
-                      />
+                      {cs.map((c) => (
+                        <EditableText
+                          key={c.id}
+                          value={c.name}
+                          placeholder="—"
+                          displayClassName="truncate block font-medium"
+                          onSave={(v) => {
+                            const ok = window.confirm(
+                              "Update the CRM contact used for outreach and cadence?",
+                            );
+                            if (!ok) return;
+                            onSaveContact(c.id, "name", v);
+                          }}
+                        />
+                      ))}
                     </div>
                   ) : ownerContacts.length > 0 ? (
                     <div className="space-y-0.5">
@@ -1106,7 +1120,7 @@ function PropertiesTable({
                           void handlePromote();
                         }}
                         className="text-[10px] text-primary hover:underline underline-offset-2 disabled:opacity-50"
-                        title="Create a CRM contact for outreach and cadence"
+                        title="Create CRM contacts for all listed owner contacts"
                       >
                         {promotingId === p.id ? "Promoting…" : "Promote to CRM"}
                       </button>
@@ -1131,13 +1145,22 @@ function PropertiesTable({
 
                 {/* Owner Address */}
                 <td className={cn(tdCls, "min-w-[120px]", col("addr2"))}>
-                  {displayOwner?.source === "crm" && displayOwner.contactId ? (
-                    <EditableText
-                      value={displayOwner.address}
-                      placeholder="—"
-                      displayClassName="truncate block text-muted-foreground"
-                      onSave={(v) => saveCrmField("mailing_address", v)}
-                    />
+                  {cs.length > 0 ? (
+                    cs.map((c) => (
+                      <EditableText
+                        key={c.id}
+                        value={c.mailing_address}
+                        placeholder="—"
+                        displayClassName="truncate block text-muted-foreground"
+                        onSave={(v) => {
+                          const ok = window.confirm(
+                            "Update the CRM contact used for outreach and cadence?",
+                          );
+                          if (!ok) return;
+                          onSaveContact(c.id, "mailing_address", v);
+                        }}
+                      />
+                    ))
                   ) : ownerContacts.length > 0 ? (
                     ownerContacts.map((oc, i) => (
                       <EditableText
@@ -1160,13 +1183,22 @@ function PropertiesTable({
 
                 {/* Owner Email */}
                 <td className={cn(tdCls, "min-w-[130px]", col("email"))}>
-                  {displayOwner?.source === "crm" && displayOwner.contactId ? (
-                    <EditableText
-                      value={displayOwner.email}
-                      placeholder="—"
-                      displayClassName="truncate block text-primary"
-                      onSave={(v) => saveCrmField("email", v)}
-                    />
+                  {cs.length > 0 ? (
+                    cs.map((c) => (
+                      <EditableText
+                        key={c.id}
+                        value={c.email}
+                        placeholder="—"
+                        displayClassName="truncate block text-primary"
+                        onSave={(v) => {
+                          const ok = window.confirm(
+                            "Update the CRM contact used for outreach and cadence?",
+                          );
+                          if (!ok) return;
+                          onSaveContact(c.id, "email", v);
+                        }}
+                      />
+                    ))
                   ) : (
                     <EditableText
                       value={p.owner_email ?? null}
@@ -1451,12 +1483,12 @@ function ContactsTable({
                 />
               </td>
               <td className={tdCls}>
-                <div>
-                  <Link href={`/contacts/${c.id}`} className="font-medium hover:underline underline-offset-2">
+                <div className="min-w-0 leading-snug">
+                  <Link href={`/contacts/${c.id}`} className="font-medium hover:underline underline-offset-2 truncate block">
                     {c.name ?? <span className="text-muted-foreground italic">No name</span>}
                   </Link>
                   {c.email && (
-                    <div title={c.email} onClick={(e) => cShowPopup(c.email!, e)} className="text-xs text-muted-foreground truncate cursor-pointer hover:text-foreground">{c.email}</div>
+                    <span title={c.email} onClick={(e) => cShowPopup(c.email!, e)} className="text-[11px] text-muted-foreground truncate cursor-pointer hover:text-foreground block">{c.email}</span>
                   )}
                 </div>
               </td>
@@ -1661,18 +1693,9 @@ function LeasesTable({
 
   const { startResize: lStartResize, cs: lColStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
-  const hasExpiringSoon = rows.some((a) => leaseStatus(a.expiration_date) === "expiring");
 
   return (
     <div>
-      <div className="px-3 sm:px-0 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>Inventory here · urgency on Lease radar.</span>
-        {hasExpiringSoon && (
-          <Link href="/lease-radar" className="text-primary underline underline-offset-2 hover:text-primary/80">
-            Open Lease radar →
-          </Link>
-        )}
-      </div>
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
@@ -2911,14 +2934,13 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   colVis={propColVis}
                   onSave={saveProp}
                   onSaveContact={savePropContact}
-                  onPromoted={(propertyId, contact) => {
+                  onPromoted={(propertyId, contacts) => {
                     setPropContacts((prev) => {
                       const next = new Map(prev);
                       const existing = next.get(propertyId) ?? [];
-                      next.set(propertyId, [
-                        contact,
-                        ...existing.filter((c) => c.id !== contact.id),
-                      ]);
+                      const byId = new Map(existing.map((c) => [c.id, c]));
+                      for (const c of contacts) byId.set(c.id, c);
+                      next.set(propertyId, [...byId.values()]);
                       return next;
                     });
                     void loadProperties();

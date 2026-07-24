@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import {
+  isEntityOwnerName,
   parseStoredOwnerContacts,
   resolvePropertyOwnerContacts,
   type StoredOwnerContact,
@@ -327,17 +328,20 @@ export async function deleteLease(id: string): Promise<{ error?: string }> {
 }
 
 /**
- * Promote property staging owner (owner_contacts / owner_name / owner_email)
- * into a CRM contact linked to the property. No-ops if already linked.
+ * Promote ALL property staging owner contacts into CRM contacts linked to the property.
+ * Skips staging names that are already linked. Does not invent contacts.
  */
 export async function promotePropertyOwnerToCrm(
   propertyId: string,
 ): Promise<{
-  id?: string;
-  name?: string | null;
-  email?: string | null;
-  mailing_address?: string | null;
-  alreadyLinked?: boolean;
+  contacts?: Array<{
+    id: string;
+    name: string | null;
+    email: string | null;
+    mailing_address: string | null;
+  }>;
+  created?: number;
+  skippedExisting?: number;
   error?: string;
 }> {
   const supabase = await createClient();
@@ -361,28 +365,28 @@ export async function promotePropertyOwnerToCrm(
     .from("contact_properties")
     .select("contact_id")
     .eq("owner_id", user.id)
-    .eq("property_id", propertyId)
-    .limit(1);
+    .eq("property_id", propertyId);
 
   if (linkReadErr) {
     return { error: `Could not check existing links: ${linkReadErr.message}` };
   }
 
-  if (existingLinks && existingLinks.length > 0) {
-    const contactId = existingLinks[0]!.contact_id;
-    const { data: existing } = await supabase
+  const existingIds = (existingLinks ?? []).map((r) => r.contact_id);
+  const existingByName = new Map<
+    string,
+    { id: string; name: string | null; email: string | null; mailing_address: string | null }
+  >();
+
+  if (existingIds.length > 0) {
+    const { data: existingContacts } = await supabase
       .from("contacts")
       .select("id, name, email, mailing_address")
-      .eq("id", contactId)
       .eq("owner_id", user.id)
-      .maybeSingle();
-    return {
-      id: contactId,
-      name: existing?.name ?? null,
-      email: existing?.email ?? null,
-      mailing_address: existing?.mailing_address ?? null,
-      alreadyLinked: true,
-    };
+      .in("id", existingIds);
+    for (const c of existingContacts ?? []) {
+      const key = (c.name ?? "").trim().toLowerCase();
+      if (key) existingByName.set(key, c);
+    }
   }
 
   const staging = resolvePropertyOwnerContacts(
@@ -394,64 +398,116 @@ export async function promotePropertyOwnerToCrm(
       owner_contact_address: prop.owner_contact_address,
     },
   );
-  const name =
-    staging[0]?.name?.trim() ||
-    prop.owner_contact_name?.trim() ||
-    prop.owner_name?.trim() ||
-    null;
-  if (!name) {
-    return { error: "No owner name on this property to promote. Add an owner contact name first." };
-  }
 
-  const email = prop.owner_email?.trim() || null;
-  const mailing_address =
-    staging[0]?.address?.trim() ||
-    prop.owner_contact_address?.trim() ||
-    prop.owner_mailing_address?.trim() ||
-    null;
-  const titleRole = staging[0]?.title?.trim() || null;
+  const people: StoredOwnerContact[] =
+    staging.length > 0
+      ? staging
+      : prop.owner_contact_name?.trim()
+        ? [
+            {
+              name: prop.owner_contact_name.trim(),
+              title: "",
+              address:
+                prop.owner_contact_address?.trim() ||
+                prop.owner_mailing_address?.trim() ||
+                null,
+            },
+          ]
+        : prop.owner_name?.trim() && !isEntityOwnerName(prop.owner_name)
+          ? [
+              {
+                name: prop.owner_name.trim(),
+                title: "",
+                address: prop.owner_mailing_address?.trim() || null,
+              },
+            ]
+          : [];
 
-  const { data, error } = await supabase
-    .from("contacts")
-    .insert({
-      owner_id: user.id,
-      name,
-      email,
-      mailing_address,
-      title_role: titleRole,
-      role: titleRole,
-      linked_properties: [propertyId],
-      action_tags: ["promoted_from_property", "unverified"],
-      outreach_history: [],
-      custom_fields: {},
-      contact_type: "owner",
-      ownership_role: "principal",
-    })
-    .select("id, name, email, mailing_address")
-    .single();
-
-  if (error) return { error: error.message };
-
-  try {
-    await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
-  } catch (e) {
+  if (people.length === 0) {
     return {
-      error:
-        e instanceof Error
-          ? `Contact created but link failed: ${e.message}`
-          : "Contact created but link to property failed.",
-      id: data.id,
-      name: data.name,
-      email: data.email,
-      mailing_address: data.mailing_address,
+      error: "No owner contacts on this property to promote. Add an owner contact name first.",
     };
   }
 
+  const propertyEmail = prop.owner_email?.trim() || null;
+  const resultContacts: Array<{
+    id: string;
+    name: string | null;
+    email: string | null;
+    mailing_address: string | null;
+  }> = [];
+  let created = 0;
+  let skippedExisting = 0;
+  const errors: string[] = [];
+  let assignedEmail = false;
+
+  for (const person of people) {
+    const key = person.name.trim().toLowerCase();
+    const already = existingByName.get(key);
+    if (already) {
+      skippedExisting += 1;
+      if (!resultContacts.some((c) => c.id === already.id)) {
+        resultContacts.push(already);
+      }
+      continue;
+    }
+
+    // Property-level email attaches to the first newly created contact only
+    const email = !assignedEmail && propertyEmail ? propertyEmail : null;
+    if (email) assignedEmail = true;
+
+    const mailing_address =
+      person.address?.trim() || prop.owner_mailing_address?.trim() || null;
+    const titleRole = person.title?.trim() || null;
+
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({
+        owner_id: user.id,
+        name: person.name.trim(),
+        email,
+        mailing_address,
+        title_role: titleRole,
+        role: titleRole,
+        linked_properties: [propertyId],
+        action_tags: ["promoted_from_property", "unverified"],
+        outreach_history: [],
+        custom_fields: {},
+        contact_type: "owner",
+        ownership_role: "principal",
+      })
+      .select("id, name, email, mailing_address")
+      .single();
+
+    if (error || !data) {
+      errors.push(`${person.name}: ${error?.message ?? "insert failed"}`);
+      continue;
+    }
+
+    try {
+      await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
+    } catch (e) {
+      errors.push(
+        `${person.name}: contact created but link failed${
+          e instanceof Error ? ` (${e.message})` : ""
+        }`,
+      );
+    }
+
+    created += 1;
+    existingByName.set(key, data);
+    resultContacts.push(data);
+  }
+
+  if (resultContacts.length === 0) {
+    return { error: errors[0] ?? "Promote failed — no contacts were created." };
+  }
+
   return {
-    id: data.id,
-    name: data.name,
-    email: data.email,
-    mailing_address: data.mailing_address,
+    contacts: resultContacts,
+    created,
+    skippedExisting,
+    error: errors.length > 0 ? errors.join("; ") : undefined,
   };
 }
 
