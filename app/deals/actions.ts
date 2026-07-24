@@ -18,6 +18,74 @@ import {
   type ValidationError,
 } from "@/lib/deals";
 import { sumEstimatedCommission } from "@/lib/dashboard-kpis";
+import {
+  formatDealFollowUpDescription,
+  isDealFollowUpDescription,
+} from "@/lib/deal-follow-up";
+
+async function syncDealFollowUp(params: {
+  ownerId: string;
+  dealId: string;
+  dealName: string;
+  contactId: string | null;
+  propertyId: string | null;
+  nextAction: string | null;
+  nextActionDue: string | null;
+}): Promise<void> {
+  if (!params.nextActionDue) return;
+  if (!params.contactId && !params.propertyId) return;
+
+  const supabase = await createClient();
+  const description = formatDealFollowUpDescription(
+    params.dealId,
+    params.dealName,
+    params.nextAction,
+  );
+
+  const { data: open } = await supabase
+    .from("follow_ups")
+    .select("id, description")
+    .eq("owner_id", params.ownerId)
+    .eq("done", false)
+    .limit(100);
+
+  const existing = (open ?? []).find((r) =>
+    isDealFollowUpDescription(r.description ?? "", params.dealId),
+  );
+
+  if (existing) {
+    await supabase
+      .from("follow_ups")
+      .update({
+        due_date: params.nextActionDue,
+        description,
+        contact_id: params.contactId,
+        property_id: params.propertyId,
+      })
+      .eq("id", existing.id)
+      .eq("owner_id", params.ownerId);
+  } else {
+    await supabase.from("follow_ups").insert({
+      owner_id: params.ownerId,
+      contact_id: params.contactId,
+      property_id: params.propertyId,
+      due_date: params.nextActionDue,
+      description,
+      source_type: "manual",
+    });
+  }
+
+  if (params.contactId) {
+    await supabase
+      .from("contacts")
+      .update({ next_action_due: params.nextActionDue })
+      .eq("id", params.contactId)
+      .eq("owner_id", params.ownerId);
+  }
+
+  revalidatePath("/follow-ups");
+  revalidatePath("/dashboard");
+}
 
 export async function getDeals(): Promise<Deal[]> {
   const supabase = await createClient();
@@ -107,6 +175,16 @@ export async function createDeal(
 
   if (error) return { error: error.message };
 
+  await syncDealFollowUp({
+    ownerId: user.id,
+    dealId: data.id,
+    dealName: data.name,
+    contactId: data.contact_id,
+    propertyId: data.property_id,
+    nextAction: data.next_action,
+    nextActionDue: data.next_action_due,
+  });
+
   revalidatePath("/deals");
   revalidatePath("/dashboard");
   return { deal: data as Deal };
@@ -183,6 +261,16 @@ export async function updateDeal(
     .single();
 
   if (error) return { error: error.message };
+
+  await syncDealFollowUp({
+    ownerId: user.id,
+    dealId: data.id,
+    dealName: data.name,
+    contactId: data.contact_id,
+    propertyId: data.property_id,
+    nextAction: data.next_action,
+    nextActionDue: data.next_action_due,
+  });
 
   revalidatePath("/deals");
   revalidatePath("/dashboard");

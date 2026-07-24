@@ -5,6 +5,7 @@ import { X, Briefcase, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEAL_TYPES, DEAL_TYPE_LABELS, stagesForDealType, STAGE_LABELS, type DealStage, type DealType, type Deal } from "@/lib/deals";
 import { createDeal } from "./actions";
+import { appendTenantRepNotes } from "@/lib/deal-follow-up";
 
 type Props = {
   /** If provided, locks the contact on the new deal. */
@@ -58,7 +59,17 @@ export function CreateDealDialog({
     const commissionRaw = fd.get("estimated_commission") as string;
     const estimated_commission = commissionRaw ? parseFloat(commissionRaw) : null;
     const next_action = fd.get("next_action") as string | null;
+    const next_action_due = (fd.get("next_action_due") as string) || null;
     const notes = fd.get("notes") as string | null;
+    const target_sf = (fd.get("target_sf") as string) || null;
+    const target_submarket = (fd.get("target_submarket") as string) || null;
+    const timing = (fd.get("timing") as string) || null;
+
+    const { appendTenantRepNotes } = await import("@/lib/deal-follow-up");
+    const mergedNotes =
+      type === "tenant_rep"
+        ? appendTenantRepNotes(notes, { target_sf, target_submarket, timing })
+        : notes || null;
 
     startTransition(async () => {
       const result = await createDeal({
@@ -69,7 +80,8 @@ export function CreateDealDialog({
         property_id: propertyId ?? null,
         estimated_commission: estimated_commission ?? null,
         next_action: next_action || null,
-        notes: notes || null,
+        next_action_due: next_action_due || null,
+        notes: mergedNotes,
       });
 
       if (result.fieldErrors) {
@@ -254,6 +266,34 @@ export function CreateDealDialog({
                   className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
+
+              {dealType === "tenant_rep" && (
+                <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3">
+                  <p className="text-[11px] text-muted-foreground">
+                    Tenant-rep context (optional) — helps the pursuit read like a real requirement.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input
+                      name="target_sf"
+                      type="text"
+                      placeholder="Target SF"
+                      className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <input
+                      name="target_submarket"
+                      type="text"
+                      placeholder="Submarket"
+                      className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <input
+                      name="timing"
+                      type="text"
+                      placeholder="Timing"
+                      className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Notes */}
               <div className="space-y-1">

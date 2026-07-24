@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Briefcase, Building2, ChevronRight, ChevronLeft,
-  DollarSign, Trash2, User, AlertTriangle, LayoutGrid, List,
+  DollarSign, Trash2, User, AlertTriangle, LayoutGrid, List, Phone, MapPin, Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -15,6 +15,9 @@ import {
 } from "@/lib/deals";
 import { updateDealStage, deleteDeal } from "./actions";
 import { CreateDealDialog } from "./create-deal-dialog";
+import { createActivity } from "@/app/activities/actions";
+import { formatCallOutcomeNote } from "@/lib/activity-touch";
+import { ComposeOutreach } from "@/components/compose-outreach";
 
 function StagePill({ stage }: { stage: DealStage }) {
   return (
@@ -42,6 +45,24 @@ function DealCard({
   const next = nextStage(deal.stage, deal.deal_type);
   const prev = prevStage(deal.stage, deal.deal_type);
   const isTerminal = (TERMINAL_STAGES as readonly string[]).includes(deal.stage);
+  const [logPending, startLog] = useTransition();
+  const [composeOpen, setComposeOpen] = useState(false);
+  const router = useRouter();
+
+  function quickTouch(type: "call" | "meeting") {
+    if (!deal.contact_id) return;
+    startLog(async () => {
+      await createActivity({
+        contact_id: deal.contact_id,
+        property_id: deal.property_id,
+        activity_type: type,
+        notes: type === "call"
+          ? formatCallOutcomeNote("connected", `Re: ${deal.name}`)
+          : `Tour / meeting — ${deal.name}`,
+      });
+      router.refresh();
+    });
+  }
 
   return (
     <div
@@ -78,6 +99,54 @@ function DealCard({
         </div>
       )}
 
+      {deal.contact_id && (
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            disabled={logPending}
+            onClick={() => quickTouch("call")}
+            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <Phone className="size-2.5" /> Call
+          </button>
+          <button
+            type="button"
+            disabled={logPending}
+            onClick={() => quickTouch("meeting")}
+            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <MapPin className="size-2.5" /> Tour
+          </button>
+          <button
+            type="button"
+            onClick={() => setComposeOpen(true)}
+            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+          >
+            <Mail className="size-2.5" /> Outreach
+          </button>
+        </div>
+      )}
+      {composeOpen && deal.contact_id && (
+        <div className="rounded-lg border bg-muted/20 p-2 space-y-2">
+          <div className="flex justify-between items-center">
+            <p className="text-[10px] font-medium text-muted-foreground">Outreach</p>
+            <button
+              type="button"
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+              onClick={() => setComposeOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+          <ComposeOutreach
+            contactId={deal.contact_id}
+            contactName={contact?.name ?? null}
+            contactEmail={null}
+            onSent={() => router.refresh()}
+            onDone={() => { setComposeOpen(false); router.refresh(); }}
+          />
+        </div>
+      )}
       {/* Commission + next action due */}
       {(deal.estimated_commission != null || deal.next_action_due) && (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
