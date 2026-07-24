@@ -269,7 +269,7 @@ export default async function PropertyPage({
         href="/crm"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
-        ← CRM
+        ← Workspace
       </Link>
 
       {/* Header */}

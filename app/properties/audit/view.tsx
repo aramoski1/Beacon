@@ -326,13 +326,13 @@ export default function AuditView() {
           href="/crm"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
         >
-          ← CRM
+          ← Workspace
         </Link>
         <h1 className="text-xl font-semibold tracking-tight">Data audit</h1>
         <p className="mt-1.5 text-sm text-muted-foreground max-w-prose">
           Properties flagged for review based on three bad-data patterns left by
           the old broken address endpoint. Review each record and delete if it
-          should not be in your CRM.
+          should not be in your Workspace.
         </p>
       </div>
 
@@ -397,7 +397,7 @@ export default function AuditView() {
             href="/crm"
             className="text-sm text-primary underline underline-offset-2"
           >
-            Back to CRM
+            Back to Workspace
           </Link>
         </div>
       ) : (
@@ -455,7 +455,7 @@ export default function AuditView() {
             {flagged.length} flagged of your total properties
           </span>
           <Link href="/crm" className="hover:text-foreground transition-colors">
-            Back to CRM →
+            Back to Workspace →
           </Link>
         </div>
       )}

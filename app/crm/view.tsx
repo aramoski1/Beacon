@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { syncPropertyEntity } from "@/lib/entities";
 import { contactIdsByPropertyIds, contactIdsForProperties, propertyIdsByContactIds } from "@/lib/contact-properties";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, ShieldAlert, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap, Phone, Layers, Briefcase } from "lucide-react";
+import { Building2, Users, FileText, ExternalLink, Loader2, Sparkles, X, Trash2, AlertCircle, ChevronLeft, ChevronRight, SlidersHorizontal, Check, Mail, Settings2, Zap, Phone, Layers, Briefcase } from "lucide-react";
 import { CustomFieldsPanel } from "@/components/custom-fields-panel";
 import type { EntityType } from "@/lib/custom-fields";
 import { ComposeOutreach } from "@/components/compose-outreach";
@@ -2528,22 +2528,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           >
             Export all contacts ↓
           </a>
-          <Link
-            href="/properties/audit"
-            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground"
-            title="Advanced — property data audit"
-          >
-            <ShieldAlert className="size-3.5" />
-            Advanced: audit
-          </Link>
-          <Link
-            href="/properties/errors"
-            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors flex items-center gap-1.5 text-muted-foreground"
-            title="Advanced — ingestion errors"
-          >
-            <AlertCircle className="size-3.5" />
-            Advanced: errors
-          </Link>
         </div>
       </header>
 
@@ -2686,14 +2670,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                         </button>
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowFieldsPanel(true)}
-                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        >
-                          <Settings2 className="size-3" />
-                          Manage fields
-                        </button>
                         <ColVisPopover isVis={leaseColVis.isVis} toggle={leaseColVis.toggle} colDefs={LEASE_COL_DEFS} />
                       </div>
                     </>
@@ -2997,10 +2973,10 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       )}
 
       {/* Custom fields panel (contextual to active tab) */}
-      {showFieldsPanel && (
+      {showFieldsPanel && tab !== "leases" && (
         <CustomFieldsPanel
           entityType={
-            (tab === "properties" ? "property" : tab === "contacts" ? "contact" : "lease") as EntityType
+            (tab === "contacts" ? "contact" : "property") as EntityType
           }
           onClose={() => setShowFieldsPanel(false)}
         />
