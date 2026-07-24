@@ -1,5 +1,5 @@
 # Beacon — Pilot Readiness
-**As of:** July 2026 (post harden prompts 1–7)  
+**As of:** July 2026 (post elevate prompts A–I, skip B)  
 **Audience:** CRE brokers evaluating a pilot, and engineers shipping with them
 
 This document reflects **current code**, not aspirational roadmap. For architecture detail see `Beacon_PRD.md`.
@@ -10,11 +10,11 @@ This document reflects **current code**, not aspirational roadmap. For architect
 
 Beacon is built for a **single Miami-area CRE broker** (industrial / investment / leasing) whose edge is:
 
-1. **Ownership truth from county tax roll** — Miami-Dade (MDPA) and Broward (BCPA GIS) parcel lookup, Sunbiz humans behind LLC owners, ownership-change signals on re-enrich.
-2. **Lease rollover clock** — abstracts linked to properties → Lease radar buckets → follow-ups that do not go dark when property linkage is missing.
-3. **Who to call** — tenant vs owner routing on radar/outreach; contact↔property join for “contacts on this asset” / “assets for this contact”; Owner portfolio as the one-click book view.
+1. **Ownership truth from county tax roll** — Miami-Dade (MDPA) and Broward (BCPA GIS) parcel lookup + **owner-name portfolio discovery in both counties**, Sunbiz humans behind LLC owners, **ownership watch** with batch re-check.
+2. **Lease rollover clock** — abstracts linked to properties → Lease radar → Today desk; follow-ups that do not go dark when property linkage is missing.
+3. **Who to call** — tenant vs owner routing on radar/outreach; contact↔property join; Owner portfolio; call/tour logging that bumps cadence.
 
-Everything else (cadence, deals pipeline, Copilot, dashboard KPIs) exists to make those three loops usable every morning.
+Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists to make those three loops usable every morning.
 
 ---
 
@@ -24,19 +24,25 @@ Everything else (cadence, deals pipeline, Copilot, dashboard KPIs) exists to mak
 |------|------------------|
 | **Entities** | Properties, contacts, lease abstracts, activities, follow-ups, deals (pursuits) |
 | **Joins** | `contact_properties` preferred for reads; dual-write with legacy `linked_properties[]` fallback |
-| **County data** | Miami-Dade + Broward address → folio → detail; ownership change detection |
-| **Comps** | Nearby **tax-roll** sales on property detail — **not** CoStar market comps |
+| **County data** | Miami-Dade + Broward address → folio → detail; ownership change detection + **watch enroll / batch re-check** |
+| **Comps** | Tax-roll **sale** comps + **lease comps from your abstracts** (submarket / type / SF band) — **not** CoStar |
 | **Enrich** | County re-enrich, Sunbiz, promote to CRM, CoStar **file upload** parse, bulk enrich queue in Workspace |
-| **Lease abstracts** | Single + batch upload; **server rejects saves without `linked_property`**; relink allowed, clear-to-null blocked |
-| **Lease radar** | Expiration buckets; tenant-rep / vacancy / rollover → tenant contact when present; owner-facing actions → owner; WHO/WHY in UI; follow-up sync aligned |
-| **Outreach** | Cadence-driven queue; AI drafts; **chunked** generation; opens broker mail (mailto / web compose) — **Beacon does not send** |
-| **Cadence** | Tier 1/2/3 days from `user_settings` (defaults match Settings UI); outreach “due” and dashboard cold Tier 1 share the same math |
-| **Deals** | Type-aware stages (`tenant_rep` \| `listing` \| `investment_sale`); `under_contract` + `won` stay **active**; terminal = `closed` / `lost`; illegal stage changes rejected server-side |
-| **Owner portfolio** | Hero CTA from property/contact; workspace aggregation + MDPA tax-roll discovery |
-| **Dashboard** | Broker command center: KPI strip (pursuits/commission, lease ≤90d, Tier-1 overdue, ownership changes, book), Needs attention rail, **Ask Beacon** Copilot kept, Pipeline / Lease / Book / Ops sections |
-| **Nav** | Dashboard, **Workspace** (`/crm`), Deals, Lease radar, Follow-ups, Outreach, Settings; **+ New** includes New pursuit → create dialog (`/deals?new=1`); Advanced: data audit / ingestion errors |
-| **Copilot** | Kept on dashboard — natural-language portfolio / focus questions |
-| **Onboarding** | Gate on Dashboard + Workspace until `onboarding_completed_at` |
+| **Lease abstracts** | Single + batch; **server rejects saves without `linked_property`** |
+| **Lease radar** | Expiration buckets; tenant vs owner WHO/WHY; follow-up sync |
+| **Today desk** | Ranked **Do these today** queue: lease ≤90d, ownership flips, follow-ups due, deal next actions, cadence outreach |
+| **Outreach** | Cadence queue; AI drafts; mailto/web compose; **Has email / Has phone** filter; mark sent — **Beacon does not send** |
+| **Calls / tours** | One-click Log call (outcomes) + Log tour on contact; bumps `last_contacted_at` for call/email/meeting/letter |
+| **Cadence** | Tier days from `user_settings` |
+| **Deals** | Type-aware stages; `next_action_due` syncs a soft-deduped follow-up; tenant-rep soft fields; Call/Tour/Outreach on cards |
+| **Owner portfolio** | Hero CTA; **Tax roll portfolio** discovery for **Miami-Dade + Broward** |
+| **Book map** | Corridor view by submarket/city with SF/type filters; OSM deep links (no stored geocodes) |
+| **Dashboard** | KPI strip + Today + Ask Beacon Copilot + Pipeline / Lease / Book / Ops |
+| **Nav** | Dashboard, Workspace, Deals, Lease radar, Outreach, Settings; Advanced: Book map, All tasks, audit, errors |
+| **Copilot** | Kept on dashboard |
+| **Onboarding** | Gate on Dashboard + Workspace |
+| **Exports** | Properties / contacts / leases XLSX — lease export uses real columns (`base_rate`, linked property address, etc.) |
+
+**Not shipped (deliberately skipped):** Prompt B industrial space fields on property detail / Workspace — Workspace columns left unchanged.
 
 ---
 
@@ -45,62 +51,64 @@ Everything else (cadence, deals pipeline, Copilot, dashboard KPIs) exists to mak
 | Topic | Reality |
 |-------|---------|
 | **Email** | Drafts + `mailto:` / web compose. Broker sends. No SMTP / Gmail API send. |
-| **Tax roll** | **Miami-Dade + Broward** for county ingest/enrich. Owner portfolio **county-wide discovery** is Miami-Dade–scoped. Not statewide. |
-| **Comps** | Tax-roll neighbor sales only. **Not CoStar**, not LoopNet live market data. |
-| **CoStar** | Upload/parse into contacts (tagged). Settings “CoStar enabled” is preference UX — **no live CoStar API**. |
-| **Teams** | Single-broker. No shared workspace, no roles. |
-| **Mobile** | Responsive web only; no native app. |
-| **Smart lists** | Table may exist; no first-class producer UI for managing NL saved searches. |
+| **Tax roll** | Miami-Dade + Broward ingest + portfolio discovery. Not statewide. Broward owner match is single `OWN_NAME` field (shallower than MDPA). |
+| **Comps** | Tax-roll sales + **your** lease abstracts. **Not CoStar** market data. |
+| **Book map** | Corridor aggregation + OSM links — **not** a stored pin map / GIS product. |
+| **Industrial specs** | No dedicated clear-height / docks / availability model yet (Prompt B deferred). |
+| **CoStar** | File upload/parse only — no live API. |
+| **Teams** | Single-broker. |
+| **Mobile** | Responsive web only. |
 
 ---
 
-## Broker day-1 path (recommended pilot script)
+## Broker day-1 path
 
-1. **Import / ingest** — Add 5–20 properties via address (MD/Broward) or Workspace bulk paths. Confirm folio + owner name.
-2. **Enrich** — County fields, Sunbiz persons, promote key owners to contacts; set Tier 1 on people you actually call.
-3. **Portfolio** — From a property or contact, open **Owner portfolio**; optionally pull MDPA tax-roll siblings into the book.
-4. **Abstract** — Upload a lease PDF; **link every abstract to a property** (required). Batch: resolve property per file before save.
-5. **Radar** — Open Lease radar; confirm WHO (tenant vs owner) for the next rollover; sync follow-ups.
-6. **Outreach** — Queue Tier-1 / due contacts; generate drafts; open in email; mark sent.
-7. **Daily desk** — Dashboard KPIs + Needs attention + Ask Beacon; log pursuits under Deals when a conversation becomes a real chase.
+1. **Import** — Add properties via MD/Broward address. Confirm folio + owner.
+2. **Enrich** — County + Sunbiz; promote owners; set Tier 1.
+3. **Watch** — Enroll key assets on ownership watch; run batch re-check from dashboard.
+4. **Portfolio** — Owner portfolio → Tax roll discovery (MD + Broward) → import siblings.
+5. **Abstract** — Upload lease PDFs; every abstract linked to a property.
+6. **Radar + Today** — Lease radar WHO/WHY; Dashboard **Do these today**.
+7. **Outreach / call** — Draft emails or Log call / Log tour; mark sent when emailed.
+8. **Pursue** — New pursuit with next-action due (creates a task); use Book map for corridor rides.
 
 ---
 
-## Harden prompts 1–7 — what they fixed
+## Elevate prompts A–I (skip B) — what landed
 
 | # | Outcome |
-|---|---------|
-| 1 | No orphan lease abstracts; radar cannot go dark from a silent unlink |
-| 2 | Rollover outreach targets the right party (tenant vs owner) with explicit UI |
-| 3 | Contact↔asset graph reads prefer the join table |
-| 4 | Cadence Settings actually drive due/overdue math |
-| 5 | Deal stages match CRE pursuit semantics (under contract = active) |
-| 6 | Command dashboard with real KPIs (no fake numbers) |
-| 7 | Producer desk: New pursuit opens create; Workspace onboarding gate; Advanced ops framing |
+|---|--------|
+| A | Unified Today desk; Follow-ups demoted to Advanced “All tasks” |
+| C | Lease comps from abstracts on property detail |
+| D | Ownership watch enroll + batch re-check; honest empty copy |
+| E | Call/tour cadence bump; Outreach email/phone channel filter |
+| F | Broward tax-roll owner search / import for portfolio |
+| G | Deal next-action → follow-up sync; pursuit quick touches |
+| H | Corridor Book map + OSM links |
+| I | This pilot doc + PRD alignment (lease export already column-correct) |
 
 ---
 
-## Remaining risks (after 1–7)
+## Remaining risks
 
-These are still real; do not paper over them in a pilot:
-
-1. **Lease XLSX export** — historically queried wrong columns; verify before promising export demos.
-2. **Scale / cost** — shell badge counts, portfolio “load all properties,” and some dashboard aggregations are full-scan style; fine for a single book, not for 50k parcels.
-3. **Dual-write debt** — `linked_properties[]` still written; join is preferred for reads. Full column drop is future work.
-4. **AI non-determinism** — abstracts, drafts, briefings, Copilot can miss or overstate; broker must verify against the PDF / tax roll.
-5. **Broward GIS coupling** — parcel FeatureServer field names can change; keep a live address smoke check in the pilot checklist.
-6. **Ownership-change coverage** — signals depend on re-enrich / MDPA path; empty “ownership changes” KPI may mean “not yet checked,” not “market quiet.”
-7. **No calendar sync** — follow-ups live in Beacon unless the broker copies them out.
+1. **Run `npm run migrate`** if ownership-watch columns are missing (`ownership_watch_enrolled_at`, `ownership_last_checked_at`) — migrate may have failed offline earlier.
+2. **Scale** — full-scan style counts/aggregations; fine for one book.
+3. **Dual-write** — `linked_properties[]` still written.
+4. **AI non-determinism** — verify abstracts/drafts against PDF / tax roll.
+5. **GIS coupling** — MDPA/BCPA field changes can break county magic.
+6. **No calendar sync** — tasks live in Beacon.
+7. **Industrial space model deferred** — leasing brokers still need docks/clear height manually / custom fields.
 
 ---
 
-## Pilot success criteria (suggested)
+## Pilot success criteria
 
-- Broker can ingest a real MD or Broward address and see correct owner + SF.
-- At least one lease abstract is property-linked and appears on Lease radar with a sensible contact.
-- One outreach draft opens in their mail client and is marked sent.
-- Dashboard KPI strip shows non-zero numbers that match their book (or honest zeros with clear empty copy).
-- Owner portfolio opens in one click from a known property.
+- Ingest real MD **and** Broward addresses; portfolio discovery finds siblings in both.
+- Linked lease abstract appears on radar and contributes to lease comps.
+- Today desk shows a ranked mix (not only cadence).
+- Log call bumps contact cadence; outreach mark-sent still works.
+- Ownership watch batch reports checked/flips without fake “market quiet.”
+- New pursuit with next-action due creates a visible task.
 
 ---
 
@@ -108,4 +116,4 @@ These are still real; do not paper over them in a pilot:
 
 - `Beacon_PRD.md` — engineer onboarding, schema, data flows  
 - `MIGRATIONS.md` — migrate / verify commands  
-- `tests/` — Vitest coverage for pure helpers (lease property, radar contact, cadence, deals stages, dashboard KPIs, etc.)
+- `tests/` — Vitest coverage for pure helpers

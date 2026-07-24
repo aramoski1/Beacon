@@ -225,29 +225,30 @@ It also offers a county-wide tax roll search (via Miami-Dade ArcGIS) to discover
 ```
 /login                    Auth (no app shell)
 /onboarding               First-run gate
-/dashboard                Broker command center — KPIs, Needs attention, Ask Beacon (Copilot)
+/dashboard                Broker command center — KPIs, Do these today, Ask Beacon (Copilot)
 /crm                      Workspace — properties / contacts / leases tabs
 /deals                    Pursuit pipeline (kanban); /deals?new=1 opens create dialog
+/book-map                 Corridor book map (submarket/city + OSM links)
 /properties/new           Add property (address / URL / upload)
-/properties/[id]          Property detail + enrich + tax-roll comps + Owner portfolio CTA
+/properties/[id]          Property detail + enrich + tax-roll + lease comps + Owner portfolio CTA
 /contacts/new             Add contact manually
 /contacts/[id]            Contact detail + briefing + Owner portfolio CTA
 /abstracts/new            Upload + abstract a lease (property required)
 /abstracts/[id]           Lease abstract detail
 /lease-radar              Expiring leases + tenant/owner outreach + follow-up sync
-/follow-ups               Follow-up list
+/follow-ups               Task list (Advanced nav — primary queue is Today on dashboard)
 /outreach                 Cadence-driven outreach drafts (mailto — no send)
-/owner-portfolio/...      Owner portfolio (by property or contact)
+/owner-portfolio/...      Owner portfolio (by property or contact) + MD/Broward tax-roll discovery
 /properties/audit         Advanced — data audit
 /properties/errors        Advanced — ingestion errors
 /settings                 User settings (cadence, profile)
 /settings/fields          Custom field definitions
 /api/export/properties    XLSX download (GET, auth-checked)
 /api/export/contacts      XLSX download (GET, auth-checked)
-/api/export/leases        XLSX download (GET, auth-checked) — verify columns before demo
+/api/export/leases        XLSX download (GET, auth-checked)
 ```
 
-Primary nav labels: Dashboard, Workspace, Deals, Lease radar, Follow-ups, Outreach, Settings.
+Primary nav labels: Dashboard, Workspace, Deals, Lease radar, Outreach, Settings.
 ---
 
 ## 8. Custom Fields System
@@ -264,15 +265,19 @@ Users can define custom fields for properties, contacts, and leases at `/setting
 ## 9. Known Issues / Remaining Risks
 
 ### Still watch in pilot
-1. **Lease export** (`app/api/export/leases/route.ts`): historically queried columns that don't exist — verify before promising export demos.
+1. **Ownership watch columns** — require `npm run migrate` for `ownership_watch_enrolled_at` / `ownership_last_checked_at` if verify fails.
 2. **CoStar toggle** (`user_settings.costar_enabled`): preference UX; CoStar remains **file upload only**, not a live API.
 3. **Scale**: app shell badge counts, owner portfolio, and some dashboard aggregations favor simplicity over large-book performance.
 4. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
+5. **Industrial space fields** — Prompt B deferred; use custom fields or notes until shipped.
 
 ### Fixed (do not re-open as bugs)
 - Cadence settings **do** drive due/overdue math via `lib/cadence.ts` + `user_settings`.
 - Lease abstracts **require** `linked_property` on save; clearing to null is blocked.
 - Deals / pursuit pipeline **exists** with type-aware stages.
+- **Lease XLSX export** uses real abstract + linked property columns (`app/api/export/leases/route.ts`).
+- Owner portfolio tax-roll discovery covers **Miami-Dade + Broward**.
+- Follow-ups live primarily via **Today desk**; `/follow-ups` remains under Advanced.
 
 ### UX / polish
 - Dark mode may flash on load (theme from localStorage; no server-side init in `app/layout.tsx`).
