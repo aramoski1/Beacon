@@ -140,6 +140,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-ownership-watch.ts",
     description: "Properties — ownership_watch_enrolled_at + ownership_last_checked_at for watch list",
   },
+  {
+    file: "migrate-field-sources.ts",
+    description: "Properties — field_sources JSONB for per-field provenance (county/sunbiz/document/url/pasted)",
+  },
 ];
 
 const hr = "─".repeat(60);

@@ -27,7 +27,7 @@ const ENTITY_LABELS: Record<EntityType, string> = {
 };
 
 const ENTITY_HINTS: Record<EntityType, string> = {
-  property: "Extract fields — Claude pulls values automatically. Manual fields — the broker fills them in.",
+  property: "Extract fields — Claude pulls values from a matched county record, an uploaded flyer/OM, pasted listing text, or a listing URL (never typed in manually). Manual fields — the broker fills them in.",
   contact:  "These fields appear on the Add Contact form for manual input.",
   lease:    "Claude extracts these fields from the lease PDF automatically.",
 };
@@ -131,6 +131,10 @@ function AddFieldForm({
             <option value="extract">Extract — Claude pulls it from the source</option>
             <option value="manual">Manual — broker fills it in</option>
           </select>
+          <p className="text-xs text-muted-foreground">
+            Extract fields populate from a county record match, an uploaded document, pasted text,
+            or a listing URL on the property page — not from typing.
+          </p>
         </div>
       )}
 

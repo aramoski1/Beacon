@@ -50,6 +50,7 @@ const EXPECTED: TableSpec[] = [
       { col: "entity_id",             from: "migrate-entities.ts" },
       { col: "ownership_watch_enrolled_at", from: "migrate-ownership-watch.ts" },
       { col: "ownership_last_checked_at",   from: "migrate-ownership-watch.ts" },
+      { col: "field_sources",         from: "migrate-field-sources.ts" },
     ],
   },
   {

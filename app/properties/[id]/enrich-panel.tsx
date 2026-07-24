@@ -38,14 +38,18 @@ import {
   createOwnerContact,
   parseCoStarFile,
   createCoStarContacts,
+  previewDocumentEnhancement,
+  applyDocumentEnhancement,
   type EnhancementPreview,
   type SunbizLookupAction,
+  type DocumentEnhancementPreview,
 } from "./actions";
 
 // ── Types derived from action return types ────────────────────────────────────
 
 type SunbizResult = NonNullable<EnhancementPreview["sunbiz_result"]>;
 type SunbizPerson = SunbizResult["persons"][number];
+type DocumentDiffEntry = DocumentEnhancementPreview["changes"][number];
 
 // ── County phase ──────────────────────────────────────────────────────────────
 
@@ -89,6 +93,20 @@ type CoStarPhase =
   | { tag: "saved"; count: number };
 
 const COSTAR_ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.csv,.txt";
+
+// ── Document-enhancement phase ────────────────────────────────────────────────
+
+type DocMode = "file" | "paste" | "url";
+
+type DocPhase =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "previewing"; preview: DocumentEnhancementPreview }
+  | { tag: "saving" }
+  | { tag: "done"; fieldsApplied: number };
+
+const DOC_ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.txt";
 
 // ── Reusable sub-elements ─────────────────────────────────────────────────────
 
@@ -167,6 +185,16 @@ export function EnrichPanel({
   const [costarSel, setCostarSel] = useState<Set<number>>(new Set());
   const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Document enhancement
+  const [docOpen, setDocOpen] = useState(false);
+  const [docMode, setDocMode] = useState<DocMode>("file");
+  const [doc, setDoc] = useState<DocPhase>({ tag: "idle" });
+  const [docFileName, setDocFileName] = useState<string | null>(null);
+  const [docPasteText, setDocPasteText] = useState("");
+  const [docUrl, setDocUrl] = useState("");
+  const [docConflictSel, setDocConflictSel] = useState<Set<string>>(new Set());
+  const docFileRef = useRef<HTMLInputElement>(null);
 
   // ── County handlers ─────────────────────────────────────────────────────────
 
@@ -315,6 +343,56 @@ export function EnrichPanel({
     setCostarSel(new Set());
     setFileName(null);
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  // ── Document enhancement handlers ───────────────────────────────────────────
+
+  function handleDocPreview() {
+    const fd = new FormData();
+    if (docMode === "file") {
+      const file = docFileRef.current?.files?.[0];
+      if (!file) return;
+      fd.append("file", file);
+    } else if (docMode === "paste") {
+      if (docPasteText.trim().length < 50) return;
+      fd.append("text", docPasteText);
+    } else {
+      if (!docUrl.trim()) return;
+      fd.append("url", docUrl.trim());
+    }
+
+    setDoc({ tag: "loading" });
+    startTransition(async () => {
+      const res = await previewDocumentEnhancement(propertyId, fd);
+      if ("error" in res) { setDoc({ tag: "error", message: res.error }); return; }
+      setDocConflictSel(new Set());
+      setDoc({ tag: "previewing", preview: res.preview });
+    });
+  }
+
+  function handleDocApply(preview: DocumentEnhancementPreview) {
+    setDoc({ tag: "saving" });
+    startTransition(async () => {
+      const res = await applyDocumentEnhancement(
+        propertyId,
+        preview.extracted,
+        [...docConflictSel],
+        preview.sourceKind,
+        preview.sourceDetail,
+      );
+      if ("error" in res) { setDoc({ tag: "error", message: res.error }); return; }
+      setDoc({ tag: "done", fieldsApplied: res.fieldsApplied });
+      router.refresh();
+    });
+  }
+
+  function resetDoc() {
+    setDoc({ tag: "idle" });
+    setDocConflictSel(new Set());
+    setDocFileName(null);
+    setDocPasteText("");
+    setDocUrl("");
+    if (docFileRef.current) docFileRef.current.value = "";
   }
 
   // ── Collapsed trigger ────────────────────────────────────────────────────────
@@ -807,6 +885,237 @@ export function EnrichPanel({
                 ? "Run county data above — it will auto-search Sunbiz for entity owners."
                 : "Run the Sunbiz lookup above to find registered agents and authorized persons."}
             </p>
+          )}
+        </section>
+
+        {/* ── Enhance from document (collapsible) ─────────────────────── */}
+        <section>
+          <button
+            onClick={() => setDocOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {docOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            <FileText className="size-3.5" />
+            Enhance from document
+          </button>
+
+          {docOpen && (
+            <div className="mt-3 space-y-3">
+              {doc.tag === "idle" && (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Upload a flyer or OM, paste listing text, or enter a listing URL to fill in
+                    property fields and custom fields (e.g. clear height, dock doors) that county
+                    records don&apos;t have.
+                  </p>
+
+                  <div className="flex gap-1.5">
+                    {(["file", "paste", "url"] as DocMode[]).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setDocMode(m)}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                          docMode === m ? "border-primary/40 bg-primary/5 text-foreground" : "text-muted-foreground hover:bg-muted/40",
+                        )}
+                      >
+                        {m === "file" ? "Upload file" : m === "paste" ? "Paste text" : "Listing URL"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {docMode === "file" && (
+                    <div className="flex items-center gap-3">
+                      <label className="flex-1 cursor-pointer">
+                        <input
+                          ref={docFileRef}
+                          type="file"
+                          accept={DOC_ACCEPTED}
+                          className="sr-only"
+                          onChange={(e) => setDocFileName(e.target.files?.[0]?.name ?? null)}
+                        />
+                        <div className={cn(
+                          "flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/40",
+                          docFileName ? "border-primary/40 bg-primary/5 text-foreground" : "border-dashed text-muted-foreground",
+                        )}>
+                          <Upload className="size-3.5 shrink-0" />
+                          <span className="truncate">{docFileName ?? "Choose file…"}</span>
+                        </div>
+                      </label>
+                      <Button size="sm" onClick={handleDocPreview} disabled={!docFileName} className="shrink-0">Preview</Button>
+                    </div>
+                  )}
+
+                  {docMode === "paste" && (
+                    <div className="space-y-2">
+                      <textarea
+                        value={docPasteText}
+                        onChange={(e) => setDocPasteText(e.target.value)}
+                        rows={5}
+                        placeholder="Paste listing text, flyer copy, or OM excerpt…"
+                        className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background"
+                      />
+                      <Button size="sm" onClick={handleDocPreview} disabled={docPasteText.trim().length < 50}>Preview</Button>
+                    </div>
+                  )}
+
+                  {docMode === "url" && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={docUrl}
+                        onChange={(e) => setDocUrl(e.target.value)}
+                        placeholder="https://…"
+                        className="flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background"
+                      />
+                      <Button size="sm" onClick={handleDocPreview} disabled={!docUrl.trim()} className="shrink-0">Preview</Button>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">PDF · JPG · PNG · WebP · TXT — max 10 MB</p>
+                </>
+              )}
+
+              {doc.tag === "loading" && <Spinner label="Extracting fields…" />}
+
+              {doc.tag === "error" && (
+                <ErrorBox message={doc.message} onBack={resetDoc} backLabel="Try again" />
+              )}
+
+              {doc.tag === "previewing" && (() => {
+                const { preview } = doc;
+                const sourceLabel = preview.sourceKind === "document" ? "Document" : preview.sourceKind === "url" ? "Listing URL" : "Pasted text";
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium">{sourceLabel}</span>
+                      {preview.sourceDetail && (
+                        <>
+                          <span>·</span>
+                          <span className="truncate">{preview.sourceDetail}</span>
+                        </>
+                      )}
+                    </div>
+
+                    {preview.changes.length === 0 && preview.conflicts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Nothing new found in this source — no changes.</p>
+                    ) : (
+                      <>
+                        {preview.changes.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              {preview.changes.length} field{preview.changes.length !== 1 ? "s" : ""} will fill or update
+                            </p>
+                            <div className="rounded-lg border overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b bg-muted/30">
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-1/4">Field</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">Current</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">{sourceLabel}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {preview.changes.map((entry: DocumentDiffEntry, i: number) => (
+                                    <tr key={entry.field} className={cn("border-b last:border-0", i % 2 !== 0 && "bg-muted/10")}>
+                                      <td className="px-3 py-2 text-muted-foreground">{entry.label}</td>
+                                      <td className="px-3 py-2 text-red-700/80 line-through decoration-red-300/60 italic">
+                                        {entry.before ?? <span className="not-italic text-muted-foreground/40">—</span>}
+                                      </td>
+                                      <td className="px-3 py-2 font-medium text-green-700">
+                                        {entry.after ?? <span className="font-normal text-muted-foreground/40">—</span>}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {preview.conflicts.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400 uppercase tracking-wide flex items-center gap-1.5">
+                              <AlertTriangle className="size-3.5" />
+                              {preview.conflicts.length} conflict{preview.conflicts.length !== 1 ? "s" : ""} — existing data differs
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              These fields already have a value on record (owner, sale date/price, or
+                              building/land SF). Check any you want this source to overwrite — nothing
+                              here is applied unless you select it.
+                            </p>
+                            <div className="space-y-1.5">
+                              {preview.conflicts.map((entry: DocumentDiffEntry) => (
+                                <label
+                                  key={entry.field}
+                                  className={cn(
+                                    "flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
+                                    docConflictSel.has(entry.field) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30",
+                                  )}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setDocConflictSel((prev) => {
+                                      const next = new Set(prev);
+                                      next.has(entry.field) ? next.delete(entry.field) : next.add(entry.field);
+                                      return next;
+                                    })}
+                                    className="shrink-0 mt-0.5 text-primary"
+                                  >
+                                    {docConflictSel.has(entry.field) ? <CheckSquare className="size-4" /> : <Square className="size-4 text-muted-foreground" />}
+                                  </button>
+                                  <div className="min-w-0 flex-1 text-sm">
+                                    <p className="font-medium">{entry.label}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      <span className="line-through decoration-red-300/60">{entry.before}</span>
+                                      {" → "}
+                                      <span className="text-green-700 font-medium">{entry.after}</span>
+                                    </p>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={() => handleDocApply(preview)}
+                        disabled={preview.changes.length === 0 && docConflictSel.size === 0}
+                      >
+                        <ArrowRight className="size-3.5 mr-1.5" />
+                        {preview.changes.length === 0 && docConflictSel.size === 0
+                          ? "Nothing to apply"
+                          : `Apply ${preview.changes.length + docConflictSel.size} field${(preview.changes.length + docConflictSel.size) !== 1 ? "s" : ""}`}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={resetDoc}>Cancel</Button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {doc.tag === "saving" && <Spinner label="Saving…" />}
+
+              {doc.tag === "done" && (
+                <div className="space-y-1">
+                  <p className="text-sm flex items-center gap-2">
+                    <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+                    {doc.fieldsApplied === 0
+                      ? "No fields were applied."
+                      : `${doc.fieldsApplied} field${doc.fieldsApplied !== 1 ? "s" : ""} updated.`}
+                  </p>
+                  <button
+                    onClick={resetDoc}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    Enhance from another source
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </section>
 

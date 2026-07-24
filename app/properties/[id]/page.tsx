@@ -70,6 +70,7 @@ type Property = {
   ingested_at: string | null;
   confidence_flags: ConfidenceFlag[];
   custom_fields: Record<string, string | number | null> | null;
+  field_sources: Record<string, string> | null;
   ownership_change_detected_at: string | null;
   ownership_change_data: {
     previous_owner: string | null;
@@ -202,6 +203,14 @@ export default async function PropertyPage({
   // trying both "building_composition.key" and bare "key".
   function bcFlagReason(key: string): string | undefined {
     return flagMap.get(`building_composition.${key}`) ?? flagMap.get(key);
+  }
+
+  // Per-field provenance: prefer the explicit field_sources tag (set by county,
+  // document, URL, or pasted enhancement); fall back to the whole-record
+  // isMdpaSource inference for rows written before field_sources existed.
+  function fieldSourceFor(key: string): FieldSource | undefined {
+    const tagged = p.field_sources?.[key] as FieldSource | undefined;
+    return tagged ?? (isMdpaSource ? "county" : undefined);
   }
 
   return (
@@ -445,7 +454,7 @@ export default async function PropertyPage({
               label="Owner"
               value={p.owner_name ?? "—"}
               flagReason={flagMap.get("owner_name")}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("owner_name")}
               action={p.owner_name ? (
                 <OwnerPortfolioLink
                   propertyId={id}
@@ -480,34 +489,34 @@ export default async function PropertyPage({
               label="Ownership type"
               value={p.ownership_type ?? "—"}
               flagReason={flagMap.get("ownership_type")}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("ownership_type")}
             />
             <Field
               icon={<Building2 className="size-4" />}
               label="Property type"
               value={p.property_type ?? "—"}
               flagReason={flagMap.get("property_type")}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("property_type")}
             />
             <Field
               icon={<Ruler className="size-4" />}
               label="Building SF"
               value={p.size_sqft != null ? `${fmt(p.size_sqft)} sqft` : "—"}
               flagReason={flagMap.get("size_sqft")}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("size_sqft")}
             />
             <Field
               icon={<Ruler className="size-4" />}
               label="Land SF"
               value={p.land_sqft != null ? `${fmt(p.land_sqft)} sqft` : "—"}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("land_sqft")}
             />
             {p.asset_description && (
               <Field
                 icon={<Building2 className="size-4" />}
                 label="Asset description"
                 value={p.asset_description}
-                source={isMdpaSource ? "county" : undefined}
+                source={fieldSourceFor("asset_description")}
               />
             )}
             <Field
@@ -515,7 +524,7 @@ export default async function PropertyPage({
               label="Last sale date"
               value={fmtDate(p.last_sale_date)}
               flagReason={flagMap.get("last_sale_date")}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("last_sale_date")}
             />
             <Field
               icon={<DollarSign className="size-4" />}
@@ -530,7 +539,7 @@ export default async function PropertyPage({
                   : "—"
               }
               flagReason={flagMap.get("last_sale_price")}
-              source={isMdpaSource ? "county" : undefined}
+              source={fieldSourceFor("last_sale_price")}
             />
           </dl>
         </CardContent>
@@ -547,11 +556,22 @@ export default async function PropertyPage({
               {customDefs.map(f => {
                 const slug = fieldSlug(f.field_name);
                 const val  = customValues[slug];
+                const reason = flagMap.get(`custom_fields.${slug}`) ?? flagMap.get(slug);
+                const source = fieldSourceFor(`custom_fields.${slug}`);
                 return (
                   <div key={f.id} className="space-y-0.5">
-                    <dt className="text-xs text-muted-foreground">{f.field_name}</dt>
+                    <dt className="flex items-center gap-1 text-xs text-muted-foreground">
+                      {f.field_name}
+                      {source && <SourceTag source={source} />}
+                    </dt>
                     <dd className="text-sm font-medium">
-                      {val != null ? String(val) : <span className="text-xs italic text-muted-foreground/40 font-normal">not in source</span>}
+                      {val != null ? (
+                        String(val)
+                      ) : (
+                        <span className="text-xs italic text-muted-foreground/40 font-normal">
+                          {reason ?? "not found in county tax roll — upload a flyer or OM to populate"}
+                        </span>
+                      )}
                     </dd>
                   </div>
                 );
@@ -641,32 +661,32 @@ export default async function PropertyPage({
                 label="Year built"
                 value={bc.year_built ? String(bc.year_built) : "—"}
                 flagReason={bcFlagReason("year_built")}
-                source={isMdpaSource ? "county" : undefined}
+                source={fieldSourceFor("building_composition.year_built")}
               />
               <SmallField
                 label="Lot size"
                 value={bc.lot_size_sqft != null ? `${fmt(bc.lot_size_sqft)} sqft` : "—"}
                 flagReason={bcFlagReason("lot_size_sqft")}
-                source={isMdpaSource ? "county" : undefined}
+                source={fieldSourceFor("building_composition.lot_size_sqft")}
               />
               <SmallField
                 label="Stories"
                 value={bc.stories != null ? String(bc.stories) : "—"}
                 flagReason={bcFlagReason("stories")}
-                source={isMdpaSource ? "county" : undefined}
+                source={fieldSourceFor("building_composition.stories")}
               />
               <SmallField
                 label="Units"
                 value={bc.units != null ? String(bc.units) : "—"}
                 flagReason={bcFlagReason("units")}
-                source={isMdpaSource ? "county" : undefined}
+                source={fieldSourceFor("building_composition.units")}
               />
               {bc.assessed_value != null && (
                 <SmallField
                   label="Assessed value"
                   value={fmt(bc.assessed_value, { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
                   flagReason={bcFlagReason("assessed_value")}
-                  source={isMdpaSource ? "county" : undefined}
+                  source={fieldSourceFor("building_composition.assessed_value")}
                 />
               )}
             </dl>
@@ -701,10 +721,20 @@ export default async function PropertyPage({
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-type FieldSource = "county" | "sunbiz" | "costar" | "manual";
+type FieldSource = "county" | "sunbiz" | "costar" | "manual" | "document" | "url" | "pasted";
+
+const SOURCE_TAG_LABELS: Record<FieldSource, string> = {
+  county: "County",
+  sunbiz: "Sunbiz",
+  costar: "CoStar",
+  manual: "Manual",
+  document: "Document",
+  url: "URL",
+  pasted: "Pasted",
+};
 
 function SourceTag({ source }: { source: FieldSource }) {
-  const label = source === "county" ? "County" : source === "sunbiz" ? "Sunbiz" : source === "costar" ? "CoStar" : "Manual";
+  const label = SOURCE_TAG_LABELS[source] ?? "Manual";
   return (
     <span className="inline-flex items-center rounded border border-muted-foreground/25 px-1 py-px text-[9px] font-medium normal-case tracking-normal text-muted-foreground/60">
       {label}

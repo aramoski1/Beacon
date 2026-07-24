@@ -198,7 +198,7 @@ export async function extractPropertyFields(
           ...baseProps,
           custom_fields: {
             type: "object",
-            description: "Broker-defined custom fields — extract each from the source",
+            description: "Broker-defined custom fields — extract each from the source. For confidence_flags entries about these, use field name 'custom_fields.<key>'.",
             properties: customProps,
           },
         },

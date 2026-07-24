@@ -13,10 +13,13 @@ import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFi
 import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
-import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
+import { extractPropertyFields, type ExtractedProperty, type PipelineContent } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
+import { fetchFieldDefs, fieldSlug } from "@/lib/custom-fields";
+import { fetchListingText } from "@/lib/listing-fetch";
+import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
 
 export async function createOwnerContact(
   propertyId: string
@@ -338,6 +341,10 @@ export type MdpaEnhancementData = {
   owner_mailing_address: string | null;
   land_sqft: number | null;
   asset_description: string | null;
+  // Broker-defined extract-mode custom fields pulled from the same county record,
+  // e.g. clear height / dock doors when the source happens to carry them.
+  custom_fields?: Record<string, string | number | null> | null;
+  custom_field_flags?: { field: string; reason: string }[];
 };
 
 export type EnhancementDiffEntry = {
@@ -471,6 +478,10 @@ export async function previewCountyEnhancement(
     .single();
   if (!existing) return { error: "Property not found." };
 
+  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+    (f) => f.fill_mode === "extract"
+  );
+
   const county = countyFromStrap(strap);
 
   function fmtN(n: number | null | undefined, opts?: Intl.NumberFormatOptions): string | null {
@@ -515,6 +526,9 @@ export async function previewCountyEnhancement(
       owner_mailing_address: bcpaExtractMailing(rec),
       land_sqft: rec.LND_SQFOOT != null ? Math.round(rec.LND_SQFOOT) : null,
       asset_description: dorCode ? `DOR ${dorCode} — ${dorCodeToPropertyType(dorCode)}` : null,
+      // BCPA is a deterministic field mapping (no Claude call) — broker-defined
+      // custom fields can't be extracted from it, so leave them null.
+      custom_fields: Object.fromEntries(customExtractFields.map((f) => [fieldSlug(f.field_name), null])),
     };
   } else {
     // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────
@@ -556,7 +570,7 @@ STRICT RULES — violation is not permitted:
       fields = await extractPropertyFields(
         { type: "text", text: JSON.stringify(detail, null, 2), hint },
         MDPA_SYSTEM_PROMPT,
-        []
+        customExtractFields
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -573,6 +587,13 @@ STRICT RULES — violation is not permitted:
       owner_mailing_address: extractOwnerMailing(detail),
       land_sqft: bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null,
       asset_description: (bc?.dor_description as string | null | undefined) ?? null,
+      custom_fields: fields.custom_fields ?? null,
+      custom_field_flags: (fields.confidence_flags ?? []).filter(
+        (f) => f.field.startsWith("custom_fields.") || customExtractFields.some((d) => fieldSlug(d.field_name) === f.field)
+      ).map((f) => ({
+        field: f.field.startsWith("custom_fields.") ? f.field : `custom_fields.${f.field}`,
+        reason: f.reason,
+      })),
     };
   }
 
@@ -789,7 +810,7 @@ export async function applyCountyEnhancement(
 
   const { data: existing } = await supabase
     .from("properties")
-    .select("id, confidence_flags")
+    .select("id, confidence_flags, custom_fields, field_sources")
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
@@ -803,9 +824,36 @@ export async function applyCountyEnhancement(
     "building_composition.dor_code", "building_composition.dor_description",
     "building_composition.lot_size_sqft", "building_composition.legal_description",
   ]);
+
+  // Merge broker-defined custom fields: fill-only — a null (not found in this
+  // county record) never clears a value a prior document/URL enhancement filled.
+  const customFieldsUpdate: Record<string, string | number | null> = {
+    ...((existing.custom_fields as Record<string, string | number | null> | null) ?? {}),
+  };
+  const touchedCustomFieldFlags = new Set<string>();
+  const newCustomFlags: { field: string; reason: string }[] = [];
+  for (const [slug, value] of Object.entries(mdpaData.custom_fields ?? {})) {
+    const flagField = `custom_fields.${slug}`;
+    touchedCustomFieldFlags.add(flagField);
+    if (value != null) {
+      customFieldsUpdate[slug] = value;
+    } else {
+      const matchedFlag = mdpaData.custom_field_flags?.find((f) => f.field === flagField);
+      newCustomFlags.push({ field: flagField, reason: matchedFlag?.reason ?? "not found in source record" });
+    }
+  }
+
   const remainingFlags = (
     (existing.confidence_flags ?? []) as { field: string; reason: string }[]
-  ).filter((f) => !MDPA_FIELDS.has(f.field));
+  ).filter((f) => !MDPA_FIELDS.has(f.field) && !touchedCustomFieldFlags.has(f.field));
+
+  const fieldSourcesUpdate: Record<string, string> = {
+    ...((existing.field_sources as Record<string, string> | null) ?? {}),
+  };
+  for (const field of MDPA_FIELDS) fieldSourcesUpdate[field] = "county";
+  for (const [slug, value] of Object.entries(mdpaData.custom_fields ?? {})) {
+    if (value != null) fieldSourcesUpdate[`custom_fields.${slug}`] = "county";
+  }
 
   const { error } = await supabase
     .from("properties")
@@ -818,8 +866,10 @@ export async function applyCountyEnhancement(
       owner_mailing_address: mdpaData.owner_mailing_address,
       land_sqft:             mdpaData.land_sqft,
       asset_description:     mdpaData.asset_description,
+      custom_fields:         customFieldsUpdate,
+      field_sources:         fieldSourcesUpdate,
       source_url:            countyFromStrap(strap) === "broward" ? `bcpa:${strap}` : `mdpa:${strap}`,
-      confidence_flags:      remainingFlags,
+      confidence_flags:      [...remainingFlags, ...newCustomFlags],
       ingested_at:           new Date().toISOString(),
     })
     .eq("id", propertyId)
@@ -848,4 +898,229 @@ export async function applyCountyEnhancement(
   }
 
   return { ok: true, owner_contacts_saved };
+}
+
+// ─── Document / pasted-text / URL enhancement ─────────────────────────────────
+// Same preview → broker-approves → apply shape as county enhancement above, but
+// for a broker-supplied source (flyer, OM, pasted listing text, or a listing
+// URL) instead of a county appraiser record. Reuses extractPropertyFields and
+// the merge/conflict rules in lib/document-enhancement.ts.
+
+export type DocumentEnhancementSourceKind = "document" | "url" | "pasted";
+
+export type DocumentEnhancementPreview = {
+  sourceKind: DocumentEnhancementSourceKind;
+  sourceDetail: string | null; // filename or URL; null for pasted text
+  changes: DocumentDiffEntry[];
+  conflicts: DocumentDiffEntry[];
+  unchanged: DocumentDiffEntry[];
+  extracted: ExtractedProperty;
+};
+
+const EXISTING_FOR_DIFF_SELECT =
+  "owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields";
+
+async function buildDocumentContent(
+  formData: FormData
+): Promise<
+  | { content: PipelineContent; sourceKind: DocumentEnhancementSourceKind; sourceDetail: string | null }
+  | { error: string }
+> {
+  const file = formData.get("file") as File | null;
+  const pastedText = (formData.get("text") as string | null)?.trim();
+  const url = (formData.get("url") as string | null)?.trim();
+
+  if (file && file.size > 0) {
+    if (file.size > 10 * 1024 * 1024) return { error: "File must be under 10 MB." };
+    const mime = file.type;
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+
+    if (mime === "application/pdf" || ext === "pdf") {
+      return {
+        content: { type: "pdf", buffer: Buffer.from(await file.arrayBuffer()) },
+        sourceKind: "document",
+        sourceDetail: file.name,
+      };
+    }
+    if (mime === "image/jpeg" || mime === "image/png" || mime === "image/webp" || ["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      const mimeType =
+        mime === "image/jpeg" || ext === "jpg" || ext === "jpeg"
+          ? "image/jpeg"
+          : mime === "image/png" || ext === "png"
+          ? "image/png"
+          : "image/webp";
+      return {
+        content: { type: "image", buffer: Buffer.from(await file.arrayBuffer()), mimeType },
+        sourceKind: "document",
+        sourceDetail: file.name,
+      };
+    }
+    if (mime.startsWith("text/") || ["txt", "csv"].includes(ext)) {
+      return {
+        content: { type: "text", text: await file.text() },
+        sourceKind: "document",
+        sourceDetail: file.name,
+      };
+    }
+    return { error: `Unsupported file type "${mime || ext || file.name}". Upload a PDF, image (JPG/PNG/WebP), or text file.` };
+  }
+
+  if (url) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+    } catch {
+      return { error: "Enter a valid http:// or https:// URL." };
+    }
+    let text: string;
+    try {
+      text = await fetchListingText(parsed.toString());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `Could not fetch the page: ${msg}` };
+    }
+    return {
+      content: { type: "text", text, hint: `from listing URL: ${parsed.toString()}` },
+      sourceKind: "url",
+      sourceDetail: parsed.toString(),
+    };
+  }
+
+  if (pastedText && pastedText.length >= 50) {
+    return {
+      content: { type: "text", text: pastedText.slice(0, 25_000), hint: "pasted document content" },
+      sourceKind: "pasted",
+      sourceDetail: null,
+    };
+  }
+
+  return { error: "Upload a file, paste at least a few lines of text, or enter a URL." };
+}
+
+// Step 1+2 combined: build source content, extract, compute diff. No DB write.
+export async function previewDocumentEnhancement(
+  propertyId: string,
+  formData: FormData
+): Promise<{ preview: DocumentEnhancementPreview } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: existing } = await supabase
+    .from("properties")
+    .select(EXISTING_FOR_DIFF_SELECT)
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!existing) return { error: "Property not found." };
+
+  const built = await buildDocumentContent(formData);
+  if ("error" in built) return { error: built.error };
+  const { content, sourceKind, sourceDetail } = built;
+
+  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+    (f) => f.fill_mode === "extract"
+  );
+
+  let extracted: ExtractedProperty;
+  try {
+    extracted = await extractPropertyFields(content, undefined, customExtractFields);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: `AI extraction failed: ${msg}` };
+  }
+
+  const diff = computeDocumentDiff(
+    existing as unknown as ExistingPropertyForDiff,
+    extracted,
+    customExtractFields
+  );
+
+  return {
+    preview: {
+      sourceKind,
+      sourceDetail,
+      changes: diff.changes,
+      conflicts: diff.conflicts,
+      unchanged: diff.unchanged,
+      extracted,
+    },
+  };
+}
+
+// Step 3: broker approved — recompute the diff server-side (never trust client
+// state for which fields are safe to bulk-apply) and write only the accepted set.
+export async function applyDocumentEnhancement(
+  propertyId: string,
+  extracted: ExtractedProperty,
+  acceptedConflictFields: string[],
+  sourceKind: DocumentEnhancementSourceKind,
+  _sourceDetail: string | null,
+): Promise<{ ok: true; fieldsApplied: number } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: existing } = await supabase
+    .from("properties")
+    .select(`${EXISTING_FOR_DIFF_SELECT}, confidence_flags, field_sources`)
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!existing) return { error: "Property not found." };
+
+  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+    (f) => f.fill_mode === "extract"
+  );
+
+  const diff = computeDocumentDiff(
+    existing as unknown as ExistingPropertyForDiff,
+    extracted,
+    customExtractFields
+  );
+
+  const acceptedSet = new Set(acceptedConflictFields);
+  const toApply = [...diff.changes, ...diff.conflicts.filter((c) => acceptedSet.has(c.field))];
+  if (toApply.length === 0) return { error: "No fields selected to apply." };
+
+  const update: Record<string, unknown> = {};
+  const customFieldsUpdate: Record<string, string | number | null> = {
+    ...((existing.custom_fields as Record<string, string | number | null> | null) ?? {}),
+  };
+  const fieldSourcesUpdate: Record<string, string> = {
+    ...((existing.field_sources as Record<string, string> | null) ?? {}),
+  };
+  const touchedFieldNames = new Set(toApply.map((e) => e.field));
+  const remainingFlags = (
+    (existing.confidence_flags ?? []) as { field: string; reason: string }[]
+  ).filter((f) => !touchedFieldNames.has(f.field));
+
+  for (const entry of toApply) {
+    if (entry.field.startsWith("custom_fields.")) {
+      const slug = entry.field.replace("custom_fields.", "");
+      customFieldsUpdate[slug] = entry.rawAfter;
+    } else {
+      update[entry.field] = entry.rawAfter;
+    }
+    fieldSourcesUpdate[entry.field] = sourceKind;
+  }
+  update.custom_fields = customFieldsUpdate;
+  update.field_sources = fieldSourcesUpdate;
+  update.confidence_flags = remainingFlags;
+
+  const { error } = await supabase
+    .from("properties")
+    .update(update)
+    .eq("id", propertyId)
+    .eq("owner_id", user.id);
+  if (error) return { error: error.message };
+
+  try {
+    await syncPropertyEntity(supabase, user.id, propertyId, (update.owner_name as string | undefined) ?? existing.owner_name);
+  } catch {
+    // Property update succeeded; entity sync is best-effort.
+  }
+
+  return { ok: true, fieldsApplied: toApply.length };
 }
