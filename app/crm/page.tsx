@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import CRMView from "./view";
@@ -23,5 +24,9 @@ export default async function CRMPage({
   if (!obSettings?.onboarding_completed_at) redirect("/onboarding");
 
   const { tab } = await searchParams;
-  return <CRMView initialTab={tab} userEmail={user.email ?? null} />;
+  return (
+    <Suspense fallback={null}>
+      <CRMView initialTab={tab} userEmail={user.email ?? null} />
+    </Suspense>
+  );
 }

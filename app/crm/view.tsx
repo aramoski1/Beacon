@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { syncPropertyEntity } from "@/lib/entities";
@@ -112,6 +112,8 @@ type LeaseAbstract = {
   term: string | null;
   base_rate: number | null;
   created_at: string;
+  linked_property: string | null;
+  property_address?: string | null;
 };
 
 type PropFilters = {
@@ -214,13 +216,14 @@ const CON_COL_DEFS: ColDef[] = [
 ];
 
 const LEASE_COL_DEFS: ColDef[] = [
-  { id: "doc",    label: "Document",   alwaysOn: true },
-  { id: "status", label: "Status" },
-  { id: "exec",   label: "Execution" },
-  { id: "exp",    label: "Expiration" },
-  { id: "term",   label: "Term" },
-  { id: "rate",   label: "Base rate" },
-  { id: "added",  label: "Added" },
+  { id: "doc",      label: "Document",   alwaysOn: true },
+  { id: "property", label: "Property" },
+  { id: "status",   label: "Status" },
+  { id: "exec",     label: "Execution" },
+  { id: "exp",      label: "Expiration" },
+  { id: "term",     label: "Term" },
+  { id: "rate",     label: "Base rate" },
+  { id: "added",    label: "Added" },
 ];
 
 const ACTIVITY_TYPES = [
@@ -1265,6 +1268,8 @@ function ContactsTable({
   selectedIds,
   onToggle,
   onToggleAll,
+  totalInDb,
+  onClearFilters,
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
@@ -1279,6 +1284,8 @@ function ContactsTable({
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: (allSelected: boolean) => void;
+  totalInDb?: number;
+  onClearFilters?: () => void;
 }) {
   const { startResize: cStartResize, cs: cColStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
@@ -1307,13 +1314,52 @@ function ContactsTable({
   }
 
   if (rows.length === 0) {
+    const isFirstTime = totalInDb === 0;
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
         <Users className="size-10 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">No contacts match these filters.</p>
-        <Link href="/contacts/new" className="text-xs underline underline-offset-2 text-primary">
-          Add a contact →
-        </Link>
+        {isFirstTime ? (
+          <>
+            <div>
+              <p className="text-sm font-medium">No contacts yet</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Add people you call, or promote owner contacts from the Properties grid.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <Link
+                href="/contacts/new"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Add a contact
+              </Link>
+              <Link
+                href="/onboarding"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border hover:bg-muted/50 transition-colors"
+              >
+                Import from spreadsheet
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">No contacts match these filters.</p>
+            <div className="flex items-center gap-3">
+              {onClearFilters && (
+                <button
+                  type="button"
+                  onClick={onClearFilters}
+                  className="text-xs underline underline-offset-2 text-primary"
+                >
+                  Clear filters
+                </button>
+              )}
+              <Link href="/contacts/new" className="text-xs underline underline-offset-2 text-primary">
+                Add a contact →
+              </Link>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -1588,13 +1634,23 @@ function LeasesTable({
 
   const { startResize: lStartResize, cs: lColStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
+  const hasExpiringSoon = rows.some((a) => leaseStatus(a.expiration_date) === "expiring");
 
   return (
     <div>
+      <div className="px-3 sm:px-0 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>Inventory here · urgency on Lease radar.</span>
+        {hasExpiringSoon && (
+          <Link href="/lease-radar" className="text-primary underline underline-offset-2 hover:text-primary/80">
+            Open Lease radar →
+          </Link>
+        )}
+      </div>
       <table className="w-full text-sm border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={thCls} style={lColStyle("doc")}>Document<RH col="doc" onStart={lStartResize} /></th>
+            <th className={cn(thCls, col("property"))} style={lColStyle("property")}>Property<RH col="property" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("status"))} style={lColStyle("status")}>Status<RH col="status" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("exec"))} style={lColStyle("exec")}>Execution<RH col="exec" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("exp"))} style={lColStyle("exp")}>Expiration<RH col="exp" onStart={lStartResize} /></th>
@@ -1618,6 +1674,19 @@ function LeasesTable({
                     <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                     {sourceFileName(a.source_document)}
                   </Link>
+                </td>
+                <td className={cn(tdCls, col("property"))}>
+                  {a.linked_property ? (
+                    <Link
+                      href={`/properties/${a.linked_property}`}
+                      className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2 truncate block max-w-48"
+                      title={a.property_address ?? undefined}
+                    >
+                      {a.property_address ?? "Linked property"}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground/60">—</span>
+                  )}
                 </td>
                 <td className={cn(tdCls, col("status"))}>
                   <span className={cn("text-xs font-medium rounded-full px-2 py-0.5", LEASE_STATUS_CLS[status])}>
@@ -1745,9 +1814,27 @@ const SEARCH_PLACEHOLDERS: Record<Tab, string> = {
 
 export default function CRMView({ initialTab, userEmail }: { initialTab?: string; userEmail?: string | null }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>(
     VALID_TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "properties"
   );
+
+  const selectTab = useCallback((next: Tab) => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "properties") params.delete("tab");
+    else params.set("tab", next);
+    const qs = params.toString();
+    router.replace(qs ? `/crm?${qs}` : "/crm", { scroll: false });
+  }, [router, searchParams]);
+
+  // Honor URL on load and browser back/forward
+  useEffect(() => {
+    const raw = searchParams.get("tab");
+    const next = VALID_TABS.includes(raw as Tab) ? (raw as Tab) : "properties";
+    setTab((cur) => (cur === next ? cur : next));
+  }, [searchParams]);
+
   const propColVis   = useColVis("beacon_crm_col_visibility");
   const conColVis    = useColVis("beacon_crm_con_col_visibility");
   const leaseColVis  = useColVis("beacon_crm_lease_col_visibility");
@@ -1826,9 +1913,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       setSearchQuery(query);
       setActiveSearch(result);
       setActiveListId(null);
-      setTab(primaryTabForSearch(result));
+      selectTab(primaryTabForSearch(result));
     } catch { /* ignore malformed payload */ }
-  }, []);
+  }, [selectTab]);
 
   // ── Selection + bulk enrich state ─────────────────────────────────────────
   const [selectedPropIds, setSelectedPropIds] = useState<Set<string>>(new Set());
@@ -2127,7 +2214,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         const byContact = await propertyIdsByContactIds(
           supabase,
           user.id,
-          rows.map((c) => c.id),
+          rows.map((c: Contact) => c.id),
         );
         for (const c of rows) {
           c.linked_properties = byContact.get(c.id) ?? c.linked_properties ?? [];
@@ -2153,7 +2240,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = supabase
       .from("lease_abstracts")
-      .select("id, source_document, execution_date, expiration_date, term, base_rate, created_at", { count: "exact" })
+      .select("id, source_document, execution_date, expiration_date, term, base_rate, created_at, linked_property", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
@@ -2177,7 +2264,28 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       setLeasesLoading(false);
       return;
     }
-    setLeases((data ?? []) as LeaseAbstract[]);
+    const leaseRows = (data ?? []) as LeaseAbstract[];
+    const propIds = Array.from(
+      new Set(leaseRows.map((l) => l.linked_property).filter((id): id is string => Boolean(id))),
+    );
+    if (propIds.length > 0) {
+      const { data: props } = await supabase
+        .from("properties")
+        .select("id, address, city")
+        .in("id", propIds);
+      const addrById = new Map(
+        (props ?? []).map((p: { id: string; address: string | null; city: string | null }) => [
+          p.id,
+          [p.address, p.city].filter(Boolean).join(", ") || null,
+        ]),
+      );
+      for (const row of leaseRows) {
+        if (row.linked_property) {
+          row.property_address = addrById.get(row.linked_property) ?? null;
+        }
+      }
+    }
+    setLeases(leaseRows);
     setTotalLeases(count ?? 0);
     setLeasesLoading(false);
   }, [leasePage, leaseFilters, activeSearch]);
@@ -2312,7 +2420,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setActiveSearch(result);
     setActiveListId(null);
     setActiveListName(null);
-    setTab(primaryTabForSearch(result));
+    selectTab(primaryTabForSearch(result));
   }
 
   function applySmartList(list: SmartListWithCounts) {
@@ -2327,7 +2435,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setActiveListId(list.id);
     setActiveListName(list.name);
     setSearchError(null);
-    setTab(list.entity_type);
+    selectTab(list.entity_type);
     setBarMode("search");
   }
 
@@ -2450,7 +2558,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       {/* Tabs */}
       <div className="shrink-0 border-b px-3 sm:px-6 flex gap-0 overflow-x-auto">
         <button
-          onClick={() => setTab("properties")}
+          onClick={() => selectTab("properties")}
           className={cn(
             "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
             tab === "properties"
@@ -2466,7 +2574,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         </button>
 
         <button
-          onClick={() => setTab("leases")}
+          onClick={() => selectTab("leases")}
           className={cn(
             "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
             tab === "leases"
@@ -2482,7 +2590,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         </button>
 
         <button
-          onClick={() => setTab("contacts")}
+          onClick={() => selectTab("contacts")}
           className={cn(
             "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
             tab === "contacts"
@@ -2771,6 +2879,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   selectedIds={selectedContactIds}
                   onToggle={toggleContactSelection}
                   onToggleAll={toggleAllContacts}
+                  totalInDb={totalCons ?? undefined}
+                  onClearFilters={clearSearch}
                 />
               </div>
             )
