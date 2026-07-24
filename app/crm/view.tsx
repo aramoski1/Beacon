@@ -1819,7 +1819,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     const supabase = createClient();
     const [{ data: pData }, { data: cData }] = await Promise.all([
       supabase.from("properties").select("size_category, geographic_category").limit(2000),
-      supabase.from("contacts").select("ownership_role, submarket, geographic_category, lead_source, action_tags").limit(2000),
+      supabase.from("contacts").select("ownership_role, submarket, portfolio_size, lead_source, action_tags").limit(2000),
     ]);
     if (pData) {
       setPropFilterOpts({
@@ -1830,8 +1830,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     if (cData) {
       setConFilterOpts({
         contactTypes: uniq(cData.map((r) => r.ownership_role)),
-        sizeCat: [],
-        geoCat: uniq(cData.map((r) => r.submarket || r.geographic_category)),
+        sizeCat: uniq(cData.map((r) => r.portfolio_size)),
+        geoCat: uniq(cData.map((r) => r.submarket)),
         ownership: uniq(cData.map((r) => r.lead_source)),
         tags: uniq(cData.flatMap((r) => (r.action_tags as string[] | null) ?? [])),
       });
@@ -2004,6 +2004,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       if (conFilters.tier) q = q.eq("contact_tier", Number(conFilters.tier));
       if (conFilters.status) q = q.eq("relationship_stage", conFilters.status);
       if (conFilters.contactType) q = q.eq("ownership_role", conFilters.contactType);
+      if (conFilters.sizeCat) q = q.eq("portfolio_size", conFilters.sizeCat);
       if (conFilters.geoCat) q = q.eq("submarket", conFilters.geoCat);
       if (conFilters.ownership) q = q.eq("lead_source", conFilters.ownership);
       if (conFilters.tag) q = q.contains("action_tags", [conFilters.tag]);
@@ -2499,6 +2500,15 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                       <FilterSelect label="Stage" value={conFilters.status} options={RELATIONSHIP_STAGES} onChange={(v) => updateConFilter("status", v)} />
                       {conFilterOpts.contactTypes.length > 0 && (
                         <FilterSelect label="Role" value={conFilters.contactType} options={conFilterOpts.contactTypes.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("contactType", v)} />
+                      )}
+                      {conFilterOpts.geoCat.length > 0 && (
+                        <FilterSelect label="Submarket" value={conFilters.geoCat} options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("geoCat", v)} />
+                      )}
+                      {conFilterOpts.sizeCat.length > 0 && (
+                        <FilterSelect label="Portfolio" value={conFilters.sizeCat} options={conFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("sizeCat", v)} />
+                      )}
+                      {conFilterOpts.ownership.length > 0 && (
+                        <FilterSelect label="Lead source" value={conFilters.ownership} options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("ownership", v)} />
                       )}
                       {conFilterOpts.tags.length > 0 && (
                         <FilterSelect label="Tag" value={conFilters.tag} options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("tag", v)} />

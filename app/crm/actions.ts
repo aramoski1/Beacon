@@ -27,16 +27,32 @@ export type PropertySearchFilters = {
 
 export type ContactSearchFilters = {
   contact_tier?: number;          // 1, 2, or 3
-  client_status?: string;         // exact enum match
-  action_tags_includes?: string;  // array includes
+  relationship_stage?: string;    // exact enum match — live UI stage: prospect | active | client | past_client | dormant
+  ownership_role?: string;        // exact enum match — managing_member | authorized_signer | registered_agent | principal | other
+  lead_source?: string;           // exact enum match — sunbiz | referral | cold | costar | existing_relationship | other
+  asset_focus_includes?: string;  // array includes on asset_focus tags
+  action_tags_includes?: string;  // array includes on action_tags
   not_contacted_in_days?: number; // last_contacted_at < now-N days OR is null
   last_contacted_within_days?: number;
-  geographic_keyword?: string;
-  size_category_keyword?: string;
-  ownership_type_keyword?: string;
+  submarket_keyword?: string;     // substring on submarket
+  portfolio_size_keyword?: string; // substring on portfolio_size
   name_contains?: string;
   company_contains?: string;
   contact_type?: string;         // owner | tenant | other
+
+  /**
+   * @deprecated Legacy fields kept only so previously-saved smart lists / stored
+   * queries (built before the CRE contact fields migration) keep working.
+   * New searches should use the live fields above; applyContactFilters()
+   * maps these onto the live columns via a compat shim.
+   */
+  client_status?: string;
+  /** @deprecated use submarket_keyword */
+  geographic_keyword?: string;
+  /** @deprecated use portfolio_size_keyword */
+  size_category_keyword?: string;
+  /** @deprecated no live equivalent; matches the old free-form ownership_type column */
+  ownership_type_keyword?: string;
 };
 
 export type LeaseSearchFilters = {
@@ -76,10 +92,14 @@ PROPERTIES — commercial real estate records:
 
 CONTACTS — people the broker manages:
   contact_tier: 1 (highest priority), 2 (medium), 3 (lower)
-  client_status: prospect | active client | past client
+  relationship_stage: prospect | active | client | past_client | dormant — the stage brokers actually set in the CRM
+  ownership_role: managing_member | authorized_signer | registered_agent | principal | other — the contact's role within the ownership entity
+  lead_source: sunbiz | referral | cold | costar | existing_relationship | other
+  asset_focus: array of the contact's property-type interests — industrial | office | retail | multifamily | land | mixed_use | other
   action_tags: array of custom string tags
+  submarket: broker's neighborhood/submarket label for this contact (e.g. "Doral", "Hialeah")
+  portfolio_size: free-text description of the contact's holdings (e.g. "5 buildings · ~200,000 sf")
   last_contacted_at: timestamp of most recent contact (null = never contacted)
-  geographic_category, size_category, ownership_type: broker's categorization of the contact
   name, company: identity fields
 
 LEASE_ABSTRACTS — abstracted lease documents:
@@ -93,9 +113,17 @@ Rules for interpretation:
 - "owners" without qualifier → don't set ownership_type unless the type is clearly stated (e.g. "private owners" → ownership_type: private)
 - "haven't contacted in X days" / "not reached in X days" → not_contacted_in_days: X (includes never-contacted)
 - "recently contacted" / "contacted in the last X days" → last_contacted_within_days: X
-- "near [place]" / "[place] area" → geographic_keyword: place name
+- "near [place]" / "[place] area" (properties) → geographic_keyword: place name
+- "in [submarket]" / "[submarket] submarket" (contacts) → submarket_keyword: place name
 - "tier 1/2/3" → contact_tier: 1/2/3
-- "prospects" → client_status: prospect
+- "prospects" → relationship_stage: prospect
+- "active clients" / "current clients" → relationship_stage: active
+- "clients" (unqualified) → relationship_stage: client
+- "past clients" / "former clients" → relationship_stage: past_client
+- "dormant" / "cold" / "gone quiet" (about a contact relationship) → relationship_stage: dormant
+- "managing members" / "authorized signers" / "registered agents" / "principals" → ownership_role
+- "industrial/office/retail/etc. focused contacts" or "contacts interested in [asset type]" → asset_focus_includes: <asset type>
+- "large portfolio" / "portfolio of X" → portfolio_size_keyword: X
 - "owners" / "property owners" → contact_type: owner (when targeting contacts or both)
 - "tenants" → contact_type: tenant
 - "over X sqft" → size_sqft_min: X; "under X sqft" → size_sqft_max: X
@@ -149,9 +177,24 @@ Rules for interpretation:
         description: "Filters for the contacts table. Omit entirely if target is 'properties' or 'leases'.",
         properties: {
           contact_tier: { type: "number", enum: [1, 2, 3] },
-          client_status: {
+          relationship_stage: {
             type: "string",
-            enum: ["prospect", "active client", "past client"],
+            enum: ["prospect", "active", "client", "past_client", "dormant"],
+            description: "The relationship stage brokers set in the CRM for this contact.",
+          },
+          ownership_role: {
+            type: "string",
+            enum: ["managing_member", "authorized_signer", "registered_agent", "principal", "other"],
+            description: "The contact's role within the ownership entity.",
+          },
+          lead_source: {
+            type: "string",
+            enum: ["sunbiz", "referral", "cold", "costar", "existing_relationship", "other"],
+          },
+          asset_focus_includes: {
+            type: "string",
+            enum: ["industrial", "office", "retail", "multifamily", "land", "mixed_use", "other"],
+            description: "Contact must have this property type in their asset_focus tags.",
           },
           action_tags_includes: { type: "string", description: "Contact must have this tag in action_tags." },
           not_contacted_in_days: {
@@ -162,9 +205,8 @@ Rules for interpretation:
             type: "number",
             description: "Contact's last_contacted_at is within the last N days.",
           },
-          geographic_keyword: { type: "string", description: "Substring matched against geographic_category." },
-          size_category_keyword: { type: "string", description: "Substring matched against size_category." },
-          ownership_type_keyword: { type: "string", description: "Substring matched against ownership_type." },
+          submarket_keyword: { type: "string", description: "Substring matched against submarket." },
+          portfolio_size_keyword: { type: "string", description: "Substring matched against portfolio_size." },
           name_contains: { type: "string", description: "Substring matched against name." },
           company_contains: { type: "string", description: "Substring matched against company." },
           contact_type: {

@@ -24,11 +24,35 @@ export function applyPropertyFilters(q: QueryBuilder, f: PropertySearchFilters):
   return q;
 }
 
+/**
+ * Legacy client_status values (from smart lists / stored queries saved before
+ * the CRE contact fields migration) map onto the relationship_stage values
+ * brokers actually set in the UI today. Mirrors the one-time DB backfill in
+ * scripts/migrate-cre-contact-fields.ts so old and new queries agree.
+ */
+const LEGACY_CLIENT_STATUS_TO_RELATIONSHIP_STAGE: Record<string, string> = {
+  "prospect": "prospect",
+  "active client": "active",
+  "past client": "past_client",
+};
+
+export function mapClientStatusToRelationshipStage(clientStatus: string): string {
+  return LEGACY_CLIENT_STATUS_TO_RELATIONSHIP_STAGE[clientStatus] ?? "dormant";
+}
+
 export function applyContactFilters(q: QueryBuilder, f: ContactSearchFilters): QueryBuilder {
   if (f.contact_tier != null) q = q.eq("contact_tier", f.contact_tier);
-  if (f.client_status) q = q.eq("client_status", f.client_status);
+
+  // Prefer the live relationship_stage field; fall back to the legacy
+  // client_status compat shim for smart lists saved before the migration.
+  const stage = f.relationship_stage || (f.client_status ? mapClientStatusToRelationshipStage(f.client_status) : undefined);
+  if (stage) q = q.eq("relationship_stage", stage);
+
   if (f.contact_type) q = q.eq("contact_type", f.contact_type);
+  if (f.ownership_role) q = q.eq("ownership_role", f.ownership_role);
+  if (f.lead_source) q = q.eq("lead_source", f.lead_source);
   if (f.action_tags_includes) q = q.contains("action_tags", [f.action_tags_includes]);
+  if (f.asset_focus_includes) q = q.contains("asset_focus", [f.asset_focus_includes]);
   if (f.not_contacted_in_days != null) {
     const cutoff = new Date(Date.now() - f.not_contacted_in_days * 86_400_000).toISOString();
     q = q.or(`last_contacted_at.is.null,last_contacted_at.lt.${cutoff}`);
@@ -37,9 +61,15 @@ export function applyContactFilters(q: QueryBuilder, f: ContactSearchFilters): Q
     const cutoff = new Date(Date.now() - f.last_contacted_within_days * 86_400_000).toISOString();
     q = q.not("last_contacted_at", "is", null).gte("last_contacted_at", cutoff);
   }
-  if (f.geographic_keyword) q = q.ilike("geographic_category", `%${f.geographic_keyword}%`);
-  if (f.size_category_keyword) q = q.ilike("size_category", `%${f.size_category_keyword}%`);
+
+  // Prefer the live submarket/portfolio_size fields; fall back to the legacy
+  // geographic_category/size_category keywords for old saved queries.
+  const submarketKw = f.submarket_keyword || f.geographic_keyword;
+  if (submarketKw) q = q.ilike("submarket", `%${submarketKw}%`);
+  const portfolioKw = f.portfolio_size_keyword || f.size_category_keyword;
+  if (portfolioKw) q = q.ilike("portfolio_size", `%${portfolioKw}%`);
   if (f.ownership_type_keyword) q = q.ilike("ownership_type", `%${f.ownership_type_keyword}%`);
+
   if (f.name_contains) q = q.ilike("name", `%${f.name_contains}%`);
   if (f.company_contains) q = q.ilike("company", `%${f.company_contains}%`);
   return q;
@@ -163,28 +193,28 @@ export function buildManualFilterSearchResult(
       parts.push(`Tier ${conFilters.tier}`);
     }
     if (conFilters.status) {
-      contacts.client_status = conFilters.status;
+      contacts.relationship_stage = conFilters.status;
       parts.push(humanizeToken(conFilters.status));
     }
     if (conFilters.contactType) {
-      contacts.contact_type = conFilters.contactType;
-      parts.push(`${humanizeToken(conFilters.contactType)}s`);
+      contacts.ownership_role = conFilters.contactType;
+      parts.push(humanizeToken(conFilters.contactType));
     }
     if (conFilters.tag) {
       contacts.action_tags_includes = conFilters.tag;
       parts.push(`Tag: ${conFilters.tag}`);
     }
     if (conFilters.sizeCat) {
-      contacts.size_category_keyword = conFilters.sizeCat;
-      parts.push(`Size: ${conFilters.sizeCat}`);
+      contacts.portfolio_size_keyword = conFilters.sizeCat;
+      parts.push(`Portfolio: ${conFilters.sizeCat}`);
     }
     if (conFilters.geoCat) {
-      contacts.geographic_keyword = conFilters.geoCat;
-      parts.push(`Geo: ${conFilters.geoCat}`);
+      contacts.submarket_keyword = conFilters.geoCat;
+      parts.push(`Submarket: ${conFilters.geoCat}`);
     }
     if (conFilters.ownership) {
-      contacts.ownership_type_keyword = conFilters.ownership;
-      parts.push(`Ownership: ${conFilters.ownership}`);
+      contacts.lead_source = conFilters.ownership;
+      parts.push(`Lead source: ${conFilters.ownership}`);
     }
     if (parts.length === 0) return null;
     return { target: "contacts", contacts, explanation: parts.join(" · ") };
