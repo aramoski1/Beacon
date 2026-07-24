@@ -88,3 +88,72 @@ export function resolvePropertyOwnerContacts(
   }
   return list;
 }
+
+/** Linked CRM contact used for outreach / cadence (preferred over property staging). */
+export type LinkedCrmOwnerRef = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  mailing_address: string | null;
+};
+
+export type DisplayOwnerContact = {
+  source: "crm" | "staging";
+  /** CRM contact id when source === "crm" */
+  contactId: string | null;
+  name: string | null;
+  email: string | null;
+  address: string | null;
+  /** Staging rows still on the property (may differ from CRM). */
+  staging: StoredOwnerContact[];
+};
+
+/**
+ * Prefer linked CRM contact for Workspace display; fall back to property staging.
+ * Does not invent contacts — empty when neither exists.
+ */
+export function preferDisplayOwnerContact(opts: {
+  linkedCrm: LinkedCrmOwnerRef[];
+  ownerContacts: unknown;
+  ownerName: string | null | undefined;
+  ownerMailingAddress?: string | null;
+  ownerEmail?: string | null;
+}): DisplayOwnerContact | null {
+  const staging = resolvePropertyOwnerContacts(
+    opts.ownerContacts,
+    opts.ownerName,
+    opts.ownerMailingAddress,
+  );
+  const crm = opts.linkedCrm[0] ?? null;
+  if (crm) {
+    return {
+      source: "crm",
+      contactId: crm.id,
+      name: crm.name,
+      email: crm.email,
+      address: crm.mailing_address,
+      staging,
+    };
+  }
+  if (staging.length === 0 && !opts.ownerEmail?.trim()) return null;
+  const first = staging[0];
+  return {
+    source: "staging",
+    contactId: null,
+    name: first?.name ?? null,
+    email: opts.ownerEmail?.trim() || null,
+    address: first?.address ?? (opts.ownerMailingAddress?.trim() || null),
+    staging,
+  };
+}
+
+/** True when staging name differs from CRM (broker should reconcile). */
+export function stagingDiffersFromCrm(
+  staging: StoredOwnerContact[],
+  crmName: string | null | undefined,
+): boolean {
+  const s = staging[0]?.name?.trim().toLowerCase() ?? "";
+  const c = crmName?.trim().toLowerCase() ?? "";
+  if (!s || !c) return false;
+  return s !== c;
+}

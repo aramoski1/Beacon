@@ -2,7 +2,12 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
-import { parseStoredOwnerContacts, type StoredOwnerContact } from "@/lib/owner-contacts";
+import {
+  parseStoredOwnerContacts,
+  resolvePropertyOwnerContacts,
+  type StoredOwnerContact,
+} from "@/lib/owner-contacts";
+import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 
 // ─── Filter shapes ────────────────────────────────────────────────────────────
 // These are the ONLY operations Claude is allowed to express.
@@ -278,6 +283,82 @@ export async function deleteLease(id: string): Promise<{ error?: string }> {
   if (error) return { error: error.message };
   return {};
 }
+
+/**
+ * Promote property staging owner (owner_contacts / owner_name / owner_email)
+ * into a CRM contact linked to the property. No-ops if already linked.
+ */
+export async function promotePropertyOwnerToCrm(
+  propertyId: string,
+): Promise<{ id?: string; alreadyLinked?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: prop, error: propErr } = await supabase
+    .from("properties")
+    .select("owner_name, owner_mailing_address, owner_email, owner_contacts")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+
+  if (propErr || !prop) return { error: "Property not found." };
+
+  const { data: existingLinks } = await supabase
+    .from("contact_properties")
+    .select("contact_id")
+    .eq("owner_id", user.id)
+    .eq("property_id", propertyId)
+    .limit(1);
+
+  if (existingLinks && existingLinks.length > 0) {
+    return { id: existingLinks[0]!.contact_id, alreadyLinked: true };
+  }
+
+  const staging = resolvePropertyOwnerContacts(
+    prop.owner_contacts,
+    prop.owner_name,
+    prop.owner_mailing_address,
+  );
+  const name =
+    staging[0]?.name?.trim() ||
+    prop.owner_name?.trim() ||
+    null;
+  if (!name) {
+    return { error: "No owner name on this property to promote. Add a staging owner contact first." };
+  }
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .insert({
+      owner_id: user.id,
+      name,
+      email: prop.owner_email?.trim() || null,
+      mailing_address:
+        staging[0]?.address?.trim() ||
+        prop.owner_mailing_address?.trim() ||
+        null,
+      role: staging[0]?.title?.trim() || null,
+      linked_properties: [propertyId],
+      action_tags: ["promoted_from_property", "unverified"],
+      outreach_history: [],
+      custom_fields: {},
+      contact_type: "owner",
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message };
+  try {
+    await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
+  } catch {
+    // Contact row exists with array shim.
+  }
+  return { id: data.id };
+}
+
 
 // ─── Search ───────────────────────────────────────────────────────────────────
 

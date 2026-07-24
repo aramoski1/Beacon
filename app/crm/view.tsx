@@ -14,7 +14,7 @@ import type { EntityType } from "@/lib/custom-fields";
 import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
 import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
-import { interpretSearch, deleteProperty, deleteContact, deleteLease, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
+import { interpretSearch, deleteProperty, deleteContact, deleteLease, promotePropertyOwnerToCrm, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { SmartListsBar, BarModeToggle, SearchListActions } from "./smart-lists-bar";
 import { primaryTabForSearch, resolveSavableSearchResult } from "@/lib/crm-search-filters";
 import type { SmartListWithCounts } from "./smart-list-actions";
@@ -27,7 +27,7 @@ import {
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { resolvePropertyOwnerContacts, type StoredOwnerContact } from "@/lib/owner-contacts";
+import { resolvePropertyOwnerContacts, preferDisplayOwnerContact, stagingDiffersFromCrm, type StoredOwnerContact } from "@/lib/owner-contacts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -763,6 +763,7 @@ function PropertiesTable({
   colVis,
   onSave,
   onSaveContact,
+  onPromoted,
   deletingId,
   onDeleteRequest,
   onDeleteConfirm,
@@ -778,6 +779,7 @@ function PropertiesTable({
   colVis: ReturnType<typeof useColVis>;
   onSave: (id: string, field: string, value: unknown) => void;
   onSaveContact: (contactId: string, field: string, value: unknown) => void;
+  onPromoted: () => void;
   deletingId: string | null;
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
@@ -873,17 +875,47 @@ function PropertiesTable({
             const activity = cs
               .filter(c => c.last_activity_date)
               .sort((a, b) => new Date(b.last_activity_date!).getTime() - new Date(a.last_activity_date!).getTime())[0];
-            const ownerContacts = resolvePropertyOwnerContacts(
-              p.owner_contacts,
-              p.owner_name,
-              p.owner_mailing_address,
-              { owner_contact_name: p.owner_contact_name, owner_contact_address: p.owner_contact_address },
-            );
+            const displayOwner = preferDisplayOwnerContact({
+              linkedCrm: cs.map((c) => ({
+                id: c.id,
+                name: c.name,
+                email: c.email,
+                mailing_address: c.mailing_address,
+              })),
+              ownerContacts: p.owner_contacts,
+              ownerName: p.owner_name,
+              ownerMailingAddress: p.owner_mailing_address,
+              ownerEmail: p.owner_email,
+            });
+            const ownerContacts = displayOwner?.staging?.length
+              ? displayOwner.staging
+              : resolvePropertyOwnerContacts(
+                  p.owner_contacts,
+                  p.owner_name,
+                  p.owner_mailing_address,
+                  { owner_contact_name: p.owner_contact_name, owner_contact_address: p.owner_contact_address },
+                );
             function updateOwnerContact(index: number, field: "name" | "address", value: string | null) {
               const next = ownerContacts.map((oc, i) =>
                 i === index ? { ...oc, [field]: value ?? (field === "name" ? "" : null) } : oc
               );
               onSave(p.id, "owner_contacts", next.filter((oc) => oc.name.trim()));
+            }
+            function saveCrmField(field: "name" | "email" | "mailing_address", value: string | null) {
+              if (!displayOwner?.contactId) return;
+              const ok = window.confirm(
+                "Update the CRM contact used for outreach and cadence? This does not change staging on the property row.",
+              );
+              if (!ok) return;
+              onSaveContact(displayOwner.contactId, field, value);
+            }
+            async function handlePromote() {
+              const res = await promotePropertyOwnerToCrm(p.id);
+              if (res.error) {
+                window.alert(res.error);
+                return;
+              }
+              onPromoted();
             }
             return (
               <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5", selectedIds.has(p.id) && "bg-primary/5")}>
@@ -989,10 +1021,35 @@ function PropertiesTable({
                   />
                 </td>
 
-                {/* Owner Contact — stored on property, independent of CRM contacts */}
+                {/* Owner Contact — CRM preferred; staging on property when unlinked */}
                 <td className={cn(tdCls, "min-w-[100px]", col("contact"))}>
-                  {ownerContacts.length > 0
-                    ? ownerContacts.map((oc, i) => (
+                  {displayOwner?.source === "crm" && displayOwner.contactId ? (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] font-semibold uppercase tracking-wide text-primary shrink-0">CRM</span>
+                        <Link
+                          href={`/contacts/${displayOwner.contactId}`}
+                          className="text-[10px] text-muted-foreground hover:text-primary truncate"
+                        >
+                          open
+                        </Link>
+                      </div>
+                      <EditableText
+                        value={displayOwner.name}
+                        placeholder="—"
+                        displayClassName="truncate block font-medium"
+                        onSave={(v) => saveCrmField("name", v)}
+                      />
+                      {stagingDiffersFromCrm(displayOwner.staging, displayOwner.name) && (
+                        <p className="text-[10px] text-amber-700 dark:text-amber-400 truncate" title="Staging on property differs from CRM">
+                          On property: {displayOwner.staging[0]?.name}
+                        </p>
+                      )}
+                    </div>
+                  ) : ownerContacts.length > 0 ? (
+                    <div className="space-y-0.5">
+                      <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">On property</span>
+                      {ownerContacts.map((oc, i) => (
                         <EditableText
                           key={i}
                           value={oc.name}
@@ -1000,8 +1057,19 @@ function PropertiesTable({
                           displayClassName="truncate block font-medium"
                           onSave={(v) => updateOwnerContact(i, "name", v)}
                         />
-                      ))
-                    : (
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => void handlePromote()}
+                        className="text-[10px] text-primary hover:underline underline-offset-2"
+                        title="Create a CRM contact for outreach and cadence"
+                      >
+                        Promote to CRM
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">On property</span>
                       <EditableText
                         value={null}
                         placeholder="—"
@@ -1016,39 +1084,56 @@ function PropertiesTable({
                           )
                         }
                       />
-                    )}
+                    </div>
+                  )}
                 </td>
 
-                {/* Owner Address — stored on property */}
+                {/* Owner Address */}
                 <td className={cn(tdCls, "min-w-[120px]", col("addr2"))}>
-                  {ownerContacts.length > 0
-                    ? ownerContacts.map((oc, i) => (
-                        <EditableText
-                          key={i}
-                          value={oc.address}
-                          placeholder="—"
-                          displayClassName="truncate block text-muted-foreground"
-                          onSave={(v) => updateOwnerContact(i, "address", v)}
-                        />
-                      ))
-                    : (
+                  {displayOwner?.source === "crm" && displayOwner.contactId ? (
+                    <EditableText
+                      value={displayOwner.address}
+                      placeholder="—"
+                      displayClassName="truncate block text-muted-foreground"
+                      onSave={(v) => saveCrmField("mailing_address", v)}
+                    />
+                  ) : ownerContacts.length > 0 ? (
+                    ownerContacts.map((oc, i) => (
                       <EditableText
-                        value={p.owner_mailing_address}
+                        key={i}
+                        value={oc.address}
                         placeholder="—"
                         displayClassName="truncate block text-muted-foreground"
-                        onSave={(v) => onSave(p.id, "owner_mailing_address", v)}
+                        onSave={(v) => updateOwnerContact(i, "address", v)}
                       />
-                    )}
+                    ))
+                  ) : (
+                    <EditableText
+                      value={p.owner_mailing_address}
+                      placeholder="—"
+                      displayClassName="truncate block text-muted-foreground"
+                      onSave={(v) => onSave(p.id, "owner_mailing_address", v)}
+                    />
+                  )}
                 </td>
 
                 {/* Owner Email */}
                 <td className={cn(tdCls, "min-w-[130px]", col("email"))}>
-                  <EditableText
-                    value={p.owner_email ?? cs[0]?.email ?? null}
-                    placeholder="—"
-                    displayClassName="truncate block text-primary"
-                    onSave={(v) => onSave(p.id, "owner_email", v)}
-                  />
+                  {displayOwner?.source === "crm" && displayOwner.contactId ? (
+                    <EditableText
+                      value={displayOwner.email}
+                      placeholder="—"
+                      displayClassName="truncate block text-primary"
+                      onSave={(v) => saveCrmField("email", v)}
+                    />
+                  ) : (
+                    <EditableText
+                      value={p.owner_email ?? null}
+                      placeholder="—"
+                      displayClassName="truncate block text-primary"
+                      onSave={(v) => onSave(p.id, "owner_email", v)}
+                    />
+                  )}
                 </td>
 
                 {/* Activity Date/Type */}
@@ -2499,6 +2584,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   colVis={propColVis}
                   onSave={saveProp}
                   onSaveContact={savePropContact}
+                  onPromoted={loadProperties}
                   deletingId={deletingId}
                   onDeleteRequest={setDeletingId}
                   onDeleteConfirm={handleDeleteConfirm}
