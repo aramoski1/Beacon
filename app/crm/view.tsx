@@ -40,6 +40,7 @@ import {
 import {
   contactsExportHref,
   exportIdsQuery,
+  leasesExportHref,
   MAX_EXPORT_IDS,
   propertiesExportHref,
 } from "@/lib/crm-export";
@@ -854,7 +855,7 @@ function PropertiesTable({
 
   return (
     <div>
-      <table className="w-full text-sm border-collapse">
+      <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={cn(thCls, "w-8 pl-3 pr-1")}>
@@ -2670,6 +2671,24 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                         </button>
                       )}
                       <div className="ml-auto shrink-0 flex items-center gap-2">
+                        {leases.length > 0 && (
+                          <a
+                            href={leasesExportHref(leases.map((l) => l.id))}
+                            download="beacon-leases-page.xlsx"
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title={`This page only (${leases.length} rows) — not the full filtered set if paginated`}
+                          >
+                            Export this page
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowFieldsPanel(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          <Settings2 className="size-3" />
+                          Manage fields
+                        </button>
                         <ColVisPopover isVis={leaseColVis.isVis} toggle={leaseColVis.toggle} colDefs={LEASE_COL_DEFS} />
                       </div>
                     </>
@@ -2973,10 +2992,10 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       )}
 
       {/* Custom fields panel (contextual to active tab) */}
-      {showFieldsPanel && tab !== "leases" && (
+      {showFieldsPanel && (
         <CustomFieldsPanel
           entityType={
-            (tab === "contacts" ? "contact" : "property") as EntityType
+            (tab === "contacts" ? "contact" : tab === "leases" ? "lease" : "property") as EntityType
           }
           onClose={() => setShowFieldsPanel(false)}
         />

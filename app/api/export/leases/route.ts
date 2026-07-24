@@ -1,20 +1,32 @@
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { MAX_EXPORT_IDS } from "@/lib/crm-export";
 
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
+  const url = new URL(req.url);
+  const idsParam = url.searchParams.get("ids");
+  const ids = idsParam
+    ? idsParam.split(",").map((s) => s.trim()).filter(Boolean).slice(0, MAX_EXPORT_IDS)
+    : null;
+
+  let leaseQuery = supabase
+    .from("lease_abstracts")
+    .select(
+      "id, source_document, execution_date, expiration_date, term, base_rate, linked_property, custom_fields, created_at, properties(address, city)"
+    )
+    .eq("owner_id", user.id)
+    .order("created_at", { ascending: false });
+  if (ids && ids.length > 0) {
+    leaseQuery = leaseQuery.in("id", ids);
+  }
+
   const [{ data: leases, error }, { data: fieldDefs }] = await Promise.all([
-    supabase
-      .from("lease_abstracts")
-      .select(
-        "id, source_document, execution_date, expiration_date, term, base_rate, linked_property, custom_fields, created_at, properties(address, city)"
-      )
-      .eq("owner_id", user.id)
-      .order("created_at", { ascending: false }),
+    leaseQuery,
     supabase
       .from("field_definitions")
       .select("*")
@@ -59,10 +71,14 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, ws, "Leases");
   const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as unknown as Uint8Array<ArrayBuffer>;
 
+  const filename = ids?.length
+    ? "beacon-leases-page.xlsx"
+    : "beacon-leases.xlsx";
+
   return new Response(new Blob([buf]), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": 'attachment; filename="beacon-leases.xlsx"',
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 }

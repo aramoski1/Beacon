@@ -20,4 +20,9 @@ export function contactsExportHref(ids?: string[]): string {
   return q ? `/api/export/contacts?ids=${encodeURIComponent(q)}` : "/api/export/contacts";
 }
 
+export function leasesExportHref(ids?: string[]): string {
+  const q = ids ? exportIdsQuery(ids) : null;
+  return q ? `/api/export/leases?ids=${encodeURIComponent(q)}` : "/api/export/leases";
+}
+
 export { MAX_EXPORT_IDS };
