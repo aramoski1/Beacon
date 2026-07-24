@@ -10,7 +10,7 @@
 // parseAddressForGIS is shared from lib/mdpa since address parsing logic is identical.
 
 import { parseAddressForGIS } from "./mdpa";
-import { normalizeOwnerName } from "@/lib/owner-contacts";
+import { normalizeOwnerName, personNameMatchesOwnerField } from "@/lib/owner-contacts";
 import { entityOwnerNamesMatch } from "./mdpa-owner-search";
 
 export { parseAddressForGIS };
@@ -333,13 +333,6 @@ function buildOwnerWhereClause(query: string, mode: BcpaSearchMode): string {
   return `(${andParts})`;
 }
 
-function personMatchesOwnerField(personName: string, ownerField: string): boolean {
-  if (normalizeOwnerName(ownerField) === normalizeOwnerName(personName)) return true;
-  const parts = normalizeOwnerName(personName).split(/\s+/).filter((p) => p.length >= 2);
-  const ownerNorm = normalizeOwnerName(ownerField);
-  return parts.length > 0 && parts.every((p) => ownerNorm.includes(p));
-}
-
 function ownerParcelMatchesQuery(
   ownerName: string | null | undefined,
   query: string,
@@ -347,7 +340,7 @@ function ownerParcelMatchesQuery(
 ): boolean {
   if (!ownerName?.trim()) return false;
   if (mode === "entity") return entityOwnerNamesMatch(query, ownerName);
-  return personMatchesOwnerField(query, ownerName);
+  return personNameMatchesOwnerField(query, ownerName);
 }
 
 function hitFromOwnerAttributes(attrs: OwnerSearchAttributes): BcpaOwnerParcelHit | null {

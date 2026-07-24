@@ -2,7 +2,7 @@
 // Used by owner portfolio to discover county-wide holdings, not just CRM rows.
 
 import { folioToStrap } from "./mdpa";
-import { normalizeOwnerName } from "@/lib/owner-contacts";
+import { normalizeOwnerName, personNameMatchesOwnerField } from "@/lib/owner-contacts";
 
 const MDPA_PARCELS_QUERY_URL =
   "https://gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/26/query";
@@ -137,17 +137,6 @@ function buildingSqftFromAttrs(attrs: GisAttributes): number | null {
   return null;
 }
 
-function normalizePersonKey(name: string): string {
-  return normalizeOwnerName(name);
-}
-
-function personMatchesOwnerField(personName: string, ownerField: string): boolean {
-  if (normalizePersonKey(ownerField) === normalizePersonKey(personName)) return true;
-  const parts = normalizePersonKey(personName).split(/\s+/).filter((p) => p.length >= 2);
-  const ownerNorm = normalizePersonKey(ownerField);
-  return parts.length > 0 && parts.every((p) => ownerNorm.includes(p));
-}
-
 function parcelMatchesQuery(
   attrs: GisAttributes,
   query: string,
@@ -160,7 +149,7 @@ function parcelMatchesQuery(
     return names.some((name) => entityOwnerNamesMatch(query, name));
   }
 
-  return names.some((name) => personMatchesOwnerField(query, name));
+  return names.some((name) => personNameMatchesOwnerField(query, name));
 }
 
 function hitFromAttributes(attrs: GisAttributes): MdpaOwnerParcelHit | null {

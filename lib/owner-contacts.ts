@@ -36,6 +36,36 @@ export function normalizeOwnerName(name: string): string {
     .replace(/\s+/g, " ");
 }
 
+/**
+ * Strict person ↔ tax-roll owner field match.
+ * Requires whole-token overlap (order-independent), not substring includes —
+ * so "vara" does not match inside "alvarado".
+ * Linked LLC holdings stay on entity-mode search; this is person-mode only.
+ */
+export function personNameMatchesOwnerField(
+  personName: string,
+  ownerField: string,
+): boolean {
+  const personNorm = normalizeOwnerName(personName);
+  const ownerNorm = normalizeOwnerName(ownerField);
+  if (!personNorm || !ownerNorm) return false;
+  if (personNorm === ownerNorm) return true;
+
+  // "LAST, FIRST" / punctuation → tokens
+  const personParts = personNorm
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .filter((p) => p.length >= 2);
+  const ownerParts = ownerNorm
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .filter((p) => p.length >= 2);
+  if (personParts.length === 0 || ownerParts.length === 0) return false;
+
+  const ownerSet = new Set(ownerParts);
+  return personParts.every((p) => ownerSet.has(p));
+}
+
 /** True when the MDPA owner name looks like a registered entity (Sunbiz-eligible). */
 export function isEntityOwnerName(name: string | null | undefined): boolean {
   if (!name?.trim()) return false;
