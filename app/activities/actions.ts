@@ -2,6 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { shouldBumpLastContacted, type TouchActivityType } from "@/lib/activity-touch";
+import { contactIdsForProperty } from "@/lib/contact-properties";
+import {
+  isPropertyActivityField,
+  mergePropertyActivityPatch,
+  resolveGridActivityPayload,
+} from "@/lib/property-grid-activity";
 
 export type ActivityType = "letter" | "email" | "call" | "note" | "meeting";
 
@@ -124,4 +130,106 @@ export async function fetchActivitiesByProperty(propertyId: string): Promise<Act
     .order("activity_date", { ascending: false });
 
   return (data ?? []) as Activity[];
+}
+
+/**
+ * Workspace property-grid activity edit: mirrors denormalized columns AND
+ * creates/updates a real activities row; bumps linked CRM contact cadence when appropriate.
+ */
+export async function savePropertyGridActivity(params: {
+  propertyId: string;
+  field: string;
+  value: unknown;
+}): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  if (!isPropertyActivityField(params.field)) {
+    return { error: "Not an activity field." };
+  }
+
+  const { data: prop, error: loadErr } = await supabase
+    .from("properties")
+    .select("id, last_activity_date, last_activity_type, last_activity_notes")
+    .eq("id", params.propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (loadErr || !prop) return { error: loadErr?.message ?? "Property not found." };
+
+  const merged = mergePropertyActivityPatch(
+    {
+      last_activity_date: prop.last_activity_date ?? null,
+      last_activity_type: prop.last_activity_type ?? null,
+      last_activity_notes: prop.last_activity_notes ?? null,
+    },
+    params.field,
+    params.value,
+  );
+
+  const { error: updErr } = await supabase
+    .from("properties")
+    .update({
+      last_activity_date: merged.last_activity_date,
+      last_activity_type: merged.last_activity_type,
+      last_activity_notes: merged.last_activity_notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.propertyId)
+    .eq("owner_id", user.id);
+  if (updErr) return { error: updErr.message };
+
+  const payload = resolveGridActivityPayload(merged);
+  let contactId: string | null = null;
+  try {
+    const ids = await contactIdsForProperty(supabase, user.id, params.propertyId);
+    contactId = ids[0] ?? null;
+  } catch {
+    contactId = null;
+  }
+
+  const { data: latest } = await supabase
+    .from("activities")
+    .select("id")
+    .eq("owner_id", user.id)
+    .eq("property_id", params.propertyId)
+    .order("activity_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latest?.id) {
+    const { error } = await supabase
+      .from("activities")
+      .update({
+        activity_type: payload.activity_type,
+        activity_date: payload.activity_date,
+        notes: payload.notes,
+        contact_id: contactId,
+      })
+      .eq("id", latest.id)
+      .eq("owner_id", user.id);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase.from("activities").insert({
+      owner_id: user.id,
+      property_id: params.propertyId,
+      contact_id: contactId,
+      activity_type: payload.activity_type,
+      activity_date: payload.activity_date,
+      notes: payload.notes,
+    });
+    if (error) return { error: error.message };
+  }
+
+  if (contactId && shouldBumpLastContacted(payload.activity_type)) {
+    await supabase
+      .from("contacts")
+      .update({ last_contacted_at: payload.activity_date })
+      .eq("id", contactId)
+      .eq("owner_id", user.id);
+  }
+
+  return {};
 }

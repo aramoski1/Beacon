@@ -29,10 +29,14 @@ import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { resolvePropertyOwnerContacts, preferDisplayOwnerContact, stagingDiffersFromCrm, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { cadenceChipForContact, cadenceMapFromSettings, type CadenceSettingsSlice } from "@/lib/cadence";
-import { createActivity } from "@/app/activities/actions";
+import { createActivity, savePropertyGridActivity } from "@/app/activities/actions";
 import { formatCallOutcomeNote } from "@/lib/activity-touch";
 import { ownerPortfolioHref } from "@/lib/owner-portfolio";
 import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
+import {
+  GRID_ACTIVITY_TIP,
+  isPropertyActivityField,
+} from "@/lib/property-grid-activity";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1144,12 +1148,12 @@ function PropertiesTable({
                 </td>
 
                 {/* Activity Date/Type */}
-                <td className={cn(tdCls, "min-w-[130px]", col("activity"))}>
+                <td className={cn(tdCls, "min-w-[130px]", col("activity"))} title={GRID_ACTIVITY_TIP}>
                   <div>
                     <EditableText
                       value={p.last_activity_date ?? activity?.last_activity_date?.slice(0, 10) ?? null}
                       displayValue={fmtDate(p.last_activity_date ?? activity?.last_activity_date ?? null)}
-                      placeholder="add date"
+                      placeholder="log date"
                       displayClassName="text-muted-foreground whitespace-nowrap"
                       onSave={(v) => onSave(p.id, "last_activity_date", v)}
                     />
@@ -1162,10 +1166,10 @@ function PropertiesTable({
                 </td>
 
                 {/* Notes */}
-                <td className={cn(tdCls, "min-w-[120px] max-w-[200px]", col("notes"))}>
+                <td className={cn(tdCls, "min-w-[120px] max-w-[200px]", col("notes"))} title={GRID_ACTIVITY_TIP}>
                   <EditableText
                     value={p.last_activity_notes ?? activity?.last_activity_notes ?? null}
-                    placeholder="—"
+                    placeholder="log notes"
                     displayClassName="line-clamp-2 text-muted-foreground"
                     onSave={(v) => onSave(p.id, "last_activity_notes", v)}
                   />
@@ -2196,6 +2200,15 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   // ── Optimistic inline edits ────────────────────────────────────────────────
   const saveProp = useCallback(async (id: string, field: string, value: unknown) => {
     setProperties((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
+    if (isPropertyActivityField(field)) {
+      const res = await savePropertyGridActivity({ propertyId: id, field, value });
+      if (res.error) {
+        window.alert(res.error);
+        // Reload to undo optimistic shadow if server rejected
+        void loadProperties();
+      }
+      return;
+    }
     const supabase = createClient();
     await supabase
       .from("properties")
@@ -2211,7 +2224,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         }
       }
     }
-  }, []);
+  }, [loadProperties]);
 
   const saveContact = useCallback(async (id: string, field: string, value: unknown) => {
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
