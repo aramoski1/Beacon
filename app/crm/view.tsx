@@ -280,7 +280,7 @@ function EditableSelect({
     <select
       value={value ?? ""}
       onChange={(e) => onSave(e.target.value || null)}
-      className="bg-transparent border-0 outline-none text-sm cursor-pointer rounded px-1 py-0.5 -mx-1 hover:bg-muted/60 focus:bg-muted/60 max-w-36"
+      className="bg-transparent border-0 outline-none text-xs cursor-pointer rounded px-1 py-0 -mx-1 hover:bg-muted/60 focus:bg-muted/60 max-w-36"
     >
       <option value="">—</option>
       {options.map((o) => (
@@ -326,7 +326,7 @@ function EditableText({
           if (e.key === "Enter") { e.preventDefault(); commit(); }
           if (e.key === "Escape") { setDraft(value ?? ""); setEditing(false); }
         }}
-        className="text-sm px-1 py-0.5 border border-border rounded outline-none focus:ring-1 ring-ring w-full bg-background"
+        className="text-xs px-1 py-0.5 border border-border rounded outline-none focus:ring-1 ring-ring w-full bg-background"
       />
     );
   }
@@ -335,7 +335,7 @@ function EditableText({
   return (
     <span
       onClick={() => { setDraft(value ?? ""); setEditing(true); }}
-      className={cn("cursor-text rounded px-1 py-0.5 -mx-1 hover:bg-muted/60 text-sm", displayClassName)}
+      className={cn("cursor-text rounded px-1 py-0 -mx-1 hover:bg-muted/60 text-xs leading-snug", displayClassName)}
       title={String(shown ?? "")}
     >
       {shown ?? <span className="text-muted-foreground">{placeholder}</span>}
@@ -668,8 +668,8 @@ function ColVisPopover({
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
-const thCls = "px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative";
-const tdCls = "px-3 py-2 align-middle border-b border-border/50";
+const thCls = "px-3 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative";
+const tdCls = "px-3 py-1 align-middle border-b border-border/50 text-xs leading-snug";
 const thR = cn(thCls, "text-right");
 const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
 
@@ -1381,7 +1381,7 @@ function ContactsTable({
     <>
     <div>
       <Popup popup={cPopup} onClose={() => setCPopup(null)} />
-      <table className="w-full text-sm border-collapse">
+      <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={cn(thCls, "w-8 pl-3 pr-1")}>
@@ -1652,7 +1652,7 @@ function LeasesTable({
           </Link>
         )}
       </div>
-      <table className="w-full text-sm border-collapse">
+      <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
             <th className={thCls} style={lColStyle("doc")}>Document<RH col="doc" onStart={lStartResize} /></th>
