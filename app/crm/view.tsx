@@ -670,7 +670,7 @@ function ColVisPopover({
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
 const thCls = "px-3 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative";
-const tdCls = "px-3 py-1.5 align-middle border-b border-border/50 text-xs leading-snug";
+const tdCls = "px-3 py-1.5 align-middle border-b border-border/50 text-xs leading-snug min-h-[68px]";
 const thR = cn(thCls, "text-right");
 const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
 
