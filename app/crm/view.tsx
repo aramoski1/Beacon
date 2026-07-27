@@ -312,19 +312,70 @@ function EditableSelect({
   options: { value: string; label: string }[];
   onSave: (v: string | null) => void;
 }) {
+  const knownValues = options.map((o) => o.value);
+  const hasOtherOption = knownValues.includes("other");
+  const isCustomValue = !!value && !knownValues.includes(value);
+  // value === "other" with no elaboration yet — the select can't fire onChange for
+  // re-picking an option that's already selected, so this must also force the input open.
+  const isOtherLiteral = value === "other";
+
+  const [editingOther, setEditingOther] = useState(false);
+  const [draft, setDraft] = useState(isCustomValue ? value! : "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isCustomValue) setDraft(value!);
+  }, [value, isCustomValue]);
+
+  const showOtherInput = hasOtherOption && (editingOther || isCustomValue || isOtherLiteral);
+
+  useEffect(() => {
+    if (editingOther && !isCustomValue) inputRef.current?.focus();
+  }, [editingOther, isCustomValue]);
+
+  function commitOther() {
+    setEditingOther(false);
+    onSave(draft.trim() || null);
+  }
+
   return (
-    <select
-      value={value ?? ""}
-      onChange={(e) => onSave(e.target.value || null)}
-      className="bg-transparent border-0 outline-none text-xs cursor-pointer rounded px-1 py-0 -mx-1 hover:bg-muted/60 focus:bg-muted/60 max-w-36"
-    >
-      <option value="">—</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <div className="flex items-center gap-1">
+      <select
+        value={showOtherInput ? "other" : value ?? ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "other") {
+            setDraft(isCustomValue ? value! : "");
+            setEditingOther(true);
+          } else {
+            setEditingOther(false);
+            onSave(v || null);
+          }
+        }}
+        className="bg-transparent border-0 outline-none text-xs cursor-pointer rounded px-1 py-0 -mx-1 hover:bg-muted/60 focus:bg-muted/60 max-w-36"
+      >
+        <option value="">—</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {showOtherInput && (
+        <input
+          ref={inputRef}
+          value={draft}
+          placeholder="Type…"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitOther}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitOther(); }
+            if (e.key === "Escape") { setDraft(isCustomValue ? value! : ""); setEditingOther(false); }
+          }}
+          className="text-xs px-1 py-0.5 border border-border rounded outline-none focus:ring-1 ring-ring w-20 bg-background"
+        />
+      )}
+    </div>
   );
 }
 
@@ -529,21 +580,71 @@ function OwnershipRoleBadge({
   role: string | null;
   onSave: (v: string | null) => void;
 }) {
+  const knownValues = OWNERSHIP_ROLES.map((o) => o.value);
+  const isCustomValue = !!role && !knownValues.includes(role);
+  // role === "other" with no elaboration yet — the select can't fire onChange for
+  // re-picking an option that's already selected, so this must also force the input open.
+  const isOtherLiteral = role === "other";
+
+  const [editingOther, setEditingOther] = useState(false);
+  const [draft, setDraft] = useState(isCustomValue ? role! : "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isCustomValue) setDraft(role!);
+  }, [role, isCustomValue]);
+
+  const showOtherInput = editingOther || isCustomValue || isOtherLiteral;
+
+  useEffect(() => {
+    if (editingOther && !isCustomValue) inputRef.current?.focus();
+  }, [editingOther, isCustomValue]);
+
+  function commitOther() {
+    setEditingOther(false);
+    onSave(draft.trim() || null);
+  }
+
   return (
-    <select
-      value={role ?? ""}
-      onChange={(e) => onSave(e.target.value || null)}
-      className={cn(
-        "rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border-0 outline-none appearance-none",
-        ownershipRoleCls(role),
+    <div className="flex items-center gap-1">
+      <select
+        value={showOtherInput ? "other" : role ?? ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "other") {
+            setDraft(isCustomValue ? role! : "");
+            setEditingOther(true);
+          } else {
+            setEditingOther(false);
+            onSave(v || null);
+          }
+        }}
+        className={cn(
+          "rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer border-0 outline-none appearance-none",
+          ownershipRoleCls(role),
+        )}
+        title="Set ownership role"
+      >
+        <option value="">—</option>
+        {OWNERSHIP_ROLES.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {showOtherInput && (
+        <input
+          ref={inputRef}
+          value={draft}
+          placeholder="Type…"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitOther}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitOther(); }
+            if (e.key === "Escape") { setDraft(isCustomValue ? role! : ""); setEditingOther(false); }
+          }}
+          className="text-xs px-1 py-0.5 border border-border rounded outline-none focus:ring-1 ring-ring w-20 bg-background"
+        />
       )}
-      title="Set ownership role"
-    >
-      <option value="">—</option>
-      {OWNERSHIP_ROLES.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
-      ))}
-    </select>
+    </div>
   );
 }
 
@@ -1528,7 +1629,11 @@ function ContactsTable({
                 </div>
               </td>
               <td className={cn(tdCls, col("company"))}>
-                <span title={c.company ?? ""} onClick={(e) => { if (c.company) cShowPopup(c.company, e); }} className="text-muted-foreground block truncate cursor-pointer hover:text-foreground">{c.company ?? "—"}</span>
+                <EditableText
+                  value={c.company}
+                  displayClassName="text-muted-foreground truncate block"
+                  onSave={(v) => onSave(c.id, "company", v)}
+                />
               </td>
               <td className={cn(tdCls, "min-w-28", col("type"))}>
                 <OwnershipRoleBadge role={c.ownership_role} onSave={(v) => onSave(c.id, "ownership_role", v)} />
