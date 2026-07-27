@@ -2177,6 +2177,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [deletingLeaseId, setDeletingLeaseId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ── Load properties (server-filtered + paginated) ──────────────────────────
   const loadProperties = useCallback(async () => {
@@ -2476,18 +2477,22 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       return;
     }
     const supabase = createClient();
-    await supabase
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
       .from("properties")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    if (field === "owner_name") {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        try {
-          await syncPropertyEntity(supabase, user.id, id, typeof value === "string" ? value : null);
-        } catch {
-          // Property saved; entity sync is best-effort.
-        }
+      .eq("id", id)
+      .eq("owner_id", user?.id ?? "");
+    if (error) {
+      setSaveError(error.message);
+      void loadProperties();
+      return;
+    }
+    if (field === "owner_name" && user) {
+      try {
+        await syncPropertyEntity(supabase, user.id, id, typeof value === "string" ? value : null);
+      } catch {
+        // Property saved; entity sync is best-effort.
       }
     }
   }, [loadProperties]);
@@ -2495,11 +2500,17 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const saveContact = useCallback(async (id: string, field: string, value: unknown) => {
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
     const supabase = createClient();
-    await supabase
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
       .from("contacts")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", id);
-  }, []);
+      .eq("id", id)
+      .eq("owner_id", user?.id ?? "");
+    if (error) {
+      setSaveError(error.message);
+      void loadContacts();
+    }
+  }, [loadContacts]);
 
   // Saves a linked contact field AND updates propContacts (for Owner Email in property rows)
   const savePropContact = useCallback(async (id: string, field: string, value: unknown) => {
@@ -2512,11 +2523,17 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       return next;
     });
     const supabase = createClient();
-    await supabase
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
       .from("contacts")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", id);
-  }, []);
+      .eq("id", id)
+      .eq("owner_id", user?.id ?? "");
+    if (error) {
+      setSaveError(error.message);
+      void loadContacts();
+    }
+  }, [loadContacts]);
 
 
   // ── Delete handlers ────────────────────────────────────────────────────────
@@ -2692,6 +2709,21 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
           <button
             type="button"
             onClick={() => setDeleteError(null)}
+            className="ml-auto text-muted-foreground hover:text-foreground"
+            title="Dismiss"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="shrink-0 mx-6 mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive flex items-center gap-2">
+          <AlertCircle className="size-4 shrink-0" />
+          Edit didn&apos;t save: {saveError}
+          <button
+            type="button"
+            onClick={() => setSaveError(null)}
             className="ml-auto text-muted-foreground hover:text-foreground"
             title="Dismiss"
           >
