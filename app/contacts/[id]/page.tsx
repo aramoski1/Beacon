@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Briefcase,
   FileText,
+  AlertTriangle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { loadPropertyIdsForContact } from "@/lib/contact-properties";
@@ -533,14 +534,24 @@ export default async function ContactPage({
               <div>
                 <p className="text-xs text-muted-foreground mb-2">Tags</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {actionTags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+                  {actionTags.map((tag) => {
+                    const isUnverified = tag === "unverified";
+                    return (
+                      <span
+                        key={tag}
+                        title={isUnverified ? "Sourced automatically — verify before outreach" : undefined}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                          isUnverified
+                            ? "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300"
+                            : "bg-muted"
+                        )}
+                      >
+                        {isUnverified && <AlertTriangle className="size-3" />}
+                        {tag}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
