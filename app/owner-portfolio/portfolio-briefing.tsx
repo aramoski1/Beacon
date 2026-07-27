@@ -140,7 +140,8 @@ export function PortfolioBriefing({ data }: { data: OwnerPortfolioData }) {
             )}
 
             <p className="text-[10px] text-muted-foreground">
-              Generated {new Date(state.briefing.generatedAt).toLocaleTimeString("en-US", {
+              AI-generated from your CRM data — verify before relying on it. Generated{" "}
+              {new Date(state.briefing.generatedAt).toLocaleTimeString("en-US", {
                 hour: "numeric",
                 minute: "2-digit",
               })}

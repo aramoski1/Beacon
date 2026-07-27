@@ -192,6 +192,10 @@ export function BeaconCopilot() {
 
             <div ref={bottomRef} />
           </div>
+
+          <p className="px-3 py-1.5 border-t text-[10px] text-muted-foreground bg-muted/20">
+            AI-generated from your CRM data — verify before relying on it.
+          </p>
         </div>
       )}
 
