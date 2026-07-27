@@ -24,6 +24,13 @@ export type PropertySearchFilters = {
   geographic_keyword?: string;    // case-insensitive substring on address + city + geographic_category
   owner_name_contains?: string;
   size_category_keyword?: string;
+
+  /** individual = ownership_type "private"; entity = ownership_type "institutional" | "REIT". */
+  ownership_individual_or_entity?: "individual" | "entity";
+  /** Properties with an open ownership-change signal (ownership_change_detected_at is set). */
+  has_ownership_change?: boolean;
+  /** Bucketed recency of last_sale_date, relative to today. */
+  last_sale_recency?: "lt1y" | "1to3y" | "3to5y" | "5plus";
 };
 
 export type ContactSearchFilters = {
@@ -54,6 +61,9 @@ export type ContactSearchFilters = {
   size_category_keyword?: string;
   /** @deprecated no live equivalent; matches the old free-form ownership_type column */
   ownership_type_keyword?: string;
+
+  /** overdue | due_soon | ok | never — computed from last_contacted_at + the tier's cadence days (lib/cadence.ts). */
+  cadence_status?: "overdue" | "due_soon" | "ok" | "never";
 };
 
 export type LeaseSearchFilters = {
@@ -61,6 +71,13 @@ export type LeaseSearchFilters = {
   expiring_within_days?: number;              // expiration_date within N days from today
   base_rate_min?: number;
   base_rate_max?: number;
+
+  /** Bucketed time-to-expiration, reusing the lib/lease-radar.ts day thresholds. */
+  expiration_window?: "90d" | "180d" | "12mo" | "beyond12mo";
+  /** Joins to the linked property and matches on its property_type. */
+  linked_property_type?: string;
+  /** Whether tenant_contact_id is set on the lease abstract. */
+  has_tenant_contact?: boolean;
 };
 
 export type SearchResult = {

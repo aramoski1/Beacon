@@ -125,21 +125,20 @@ type LeaseAbstract = {
 
 type PropFilters = {
   propType: string;
-  ownership: string;
-  sizeCat: string;
-  geoCat: string;
+  ownership: string;        // "individual" | "entity" | ""
+  ownershipChange: string;  // "yes" | "no" | ""
+  saleRecency: string;      // "lt1y" | "1to3y" | "3to5y" | "5plus" | ""
 };
 type ConFilters = {
   tier: string;
-  status: string;
-  contactType: string;
-  sizeCat: string;
-  geoCat: string;
-  ownership: string;
-  tag: string;
+  status: string;           // relationship_stage
+  assetFocus: string;       // asset_focus_includes
+  cadenceStatus: string;    // "overdue" | "due_soon" | "ok" | "never" | ""
 };
 type LeaseFilters = {
-  status: string; // "active" | "expiring" | "expired" | ""
+  expirationWindow: string;   // "90d" | "180d" | "12mo" | "beyond12mo" | ""
+  linkedPropertyType: string; // property_type enum
+  hasTenantContact: string;   // "yes" | "no" | ""
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -157,12 +156,23 @@ const PROP_TYPES = [
   { value: "other", label: "Other" },
 ];
 
-const OWNERSHIP_TYPES = [
-  { value: "institutional", label: "Institutional" },
-  { value: "private", label: "Private" },
-  { value: "REIT", label: "REIT" },
-  { value: "owner-occupant", label: "Owner-occupant" },
-  { value: "unknown", label: "Unknown" },
+// Individual vs entity — derived from ownership_type, itself inferred from
+// owner_name at extraction time (LLC/INC/CORP/... → institutional/REIT).
+const OWNERSHIP_INDIVIDUAL_ENTITY = [
+  { value: "individual", label: "Individual" },
+  { value: "entity",     label: "Entity" },
+];
+
+const OWNERSHIP_CHANGE_OPTIONS = [
+  { value: "yes", label: "Ownership change detected" },
+  { value: "no",  label: "No ownership change" },
+];
+
+const SALE_RECENCY_OPTIONS = [
+  { value: "lt1y",  label: "< 1 year" },
+  { value: "1to3y", label: "1–3 years" },
+  { value: "3to5y", label: "3–5 years" },
+  { value: "5plus", label: "5+ years" },
 ];
 
 const RELATIONSHIP_STAGES = [
@@ -171,6 +181,35 @@ const RELATIONSHIP_STAGES = [
   { value: "client",      label: "Client" },
   { value: "past_client", label: "Past client" },
   { value: "dormant",     label: "Dormant" },
+];
+
+const ASSET_FOCUS_OPTIONS = [
+  { value: "industrial",  label: "Industrial" },
+  { value: "office",      label: "Office" },
+  { value: "retail",      label: "Retail" },
+  { value: "multifamily", label: "Multifamily" },
+  { value: "land",        label: "Land" },
+  { value: "mixed_use",   label: "Mixed Use" },
+  { value: "other",       label: "Other" },
+];
+
+const CADENCE_STATUS_OPTIONS = [
+  { value: "overdue",  label: "Overdue" },
+  { value: "due_soon", label: "Due soon" },
+  { value: "ok",       label: "On track" },
+  { value: "never",    label: "Never contacted" },
+];
+
+const EXPIRATION_WINDOW_OPTIONS = [
+  { value: "90d",        label: "≤ 90 days" },
+  { value: "180d",       label: "≤ 180 days" },
+  { value: "12mo",       label: "≤ 12 months" },
+  { value: "beyond12mo", label: "12+ months out" },
+];
+
+const HAS_TENANT_CONTACT_OPTIONS = [
+  { value: "yes", label: "Has tenant contact" },
+  { value: "no",  label: "No tenant contact" },
 ];
 
 const OWNERSHIP_ROLES = [
@@ -260,10 +299,6 @@ function fmtSqft(n: number | null) {
 function fmtDate(iso: string | null) {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function uniq(arr: (string | null | undefined)[]): string[] {
-  return [...new Set(arr.filter((x): x is string => !!x))].sort();
 }
 
 // ─── Editable cells ───────────────────────────────────────────────────────────
@@ -1848,9 +1883,9 @@ function PaginationBar({
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 
-const EMPTY_PROP_FILTERS: PropFilters   = { propType: "", ownership: "", sizeCat: "", geoCat: "" };
-const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", contactType: "", sizeCat: "", geoCat: "", ownership: "", tag: "" };
-const EMPTY_LEASE_FILTERS: LeaseFilters = { status: "" };
+const EMPTY_PROP_FILTERS: PropFilters   = { propType: "", ownership: "", ownershipChange: "", saleRecency: "" };
+const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", assetFocus: "", cadenceStatus: "" };
+const EMPTY_LEASE_FILTERS: LeaseFilters = { expirationWindow: "", linkedPropertyType: "", hasTenantContact: "" };
 
 const VALID_TABS = ["properties", "leases", "contacts"] as const;
 type Tab = typeof VALID_TABS[number];
@@ -1914,19 +1949,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [leasesError, setLeasesError] = useState<string | null>(null);
   const [cadenceMap, setCadenceMap] = useState<Record<number, number>>(() => cadenceMapFromSettings(null));
-
-  // ── Filter options (full distinct-value scan, loaded once on mount) ────────
-  const [propFilterOpts, setPropFilterOpts] = useState<{ sizeCat: string[]; geoCat: string[] }>({
-    sizeCat: [],
-    geoCat: [],
-  });
-  const [conFilterOpts, setConFilterOpts] = useState<{
-    contactTypes: string[];
-    sizeCat: string[];
-    geoCat: string[];
-    ownership: string[];
-    tags: string[];
-  }>({ contactTypes: [], sizeCat: [], geoCat: [], ownership: [], tags: [] });
 
   // ── Filter state ───────────────────────────────────────────────────────────
   const [propFilters, setPropFilters] = useState<PropFilters>(EMPTY_PROP_FILTERS);
@@ -2051,32 +2073,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [deletingLeaseId, setDeletingLeaseId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // ── Load filter options once ───────────────────────────────────────────────
-  const loadFilterOpts = useCallback(async () => {
-    const supabase = createClient();
-    const [{ data: pData }, { data: cData }] = await Promise.all([
-      supabase.from("properties").select("size_category, geographic_category").limit(2000),
-      supabase.from("contacts").select("ownership_role, submarket, portfolio_size, lead_source, action_tags").limit(2000),
-    ]);
-    if (pData) {
-      setPropFilterOpts({
-        sizeCat: uniq(pData.map((r) => r.size_category)),
-        geoCat: uniq(pData.map((r) => r.geographic_category)),
-      });
-    }
-    if (cData) {
-      setConFilterOpts({
-        contactTypes: uniq(cData.map((r) => r.ownership_role)),
-        sizeCat: uniq(cData.map((r) => r.portfolio_size)),
-        geoCat: uniq(cData.map((r) => r.submarket)),
-        ownership: uniq(cData.map((r) => r.lead_source)),
-        tags: uniq(cData.flatMap((r) => (r.action_tags as string[] | null) ?? [])),
-      });
-    }
-  }, []);
-
-  useEffect(() => { loadFilterOpts(); }, [loadFilterOpts]);
-
   // ── Load properties (server-filtered + paginated) ──────────────────────────
   const loadProperties = useCallback(async () => {
     setPropsLoading(true);
@@ -2095,10 +2091,18 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       const f = activeSearch.properties;
       q = applyPropertyFilters(q, f);
     } else {
-      if (propFilters.propType) q = q.eq("property_type", propFilters.propType);
-      if (propFilters.ownership) q = q.eq("ownership_type", propFilters.ownership);
-      if (propFilters.sizeCat) q = q.eq("size_category", propFilters.sizeCat);
-      if (propFilters.geoCat) q = q.eq("geographic_category", propFilters.geoCat);
+      const f: PropertySearchFilters = {};
+      if (propFilters.propType) f.property_type = propFilters.propType;
+      if (propFilters.ownership === "individual" || propFilters.ownership === "entity") {
+        f.ownership_individual_or_entity = propFilters.ownership;
+      }
+      if (propFilters.ownershipChange === "yes" || propFilters.ownershipChange === "no") {
+        f.has_ownership_change = propFilters.ownershipChange === "yes";
+      }
+      if (propFilters.saleRecency) {
+        f.last_sale_recency = propFilters.saleRecency as PropertySearchFilters["last_sale_recency"];
+      }
+      q = applyPropertyFilters(q, f);
     }
 
     const { data, count, error } = await q;
@@ -2235,16 +2239,15 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         q = q.in("id", linkedIds);
       }
       if (activeSearch?.contacts) {
-        q = applyContactFilters(q, activeSearch.contacts);
+        q = applyContactFilters(q, activeSearch.contacts, cadenceMap);
       }
     } else {
-      if (conFilters.tier) q = q.eq("contact_tier", Number(conFilters.tier));
-      if (conFilters.status) q = q.eq("relationship_stage", conFilters.status);
-      if (conFilters.contactType) q = q.eq("ownership_role", conFilters.contactType);
-      if (conFilters.sizeCat) q = q.eq("portfolio_size", conFilters.sizeCat);
-      if (conFilters.geoCat) q = q.eq("submarket", conFilters.geoCat);
-      if (conFilters.ownership) q = q.eq("lead_source", conFilters.ownership);
-      if (conFilters.tag) q = q.contains("action_tags", [conFilters.tag]);
+      const f: ContactSearchFilters = {};
+      if (conFilters.tier) f.contact_tier = Number(conFilters.tier);
+      if (conFilters.status) f.relationship_stage = conFilters.status;
+      if (conFilters.assetFocus) f.asset_focus_includes = conFilters.assetFocus;
+      if (conFilters.cadenceStatus) f.cadence_status = conFilters.cadenceStatus as ContactSearchFilters["cadence_status"];
+      q = applyContactFilters(q, f, cadenceMap);
     }
 
     const { data, count, error } = await q;
@@ -2274,7 +2277,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setContacts(rows);
     setTotalCons(count ?? 0);
     setContactsLoading(false);
-  }, [conPage, conFilters, activeSearch]);
+  }, [conPage, conFilters, activeSearch, cadenceMap]);
 
   useEffect(() => { loadContacts(); }, [loadContacts]);
 
@@ -2293,15 +2296,17 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       .range(from, from + PAGE_SIZE - 1);
 
     if (activeSearch?.leases) {
-      q = applyLeaseFilters(q, activeSearch.leases as LeaseSearchFilters);
+      q = await applyLeaseFilters(q, activeSearch.leases as LeaseSearchFilters, supabase);
     } else {
-      if (leaseFilters.status) {
-        const now = new Date().toISOString();
-        const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString();
-        if (leaseFilters.status === "active") q = q.not("expiration_date", "is", null).gte("expiration_date", in90);
-        if (leaseFilters.status === "expiring") q = q.not("expiration_date", "is", null).gt("expiration_date", now).lt("expiration_date", in90);
-        if (leaseFilters.status === "expired") q = q.not("expiration_date", "is", null).lt("expiration_date", now);
+      const f: LeaseSearchFilters = {};
+      if (leaseFilters.expirationWindow) {
+        f.expiration_window = leaseFilters.expirationWindow as LeaseSearchFilters["expiration_window"];
       }
+      if (leaseFilters.linkedPropertyType) f.linked_property_type = leaseFilters.linkedPropertyType;
+      if (leaseFilters.hasTenantContact === "yes" || leaseFilters.hasTenantContact === "no") {
+        f.has_tenant_contact = leaseFilters.hasTenantContact === "yes";
+      }
+      q = await applyLeaseFilters(q, f, supabase);
     }
 
     const { data, count, error } = await q;
@@ -2690,14 +2695,22 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   {tab === "leases" && (
                     <>
                       <FilterSelect
-                        label="Status"
-                        value={leaseFilters.status}
-                        options={[
-                          { value: "active", label: "Active" },
-                          { value: "expiring", label: "Expiring soon" },
-                          { value: "expired", label: "Expired" },
-                        ]}
-                        onChange={(v) => updateLeaseFilter("status", v)}
+                        label="Expiration"
+                        value={leaseFilters.expirationWindow}
+                        options={EXPIRATION_WINDOW_OPTIONS}
+                        onChange={(v) => updateLeaseFilter("expirationWindow", v)}
+                      />
+                      <FilterSelect
+                        label="Property type"
+                        value={leaseFilters.linkedPropertyType}
+                        options={PROP_TYPES}
+                        onChange={(v) => updateLeaseFilter("linkedPropertyType", v)}
+                      />
+                      <FilterSelect
+                        label="Tenant contact"
+                        value={leaseFilters.hasTenantContact}
+                        options={HAS_TENANT_CONTACT_OPTIONS}
+                        onChange={(v) => updateLeaseFilter("hasTenantContact", v)}
                       />
                       {leaseFiltersActive && (
                         <button
@@ -2739,13 +2752,9 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   {tab === "properties" && (
                     <>
                       <FilterSelect label="Type" value={propFilters.propType} options={PROP_TYPES} onChange={(v) => updatePropFilter("propType", v)} />
-                      <FilterSelect label="Ownership" value={propFilters.ownership} options={OWNERSHIP_TYPES} onChange={(v) => updatePropFilter("ownership", v)} />
-                      {propFilterOpts.sizeCat.length > 0 && (
-                        <FilterSelect label="Size cat" value={propFilters.sizeCat} options={propFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updatePropFilter("sizeCat", v)} />
-                      )}
-                      {propFilterOpts.geoCat.length > 0 && (
-                        <FilterSelect label="Geo cat" value={propFilters.geoCat} options={propFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updatePropFilter("geoCat", v)} />
-                      )}
+                      <FilterSelect label="Ownership" value={propFilters.ownership} options={OWNERSHIP_INDIVIDUAL_ENTITY} onChange={(v) => updatePropFilter("ownership", v)} />
+                      <FilterSelect label="Ownership change" value={propFilters.ownershipChange} options={OWNERSHIP_CHANGE_OPTIONS} onChange={(v) => updatePropFilter("ownershipChange", v)} />
+                      <FilterSelect label="Last sale" value={propFilters.saleRecency} options={SALE_RECENCY_OPTIONS} onChange={(v) => updatePropFilter("saleRecency", v)} />
                       {propFiltersActive && (
                         <button type="button" onClick={() => { setPropFilters(EMPTY_PROP_FILTERS); setActiveListId(null); setActiveListName(null); setPropPage(0); }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
                           Clear filters
@@ -2808,21 +2817,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                     <>
                       <FilterSelect label="Tier" value={conFilters.tier} options={[{ value: "1", label: "Tier 1" }, { value: "2", label: "Tier 2" }, { value: "3", label: "Tier 3" }]} onChange={(v) => updateConFilter("tier", v)} />
                       <FilterSelect label="Stage" value={conFilters.status} options={RELATIONSHIP_STAGES} onChange={(v) => updateConFilter("status", v)} />
-                      {conFilterOpts.contactTypes.length > 0 && (
-                        <FilterSelect label="Role" value={conFilters.contactType} options={conFilterOpts.contactTypes.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("contactType", v)} />
-                      )}
-                      {conFilterOpts.geoCat.length > 0 && (
-                        <FilterSelect label="Submarket" value={conFilters.geoCat} options={conFilterOpts.geoCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("geoCat", v)} />
-                      )}
-                      {conFilterOpts.sizeCat.length > 0 && (
-                        <FilterSelect label="Portfolio" value={conFilters.sizeCat} options={conFilterOpts.sizeCat.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("sizeCat", v)} />
-                      )}
-                      {conFilterOpts.ownership.length > 0 && (
-                        <FilterSelect label="Lead source" value={conFilters.ownership} options={conFilterOpts.ownership.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("ownership", v)} />
-                      )}
-                      {conFilterOpts.tags.length > 0 && (
-                        <FilterSelect label="Tag" value={conFilters.tag} options={conFilterOpts.tags.map((v) => ({ value: v, label: v }))} onChange={(v) => updateConFilter("tag", v)} />
-                      )}
+                      <FilterSelect label="Asset focus" value={conFilters.assetFocus} options={ASSET_FOCUS_OPTIONS} onChange={(v) => updateConFilter("assetFocus", v)} />
+                      <FilterSelect label="Cadence" value={conFilters.cadenceStatus} options={CADENCE_STATUS_OPTIONS} onChange={(v) => updateConFilter("cadenceStatus", v)} />
                       {conFiltersActive && (
                         <button type="button" onClick={() => { setConFilters(EMPTY_CON_FILTERS); setActiveListId(null); setActiveListName(null); setConPage(0); }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
                           Clear filters

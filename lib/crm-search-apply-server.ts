@@ -7,6 +7,7 @@ import {
   type SmartListCounts,
 } from "@/lib/crm-search-filters";
 import { contactIdsForProperties } from "@/lib/contact-properties";
+import { cadenceMapFromSettings, type CadenceSettingsSlice } from "@/lib/cadence";
 
 async function fetchMatchingPropertyIds(
   filters: PropertySearchFilters,
@@ -19,6 +20,21 @@ async function fetchMatchingPropertyIds(
   return (data ?? []).map((r: { id: string }) => r.id);
 }
 
+/** Resolves the owner's actual cadence-tier days so cadence_status filters on
+ * saved smart lists match what the broker sees in Settings, not the defaults. */
+async function fetchCadenceMap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  ownerId: string,
+): Promise<Record<number, number>> {
+  const { data } = await supabase
+    .from("user_settings")
+    .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  return cadenceMapFromSettings(data as CadenceSettingsSlice | null);
+}
+
 export async function countSmartListMatches(
   search: SearchResult,
   ownerId: string,
@@ -28,6 +44,7 @@ export async function countSmartListMatches(
     search.properties && (search.target === "both" || search.target === "properties")
       ? await fetchMatchingPropertyIds(search.properties, ownerId)
       : null;
+  const cadenceMap = search.contacts?.cadence_status ? await fetchCadenceMap(supabase, ownerId) : undefined;
 
   let propCount = 0;
   if (search.properties && (search.target === "properties" || search.target === "both")) {
@@ -52,14 +69,14 @@ export async function countSmartListMatches(
             .select("*", { count: "exact", head: true })
             .eq("owner_id", ownerId)
             .in("id", linkedContactIds);
-          if (search.contacts) cq = applyContactFilters(cq, search.contacts);
+          if (search.contacts) cq = applyContactFilters(cq, search.contacts, cadenceMap);
           const { count } = await cq;
           contactCount = count ?? 0;
         }
       }
     } else {
       let cq = supabase.from("contacts").select("*", { count: "exact", head: true }).eq("owner_id", ownerId);
-      if (search.contacts) cq = applyContactFilters(cq, search.contacts);
+      if (search.contacts) cq = applyContactFilters(cq, search.contacts, cadenceMap);
       const { count } = await cq;
       contactCount = count ?? 0;
     }
@@ -68,7 +85,7 @@ export async function countSmartListMatches(
   let leaseCount = 0;
   if (search.leases && (search.target === "leases" || search.target === "both")) {
     let lq = supabase.from("lease_abstracts").select("*", { count: "exact", head: true }).eq("owner_id", ownerId);
-    lq = applyLeaseFilters(lq, search.leases);
+    lq = await applyLeaseFilters(lq, search.leases, supabase);
     const { count } = await lq;
     leaseCount = count ?? 0;
   }
@@ -96,6 +113,7 @@ export async function fetchSmartListContactIds(
     search.properties && (search.target === "both" || search.target === "contacts" || search.target === "properties")
       ? await fetchMatchingPropertyIds(search.properties, ownerId)
       : null;
+  const cadenceMap = search.contacts?.cadence_status ? await fetchCadenceMap(supabase, ownerId) : undefined;
 
   if (propertyIds != null && propertyIds.length === 0) return [];
 
@@ -103,7 +121,7 @@ export async function fetchSmartListContactIds(
     const linkedContactIds = await contactIdsForProperties(supabase, ownerId, propertyIds);
     if (linkedContactIds.length === 0) return [];
     let q = supabase.from("contacts").select("id").eq("owner_id", ownerId).in("id", linkedContactIds);
-    if (search.contacts) q = applyContactFilters(q, search.contacts);
+    if (search.contacts) q = applyContactFilters(q, search.contacts, cadenceMap);
     const { data } = await q;
     return (data ?? []).map((r: { id: string }) => r.id);
   }
@@ -111,7 +129,7 @@ export async function fetchSmartListContactIds(
   if (search.target === "properties") return [];
 
   let q = supabase.from("contacts").select("id").eq("owner_id", ownerId);
-  if (search.contacts) q = applyContactFilters(q, search.contacts);
+  if (search.contacts) q = applyContactFilters(q, search.contacts, cadenceMap);
 
   const { data } = await q;
   return (data ?? []).map((r: { id: string }) => r.id);

@@ -4,9 +4,90 @@ import type {
   PropertySearchFilters,
   SearchResult,
 } from "@/app/crm/actions";
+import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
+import { LEASE_RADAR_DAY_THRESHOLDS } from "@/lib/lease-radar";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type QueryBuilder = any;
+
+// ─── Property ownership_type buckets for the individual/entity filter ─────────
+// Reuses the ownership_type column, itself derived from owner_name at
+// extraction time (lib/property-pipeline.ts): LLC/INC/CORP/... → institutional,
+// individual-sounding names → private. owner-occupant/unknown are genuinely
+// ambiguous and match neither bucket.
+const ENTITY_OWNERSHIP_TYPES = ["institutional", "REIT"];
+const INDIVIDUAL_OWNERSHIP_TYPES = ["private"];
+
+// ─── Date-bucket helpers (pure — directly unit-testable) ──────────────────────
+
+export type SaleRecencyBucket = "lt1y" | "1to3y" | "3to5y" | "5plus";
+
+const MS_DAY = 86_400_000;
+const MS_YEAR = 365 * MS_DAY;
+
+/** Date-range bounds (ISO strings) for a last_sale_date recency bucket. */
+export function saleRecencyDateRange(
+  bucket: SaleRecencyBucket,
+  nowMs: number = Date.now(),
+): { gt?: string; lte?: string } {
+  const yearsAgo = (y: number) => new Date(nowMs - y * MS_YEAR).toISOString();
+  if (bucket === "lt1y") return { gt: yearsAgo(1) };
+  if (bucket === "1to3y") return { gt: yearsAgo(3), lte: yearsAgo(1) };
+  if (bucket === "3to5y") return { gt: yearsAgo(5), lte: yearsAgo(3) };
+  return { lte: yearsAgo(5) };
+}
+
+export type LeaseExpirationWindow = "90d" | "180d" | "12mo" | "beyond12mo";
+
+/** Date-range bounds (ISO strings) for an expiration_date window, reusing the
+ * same day thresholds as the lease radar (lib/lease-radar.ts). */
+export function leaseExpirationWindowDateRange(
+  window: LeaseExpirationWindow,
+  nowMs: number = Date.now(),
+): { gt?: string; gte?: string; lte?: string } {
+  const inDays = (d: number) => new Date(nowMs + d * MS_DAY).toISOString();
+  const { threeMonth, sixMonth, twelveMonth } = LEASE_RADAR_DAY_THRESHOLDS;
+  if (window === "90d") return { gte: inDays(0), lte: inDays(threeMonth) };
+  if (window === "180d") return { gt: inDays(threeMonth), lte: inDays(sixMonth) };
+  if (window === "12mo") return { gt: inDays(sixMonth), lte: inDays(twelveMonth) };
+  return { gt: inDays(twelveMonth) };
+}
+
+export type CadenceStatusValue = "overdue" | "due_soon" | "ok" | "never";
+
+/**
+ * PostgREST OR-filter string bucketing contacts by cadence status, resolving
+ * each tier's own threshold from the cadence map (lib/cadence.ts) since
+ * "overdue" means something different for a Tier 1 vs Tier 3 contact.
+ * Returns null for "never" (handled separately — it doesn't need a per-tier OR).
+ */
+export function buildCadenceStatusOrFilter(
+  status: Exclude<CadenceStatusValue, "never">,
+  cadenceMap: Record<number, number> = DEFAULT_CADENCE_TIER_DAYS,
+  nowMs: number = Date.now(),
+): string | null {
+  const tiers = Object.keys(cadenceMap)
+    .map(Number)
+    .filter((t) => typeof cadenceMap[t] === "number" && cadenceMap[t] > 0);
+
+  const clauses = tiers.map((tier) => {
+    const days = cadenceMap[tier];
+    const overdueCutoff = new Date(nowMs - days * MS_DAY).toISOString();
+    const dueSoonLower = new Date(nowMs - Math.max(days - 3, 0) * MS_DAY).toISOString();
+    if (status === "overdue") {
+      return `and(contact_tier.eq.${tier},last_contacted_at.lt.${overdueCutoff})`;
+    }
+    if (status === "due_soon") {
+      return `and(contact_tier.eq.${tier},last_contacted_at.gte.${overdueCutoff},last_contacted_at.lte.${dueSoonLower})`;
+    }
+    // ok
+    return `and(contact_tier.eq.${tier},last_contacted_at.gt.${dueSoonLower})`;
+  });
+
+  return clauses.length > 0 ? clauses.join(",") : null;
+}
+
+// ─── Filter appliers ───────────────────────────────────────────────────────────
 
 export function applyPropertyFilters(q: QueryBuilder, f: PropertySearchFilters): QueryBuilder {
   if (f.property_type) q = q.eq("property_type", f.property_type);
@@ -21,6 +102,21 @@ export function applyPropertyFilters(q: QueryBuilder, f: PropertySearchFilters):
   }
   if (f.owner_name_contains) q = q.ilike("owner_name", `%${f.owner_name_contains}%`);
   if (f.size_category_keyword) q = q.ilike("size_category", `%${f.size_category_keyword}%`);
+
+  if (f.ownership_individual_or_entity === "individual") {
+    q = q.in("ownership_type", INDIVIDUAL_OWNERSHIP_TYPES);
+  } else if (f.ownership_individual_or_entity === "entity") {
+    q = q.in("ownership_type", ENTITY_OWNERSHIP_TYPES);
+  }
+  if (f.has_ownership_change === true) q = q.not("ownership_change_detected_at", "is", null);
+  if (f.has_ownership_change === false) q = q.is("ownership_change_detected_at", null);
+  if (f.last_sale_recency) {
+    const range = saleRecencyDateRange(f.last_sale_recency);
+    q = q.not("last_sale_date", "is", null);
+    if (range.gt) q = q.gt("last_sale_date", range.gt);
+    if (range.lte) q = q.lte("last_sale_date", range.lte);
+  }
+
   return q;
 }
 
@@ -40,7 +136,11 @@ export function mapClientStatusToRelationshipStage(clientStatus: string): string
   return LEGACY_CLIENT_STATUS_TO_RELATIONSHIP_STAGE[clientStatus] ?? "dormant";
 }
 
-export function applyContactFilters(q: QueryBuilder, f: ContactSearchFilters): QueryBuilder {
+export function applyContactFilters(
+  q: QueryBuilder,
+  f: ContactSearchFilters,
+  cadenceMap: Record<number, number> = DEFAULT_CADENCE_TIER_DAYS,
+): QueryBuilder {
   if (f.contact_tier != null) q = q.eq("contact_tier", f.contact_tier);
 
   // Prefer the live relationship_stage field; fall back to the legacy
@@ -72,10 +172,22 @@ export function applyContactFilters(q: QueryBuilder, f: ContactSearchFilters): Q
 
   if (f.name_contains) q = q.ilike("name", `%${f.name_contains}%`);
   if (f.company_contains) q = q.ilike("company", `%${f.company_contains}%`);
+
+  if (f.cadence_status === "never") {
+    q = q.not("contact_tier", "is", null).is("last_contacted_at", null);
+  } else if (f.cadence_status) {
+    const orFilter = buildCadenceStatusOrFilter(f.cadence_status, cadenceMap);
+    if (orFilter) q = q.or(orFilter);
+  }
+
   return q;
 }
 
-export function applyLeaseFilters(q: QueryBuilder, f: LeaseSearchFilters): QueryBuilder {
+export async function applyLeaseFilters(
+  q: QueryBuilder,
+  f: LeaseSearchFilters,
+  supabase?: QueryBuilder,
+): Promise<QueryBuilder> {
   const now = new Date().toISOString();
   const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString();
 
@@ -93,6 +205,23 @@ export function applyLeaseFilters(q: QueryBuilder, f: LeaseSearchFilters): Query
   }
   if (f.base_rate_min != null) q = q.gte("base_rate", f.base_rate_min);
   if (f.base_rate_max != null) q = q.lte("base_rate", f.base_rate_max);
+
+  if (f.expiration_window) {
+    const range = leaseExpirationWindowDateRange(f.expiration_window);
+    q = q.not("expiration_date", "is", null);
+    if (range.gte) q = q.gte("expiration_date", range.gte);
+    if (range.gt) q = q.gt("expiration_date", range.gt);
+    if (range.lte) q = q.lte("expiration_date", range.lte);
+  }
+
+  if (f.linked_property_type && supabase) {
+    const propertyIds = await fetchMatchingPropertyIdsFromClient(supabase, { property_type: f.linked_property_type });
+    q = q.in("linked_property", propertyIds.length > 0 ? propertyIds : ["00000000-0000-0000-0000-000000000000"]);
+  }
+
+  if (f.has_tenant_contact === true) q = q.not("tenant_contact_id", "is", null);
+  if (f.has_tenant_contact === false) q = q.is("tenant_contact_id", null);
+
   return q;
 }
 
@@ -123,29 +252,43 @@ export type SmartListCounts = {
 
 export type ManualPropFilters = {
   propType: string;
-  ownership: string;
-  sizeCat: string;
-  geoCat: string;
+  ownership: string;        // "individual" | "entity" | ""
+  ownershipChange: string;  // "yes" | "no" | ""
+  saleRecency: string;      // SaleRecencyBucket | ""
 };
 
 export type ManualConFilters = {
   tier: string;
-  status: string;
-  contactType: string;
-  sizeCat: string;
-  geoCat: string;
-  ownership: string;
-  tag: string;
+  status: string;           // relationship_stage
+  assetFocus: string;       // asset_focus_includes
+  cadenceStatus: string;    // CadenceStatusValue | ""
 };
 
 export type ManualLeaseFilters = {
-  status: string;
+  expirationWindow: string;   // LeaseExpirationWindow | ""
+  linkedPropertyType: string; // property_type enum
+  hasTenantContact: string;   // "yes" | "no" | ""
 };
 
-const LEASE_STATUS_LABELS: Record<string, string> = {
-  active: "Active",
-  expiring: "Expiring soon",
-  expired: "Expired",
+const SALE_RECENCY_LABELS: Record<string, string> = {
+  lt1y: "sold within 1 year",
+  "1to3y": "sold 1–3 years ago",
+  "3to5y": "sold 3–5 years ago",
+  "5plus": "sold 5+ years ago",
+};
+
+const CADENCE_STATUS_LABELS: Record<string, string> = {
+  overdue: "Cadence overdue",
+  due_soon: "Cadence due soon",
+  ok: "Cadence on track",
+  never: "Never contacted",
+};
+
+const EXPIRATION_WINDOW_LABELS: Record<string, string> = {
+  "90d": "Expiring ≤90 days",
+  "180d": "Expiring ≤180 days",
+  "12mo": "Expiring ≤12 months",
+  "beyond12mo": "Expiring 12+ months out",
 };
 
 function humanizeToken(value: string): string {
@@ -169,17 +312,17 @@ export function buildManualFilterSearchResult(
       properties.property_type = propFilters.propType;
       parts.push(humanizeToken(propFilters.propType));
     }
-    if (propFilters.ownership) {
-      properties.ownership_type = propFilters.ownership;
+    if (propFilters.ownership === "individual" || propFilters.ownership === "entity") {
+      properties.ownership_individual_or_entity = propFilters.ownership;
       parts.push(`${humanizeToken(propFilters.ownership)} ownership`);
     }
-    if (propFilters.sizeCat) {
-      properties.size_category_keyword = propFilters.sizeCat;
-      parts.push(`Size: ${propFilters.sizeCat}`);
+    if (propFilters.ownershipChange === "yes" || propFilters.ownershipChange === "no") {
+      properties.has_ownership_change = propFilters.ownershipChange === "yes";
+      parts.push(propFilters.ownershipChange === "yes" ? "Ownership change" : "No ownership change");
     }
-    if (propFilters.geoCat) {
-      properties.geographic_keyword = propFilters.geoCat;
-      parts.push(`Geo: ${propFilters.geoCat}`);
+    if (propFilters.saleRecency) {
+      properties.last_sale_recency = propFilters.saleRecency as PropertySearchFilters["last_sale_recency"];
+      parts.push(SALE_RECENCY_LABELS[propFilters.saleRecency] ?? humanizeToken(propFilters.saleRecency));
     }
     if (parts.length === 0) return null;
     return { target: "properties", properties, explanation: parts.join(" · ") };
@@ -196,40 +339,34 @@ export function buildManualFilterSearchResult(
       contacts.relationship_stage = conFilters.status;
       parts.push(humanizeToken(conFilters.status));
     }
-    if (conFilters.contactType) {
-      contacts.ownership_role = conFilters.contactType;
-      parts.push(humanizeToken(conFilters.contactType));
+    if (conFilters.assetFocus) {
+      contacts.asset_focus_includes = conFilters.assetFocus;
+      parts.push(`Focus: ${humanizeToken(conFilters.assetFocus)}`);
     }
-    if (conFilters.tag) {
-      contacts.action_tags_includes = conFilters.tag;
-      parts.push(`Tag: ${conFilters.tag}`);
-    }
-    if (conFilters.sizeCat) {
-      contacts.portfolio_size_keyword = conFilters.sizeCat;
-      parts.push(`Portfolio: ${conFilters.sizeCat}`);
-    }
-    if (conFilters.geoCat) {
-      contacts.submarket_keyword = conFilters.geoCat;
-      parts.push(`Submarket: ${conFilters.geoCat}`);
-    }
-    if (conFilters.ownership) {
-      contacts.lead_source = conFilters.ownership;
-      parts.push(`Lead source: ${conFilters.ownership}`);
+    if (conFilters.cadenceStatus) {
+      contacts.cadence_status = conFilters.cadenceStatus as ContactSearchFilters["cadence_status"];
+      parts.push(CADENCE_STATUS_LABELS[conFilters.cadenceStatus] ?? humanizeToken(conFilters.cadenceStatus));
     }
     if (parts.length === 0) return null;
     return { target: "contacts", contacts, explanation: parts.join(" · ") };
   }
 
-  if (leaseFilters.status) {
-    const status = leaseFilters.status as "active" | "expiring" | "expired";
-    return {
-      target: "leases",
-      leases: { status },
-      explanation: LEASE_STATUS_LABELS[status] ?? humanizeToken(status),
-    };
+  const parts: string[] = [];
+  const leases: LeaseSearchFilters = {};
+  if (leaseFilters.expirationWindow) {
+    leases.expiration_window = leaseFilters.expirationWindow as LeaseSearchFilters["expiration_window"];
+    parts.push(EXPIRATION_WINDOW_LABELS[leaseFilters.expirationWindow] ?? humanizeToken(leaseFilters.expirationWindow));
   }
-
-  return null;
+  if (leaseFilters.linkedPropertyType) {
+    leases.linked_property_type = leaseFilters.linkedPropertyType;
+    parts.push(`Property: ${humanizeToken(leaseFilters.linkedPropertyType)}`);
+  }
+  if (leaseFilters.hasTenantContact === "yes" || leaseFilters.hasTenantContact === "no") {
+    leases.has_tenant_contact = leaseFilters.hasTenantContact === "yes";
+    parts.push(leaseFilters.hasTenantContact === "yes" ? "Has tenant contact" : "No tenant contact");
+  }
+  if (parts.length === 0) return null;
+  return { target: "leases", leases, explanation: parts.join(" · ") };
 }
 
 /** Filters that can be saved as a smart list (AI search or manual filters), excluding open saved lists. */

@@ -71,6 +71,13 @@ export type OutreachResolution =
 
 const MS_DAY = 86_400_000;
 
+/** Day-count thresholds for the radar buckets — shared with the CRM "Expiration window" filter. */
+export const LEASE_RADAR_DAY_THRESHOLDS = {
+  threeMonth: 90,
+  sixMonth: 180,
+  twelveMonth: 365,
+} as const;
+
 export function daysUntilExpiry(expirationDate: string, now = new Date()): number {
   const exp = new Date(expirationDate + "T12:00:00").getTime();
   const today = new Date(now);
@@ -80,9 +87,9 @@ export function daysUntilExpiry(expirationDate: string, now = new Date()): numbe
 
 export function leaseRadarBucket(days: number): LeaseRadarBucket | null {
   if (days < 0) return null;
-  if (days <= 90) return "3mo";
-  if (days <= 180) return "6mo";
-  if (days <= 365) return "12mo";
+  if (days <= LEASE_RADAR_DAY_THRESHOLDS.threeMonth) return "3mo";
+  if (days <= LEASE_RADAR_DAY_THRESHOLDS.sixMonth) return "6mo";
+  if (days <= LEASE_RADAR_DAY_THRESHOLDS.twelveMonth) return "12mo";
   return null;
 }
 
