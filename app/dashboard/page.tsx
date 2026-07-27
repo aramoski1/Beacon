@@ -55,10 +55,32 @@ function greeting() {
   return "Good evening";
 }
 
-function displayName(email: string) {
-  const local = email.split("@")[0] ?? "";
-  const first = local.split(/[._-]/)[0] ?? local;
-  return first.charAt(0).toUpperCase() + first.slice(1);
+function titleCasePart(part: string) {
+  if (!part) return "";
+  return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+}
+
+/** Prefer Settings → display name; fall back to a readable email local-part. */
+function displayNameFromEmail(email: string) {
+  const local = (email.split("@")[0] ?? "").replace(/\+/g, " ");
+  const parts = local.split(/[._\s-]+/).filter(Boolean);
+  if (parts.length >= 2) return parts.map(titleCasePart).join(" ");
+  return titleCasePart(parts[0] ?? local);
+}
+
+function resolveGreetingName(opts: {
+  displayName?: string | null;
+  brokerName?: string | null;
+  senderName?: string | null;
+  email?: string | null;
+}) {
+  const fromSettings =
+    opts.displayName?.trim() ||
+    opts.brokerName?.trim() ||
+    opts.senderName?.trim();
+  if (fromSettings) return fromSettings;
+  if (opts.email) return displayNameFromEmail(opts.email);
+  return null;
 }
 
 export default async function DashboardPage() {
@@ -68,7 +90,7 @@ export default async function DashboardPage() {
 
   const { data: obSettings } = await supabase
     .from("user_settings")
-    .select("onboarding_completed_at")
+    .select("onboarding_completed_at, display_name, broker_name, sender_name")
     .eq("owner_id", user.id)
     .maybeSingle();
   if (!obSettings?.onboarding_completed_at) redirect("/onboarding");
@@ -195,9 +217,13 @@ export default async function DashboardPage() {
     weekday: "long", month: "long", day: "numeric",
   });
 
-  const heroName = user.email
-    ? `${greeting()}, ${displayName(user.email)}`
-    : greeting();
+  const name = resolveGreetingName({
+    displayName: obSettings?.display_name,
+    brokerName: obSettings?.broker_name,
+    senderName: obSettings?.sender_name,
+    email: user.email,
+  });
+  const heroName = name ? `${greeting()}, ${name}` : greeting();
 
   return (
     <div className="dashboard-page px-4 py-6 sm:px-6 sm:py-8 max-w-[80rem] mx-auto space-y-8">
