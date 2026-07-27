@@ -167,42 +167,74 @@ function AddFieldForm({
 
 function FieldRow({ field, onDeleted }: { field: FieldDefinition; onDeleted: () => void }) {
   const [isPending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function handleDelete() {
+    setError(null);
     startTransition(async () => {
-      await deleteFieldDefinition(field.id);
+      const result = await deleteFieldDefinition(field.id);
+      if (result.error) {
+        setError(result.error);
+        setConfirming(false);
+        return;
+      }
       onDeleted();
     });
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 py-2.5 border-b last:border-0">
-      <div className="min-w-0">
-        <p className="text-sm font-medium truncate">{field.field_name}</p>
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <Badge variant="outline" className="text-xs py-0">
-            {FIELD_TYPE_LABELS[field.field_type]}
-          </Badge>
-          {field.fill_mode && (
-            <Badge variant="secondary" className="text-xs py-0 capitalize">
-              {field.fill_mode}
+    <div className="py-2.5 border-b last:border-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">{field.field_name}</p>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <Badge variant="outline" className="text-xs py-0">
+              {FIELD_TYPE_LABELS[field.field_type]}
             </Badge>
-          )}
-          {field.select_options?.length ? (
-            <span className="text-xs text-muted-foreground">
-              {field.select_options.join(", ")}
-            </span>
-          ) : null}
+            {field.fill_mode && (
+              <Badge variant="secondary" className="text-xs py-0 capitalize">
+                {field.fill_mode}
+              </Badge>
+            )}
+            {field.select_options?.length ? (
+              <span className="text-xs text-muted-foreground">
+                {field.select_options.join(", ")}
+              </span>
+            ) : null}
+          </div>
         </div>
+        {confirming ? (
+          <div className="shrink-0 flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground whitespace-nowrap">Delete field?</span>
+            <button
+              onClick={handleDelete}
+              disabled={isPending}
+              className="px-2 py-1 rounded text-destructive hover:bg-destructive/10 font-medium disabled:opacity-50"
+            >
+              {isPending ? <Loader2 className="size-3.5 animate-spin" /> : "Delete"}
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={isPending}
+              className="px-2 py-1 rounded text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirming(true)}
+            className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            title="Delete field"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
       </div>
-      <button
-        onClick={handleDelete}
-        disabled={isPending}
-        className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-        title="Delete field"
-      >
-        {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-      </button>
+      {error && (
+        <p className="mt-1 text-xs text-destructive">Delete failed: {error}</p>
+      )}
     </div>
   );
 }

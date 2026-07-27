@@ -23,6 +23,40 @@ export function fieldSlug(name: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+const ENTITY_TABLES: Record<EntityType, string> = {
+  property: "properties",
+  contact: "contacts",
+  lease: "lease_abstracts",
+};
+
+// Removes a deleted field's stored values from every entity's custom_fields JSONB
+// for this owner. Without this, recreating a field with the same name later would
+// silently resurrect stale values that nobody re-entered (custom_fields has no FK
+// back to field_definitions — the link is the slug alone).
+export async function scrubCustomFieldValues(
+  supabase: SupabaseClient,
+  ownerId: string,
+  entityType: EntityType,
+  fieldName: string
+): Promise<void> {
+  const slug = fieldSlug(fieldName);
+  if (!slug) return;
+  const table = ENTITY_TABLES[entityType];
+  const { data: rows } = await supabase
+    .from(table)
+    .select("id, custom_fields")
+    .eq("owner_id", ownerId)
+    .not("custom_fields", "is", null);
+  if (!rows?.length) return;
+  for (const row of rows as { id: string; custom_fields: Record<string, unknown> | null }[]) {
+    const cf = row.custom_fields;
+    if (!cf || !(slug in cf)) continue;
+    const rest = { ...cf };
+    delete rest[slug];
+    await supabase.from(table).update({ custom_fields: rest }).eq("id", row.id).eq("owner_id", ownerId);
+  }
+}
+
 export async function fetchFieldDefs(
   supabase: SupabaseClient,
   entityType: EntityType

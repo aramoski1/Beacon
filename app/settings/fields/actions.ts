@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { fieldSlug, type FieldDefinition, type EntityType, type FieldType, type FillMode } from "@/lib/custom-fields";
+import { fieldSlug, scrubCustomFieldValues, type FieldDefinition, type EntityType, type FieldType, type FillMode } from "@/lib/custom-fields";
 
 export async function getFieldDefinitions(): Promise<FieldDefinition[]> {
   const supabase = await createClient();
@@ -76,6 +76,13 @@ export async function deleteFieldDefinition(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  const { data: def } = await supabase
+    .from("field_definitions")
+    .select("entity_type, field_name")
+    .eq("id", id)
+    .eq("owner_id", user.id)
+    .single();
+
   const { error } = await supabase
     .from("field_definitions")
     .delete()
@@ -83,5 +90,9 @@ export async function deleteFieldDefinition(
     .eq("owner_id", user.id);
 
   if (error) return { error: error.message };
+
+  if (def) {
+    await scrubCustomFieldValues(supabase, user.id, def.entity_type as EntityType, def.field_name);
+  }
   return {};
 }
