@@ -51,13 +51,22 @@ export function stripEntityCore(name: string): string {
     .trim();
 }
 
-function significantEntityTokens(name: string): string[] {
-  return stripEntityCore(name)
-    .split(/\s+/)
-    .filter((w) => w.length >= 2);
-}
-
-/** Whether a tax roll owner name belongs to the same entity portfolio as the anchor query. */
+/**
+ * Whether a tax roll owner name belongs to the same entity portfolio as the anchor query.
+ *
+ * Precision over recall: a false match here silently merges two unrelated legal
+ * entities' properties into one CRM portfolio view, which is worse than missing
+ * a real variant. Real-estate LLCs are routinely named after either a generic
+ * business word ("Holdings", "Enterprises", "Properties") or a shared street /
+ * neighborhood ("West Brickell", "Miami", "Paradise") — order-independent,
+ * bag-of-words token overlap reliably collides on those, since unrelated owners
+ * constantly share individual words. Order- and adjacency-sensitive comparisons
+ * don't have that failure mode (two unrelated names essentially never produce
+ * the same contiguous multi-word phrase by chance), so matching is restricted to:
+ *   1. exact normalized-name equality
+ *   2. exact match after stripping legal suffix / state noise ("LLC", "A FL", ...)
+ *   3. one full (2+-word) core appearing as a contiguous substring of the other
+ */
 export function entityOwnerNamesMatch(query: string, ownerField: string): boolean {
   const qNorm = normalizeOwnerName(query);
   const oNorm = normalizeOwnerName(ownerField);
@@ -67,12 +76,14 @@ export function entityOwnerNamesMatch(query: string, ownerField: string): boolea
   const qCore = stripEntityCore(query);
   const oCore = stripEntityCore(ownerField);
   if (qCore.length >= 4 && qCore === oCore) return true;
-  if (qCore.length >= 5 && oNorm.includes(qCore)) return true;
-  if (oCore.length >= 5 && qNorm.includes(oCore)) return true;
 
-  const qTokens = significantEntityTokens(query);
-  if (qTokens.length >= 2 && qTokens.every((t) => oNorm.includes(t))) return true;
-  if (qTokens.length === 1 && qTokens[0].length >= 6 && oNorm.includes(qTokens[0])) return true;
+  // A single-word core is exactly the generic/geographic-word collision case
+  // above, so require at least two words before trusting "core appears
+  // somewhere in the other name" as a contiguous substring.
+  const qCoreWords = qCore.split(/\s+/).filter(Boolean);
+  const oCoreWords = oCore.split(/\s+/).filter(Boolean);
+  if (qCoreWords.length >= 2 && qCore.length >= 5 && oNorm.includes(qCore)) return true;
+  if (oCoreWords.length >= 2 && oCore.length >= 5 && qNorm.includes(oCore)) return true;
 
   return false;
 }

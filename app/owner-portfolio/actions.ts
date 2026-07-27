@@ -521,18 +521,22 @@ export async function getOwnerPortfolioForProperty(
   let propertyIds: string[];
   if (entityId) {
     const linked = await propertyIdsForEntity(supabase, user.id, entityId);
-    // Union entity links with fuzzy name match for pre-backfill / variant rows
+    // Union entity links with fuzzy name match for pre-backfill / variant rows.
+    // Fuzzy matching only applies to rows with NO entity_id of their own — a
+    // property already durably linked to a *different* entity must never be
+    // pulled in by a loose name match, no matter how the string compares.
     propertyIds = collectPropertyIds(
       allProperties,
       new Set(mergeEntityPropertyIds([propertyId], linked)),
       (prop) =>
-        prop.entity_id === entityId || entityMatchesProperty(entityName, prop),
+        prop.entity_id === entityId ||
+        (!prop.entity_id && entityMatchesProperty(entityName, prop)),
     );
   } else {
     propertyIds = collectPropertyIds(
       allProperties,
       new Set([propertyId]),
-      (prop) => entityMatchesProperty(entityName, prop),
+      (prop) => !prop.entity_id && entityMatchesProperty(entityName, prop),
     );
   }
 
