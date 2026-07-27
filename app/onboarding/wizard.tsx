@@ -77,7 +77,7 @@ function WelcomeStep({
         <p className="text-muted-foreground leading-relaxed">
           Let&apos;s import your book of business. Upload a spreadsheet of your properties
           or contacts and we&apos;ll map the columns and deduplicate records. After import you
-          can queue Miami-Dade + Sunbiz enrichment for those properties (rate-limited; skips
+          can queue Miami-Dade/Broward + Sunbiz enrichment for those properties (rate-limited; skips
           parcels already linked to a county folio).
         </p>
       </div>
@@ -547,7 +547,7 @@ function DoneStep({
         </button>
         {result.propertiesImported > 0 && (
           <p className="text-xs text-muted-foreground text-center">
-            Enrich queues Miami-Dade address lookups and Sunbiz for entity owners.
+            Enrich queues Miami-Dade/Broward address lookups and Sunbiz for entity owners.
             Already-linked folios are skipped. Progress and errors show in the panel —
             you can leave for CRM anytime.
           </p>
