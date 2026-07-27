@@ -19,6 +19,7 @@ import {
 } from "@/lib/deals";
 import { sumEstimatedCommission } from "@/lib/dashboard-kpis";
 import {
+  dealFollowUpDescriptionPrefix,
   formatDealFollowUpDescription,
   isDealFollowUpDescription,
 } from "@/lib/deal-follow-up";
@@ -281,6 +282,16 @@ export async function deleteDeal(dealId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  // follow_ups has no FK back to deals (soft-linked via description prefix —
+  // see lib/deal-follow-up.ts), so it won't cascade on its own. Clean it up
+  // explicitly or a deleted deal leaves a dangling, un-completable follow-up.
+  const { error: followUpError } = await supabase
+    .from("follow_ups")
+    .delete()
+    .eq("owner_id", user.id)
+    .like("description", `${dealFollowUpDescriptionPrefix(dealId)}%`);
+  if (followUpError) return { error: followUpError.message };
 
   const { error } = await supabase
     .from("deals")
