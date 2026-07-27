@@ -267,6 +267,25 @@ export async function deleteProperty(id: string): Promise<{ error?: string }> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  // Property-only activities (no contact) would violate activities_contact_or_property
+  // once property_id is cleared below, so remove them outright first.
+  const { error: purgeError } = await supabase
+    .from("activities")
+    .delete()
+    .eq("property_id", id)
+    .eq("owner_id", user.id)
+    .is("contact_id", null);
+  if (purgeError) return { error: purgeError.message };
+
+  // Activities that also have a contact just lose their property link and survive.
+  const { error: unlinkError } = await supabase
+    .from("activities")
+    .update({ property_id: null })
+    .eq("property_id", id)
+    .eq("owner_id", user.id);
+  if (unlinkError) return { error: unlinkError.message };
+
   // owner_id filter is defense-in-depth; RLS already enforces this at the DB level
   const { error } = await supabase
     .from("properties")

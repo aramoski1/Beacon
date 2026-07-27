@@ -144,6 +144,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-field-sources.ts",
     description: "Properties — field_sources JSONB for per-field provenance (county/sunbiz/document/url/pasted)",
   },
+  {
+    file: "migrate-activities-property-cascade.ts",
+    description: "Activities — property_id FK ON DELETE SET NULL -> CASCADE (fixes activities_contact_or_property violation on property delete)",
+  },
 ];
 
 const hr = "─".repeat(60);
