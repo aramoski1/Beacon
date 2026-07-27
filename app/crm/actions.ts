@@ -339,6 +339,26 @@ export async function deleteContact(id: string): Promise<{ error?: string }> {
     }
   }
 
+  // Contact-only activities (no property) would violate activities_contact_or_property
+  // once contact_id is cleared below, so remove them outright first.
+  const { error: purgeError } = await supabase
+    .from("activities")
+    .delete()
+    .eq("contact_id", id)
+    .eq("owner_id", user.id)
+    .is("property_id", null);
+  if (purgeError) return { error: purgeError.message };
+
+  // Activities that also have a property just lose their contact link and survive —
+  // otherwise ON DELETE CASCADE on activities.contact_id would silently wipe out
+  // history that still belongs to a live property's timeline.
+  const { error: unlinkError } = await supabase
+    .from("activities")
+    .update({ contact_id: null })
+    .eq("contact_id", id)
+    .eq("owner_id", user.id);
+  if (unlinkError) return { error: unlinkError.message };
+
   const { error } = await supabase
     .from("contacts")
     .delete()
