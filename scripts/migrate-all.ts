@@ -148,6 +148,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-activities-property-cascade.ts",
     description: "Activities — property_id FK ON DELETE SET NULL -> CASCADE (fixes activities_contact_or_property violation on property delete)",
   },
+  {
+    file: "migrate-storage-leases-delete-policy.ts",
+    description: "Storage — add owner-scoped DELETE/UPDATE RLS policies on the leases bucket so account deletion actually purges uploaded PDFs",
+  },
 ];
 
 const hr = "─".repeat(60);
