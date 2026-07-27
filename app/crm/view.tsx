@@ -860,6 +860,7 @@ function DeleteCell({
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  warning,
 }: {
   id: string;
   label: string;
@@ -867,12 +868,18 @@ function DeleteCell({
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
+  warning?: string | null;
 }) {
   const isDeleting = deletingId === id;
   return (
     <td className={cn(tdCls, "crm-row-action-cell w-10 text-right pr-2 whitespace-nowrap sticky right-0 bg-background")}>
       {isDeleting ? (
         <span className="inline-flex items-center gap-1 text-xs text-destructive whitespace-nowrap">
+          {warning && (
+            <span className="text-amber-600 dark:text-amber-500" title={warning}>
+              {warning} ·
+            </span>
+          )}
           <button type="button" onClick={() => onDeleteConfirm(id)} className="font-medium hover:underline">
             Delete
           </button>
@@ -925,6 +932,7 @@ function PropertiesTable({
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  deleteWarning,
   selectedIds,
   onToggle,
   onToggleAll,
@@ -941,6 +949,7 @@ function PropertiesTable({
   onDeleteRequest: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
+  deleteWarning?: string | null;
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: (allSelected: boolean) => void;
@@ -1439,6 +1448,7 @@ function PropertiesTable({
                   onDeleteRequest={onDeleteRequest}
                   onDeleteConfirm={onDeleteConfirm}
                   onDeleteCancel={onDeleteCancel}
+                  warning={deletingId === p.id ? deleteWarning : null}
                 />
               </tr>
             );
@@ -2178,6 +2188,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
   const [deletingLeaseId, setDeletingLeaseId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
 
   // ── Load properties (server-filtered + paginated) ──────────────────────────
   const loadProperties = useCallback(async () => {
@@ -2537,10 +2548,26 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
 
   // ── Delete handlers ────────────────────────────────────────────────────────
+  const handlePropertyDeleteRequest = useCallback((id: string) => {
+    setDeletingId(id);
+    setDeleteWarning(null);
+    (async () => {
+      const supabase = createClient();
+      const { count } = await supabase
+        .from("lease_abstracts")
+        .select("id", { count: "exact", head: true })
+        .eq("linked_property", id);
+      if (count) {
+        setDeleteWarning(`${count} linked lease${count === 1 ? "" : "s"} will be unlinked, not deleted`);
+      }
+    })();
+  }, []);
+
   const handleDeleteConfirm = useCallback(async (id: string) => {
     setProperties((prev) => prev.filter((p) => p.id !== id));
     setTotalProps((t) => (t !== null ? t - 1 : null));
     setDeletingId(null);
+    setDeleteWarning(null);
     setDeleteError(null);
     const result = await deleteProperty(id);
     if (result.error) {
@@ -3079,9 +3106,10 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                     void loadProperties();
                   }}
                   deletingId={deletingId}
-                  onDeleteRequest={setDeletingId}
+                  onDeleteRequest={handlePropertyDeleteRequest}
                   onDeleteConfirm={handleDeleteConfirm}
-                  onDeleteCancel={() => setDeletingId(null)}
+                  onDeleteCancel={() => { setDeletingId(null); setDeleteWarning(null); }}
+                  deleteWarning={deleteWarning}
                   selectedIds={selectedPropIds}
                   onToggle={togglePropSelection}
                   onToggleAll={toggleAllProps}
