@@ -432,6 +432,12 @@ export async function initiateCountyEnhancement(
         };
       }
       parcels = searchResult.parcels;
+
+      if (parcels.length === 0) {
+        return {
+          error: "No parcel found for this address. Verify the street number and name.",
+        };
+      }
     } else {
       // Unknown city — search both counties in parallel and merge results
       const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
@@ -444,13 +450,17 @@ export async function initiateCountyEnhancement(
         ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
         ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
       ];
+
+      if (parcels.length === 0) {
+        // Couldn't route the city to a supported county, and both searches
+        // genuinely came back empty — most likely outside coverage (e.g.
+        // Palm Beach), not a property that doesn't exist.
+        return {
+          error: "This address appears to be outside our current coverage (Miami-Dade and Broward only).",
+        };
+      }
     }
 
-    if (parcels.length === 0) {
-      return {
-        error: "No parcel found for this address. Verify the street number and name. This feature supports Miami-Dade and Broward County properties.",
-      };
-    }
     return { matches: parcels.map((p) => ({ strap: p.strap, address: p.address })) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

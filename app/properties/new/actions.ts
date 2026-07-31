@@ -118,6 +118,12 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
       };
     }
     matches = searchResult.parcels;
+
+    if (matches.length === 0) {
+      return {
+        error: "No parcel found for that address. Double-check the street number and name.",
+      };
+    }
   } else {
     // City missing or unrecognised — search both counties in parallel.
     const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
@@ -151,13 +157,16 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
         });
         return { error: `Property search failed: ${firstError}` };
       }
-    }
-  }
 
-  if (matches.length === 0) {
-    return {
-      error: "No parcel found for that address. Double-check the street number and name. This feature supports Miami-Dade and Broward County properties.",
-    };
+      // We couldn't route the city to a supported county, and both county
+      // searches came back with a genuine (not erroring) empty result — this
+      // address is most likely outside our coverage area entirely (e.g. Palm
+      // Beach), not a property that doesn't exist. Say so instead of "no
+      // parcel found", which wrongly implies the property itself is missing.
+      return {
+        error: "This address appears to be outside our current coverage (Miami-Dade and Broward only).",
+      };
+    }
   }
 
   return { matches };
