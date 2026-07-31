@@ -112,45 +112,42 @@ function sortParcels(
   });
 }
 
-/**
- * Search Broward parcels by address.
- *
- * @param rawAddress  Street address, optionally with city suffix (e.g. "2116 Sherman St, Hollywood").
- * @param _city       Reserved for county-router compatibility; unused — the Broward parcel
- *                    service accepts a tight house-number + keyword WHERE, so city scoping
- *                    is no longer needed.
- *
- * Returns:
- *   { kind: "ok"; parcels }           — success (parcels may be empty = genuine miss)
- *   { kind: "error"; message }        — service failure; caller should log + surface to user
- *   { kind: "too_many_candidates" }   — result page saturated with no keyword match after
- *                                       JS filter; parcel may exist but can't be isolated
- */
-export async function searchByAddressGIS(
-  rawAddress: string,
-  _city?: string
-): Promise<GISSearchResult> {
-  const parsed = parseAddressForGIS(rawAddress);
-  if (!parsed) {
-    throw new Error(
-      "Could not parse a street number from that address. Include the building number (e.g. '200 W Broward Blvd')."
-    );
-  }
+// Tax roll data often stores a numbered street without its ordinal suffix
+// ("21ST" -> "21", "3RD" -> "3", "42ND" -> "42"). Returns the bare form, or
+// null when the keyword isn't a numbered-street-with-suffix.
+function bareNumberedStreetForm(kw: string): string | null {
+  const m = kw.match(/^(\d+)(ST|ND|RD|TH)$/);
+  return m ? m[1] : null;
+}
 
-  const { houseNum, streetKeyword, directional, streetType } = parsed;
-  const kw = streetKeyword.toUpperCase();
-  const dir = directional?.toUpperCase() ?? null;
-
-  // Tight server-side WHERE: house number + street keyword (+ directional when present).
-  // Confirmed working on this service, e.g. PHY_ADDR1 LIKE '2116 SHERMAN%'.
-  const prefix = dir ? `${houseNum} ${dir} ${kw}` : `${houseNum} ${kw}`;
-  const where = `PHY_ADDR1 LIKE '${prefix}%'`;
-
-  // JS-side keyword match — word-boundary check for numbered streets ("3RD" must not match "13RD")
+// Word-boundary check for numbered streets ("3RD" must not match "13RD") —
+// used for the primary keyword as parsed (already has its own boundary either
+// via a letter suffix like "3RD", or the whole token as parsed).
+function matchesKeyword(kw: string, addr: string): boolean {
   const isNumbered = /^\d/.test(kw);
-  const matchesKeyword = (addr: string): boolean =>
-    isNumbered ? addr.includes(` ${kw}`) || addr.endsWith(kw) : addr.includes(kw);
+  return isNumbered ? addr.includes(` ${kw}`) || addr.endsWith(kw) : addr.includes(kw);
+}
 
+// Stricter boundary check for the bare-number fallback only (ordinal suffix
+// stripped, e.g. "21ST" -> "21"). A plain digit keyword has no letter suffix
+// to disambiguate it, so without this, "21" would also match "210"/"213" on
+// the same street (both surface from the broader WHERE prefix). Requires the
+// keyword not be immediately followed by another digit.
+function matchesBareNumberedKeyword(kw: string, addr: string): boolean {
+  return new RegExp(`(^|\\s)${kw}(?!\\d)`).test(addr);
+}
+
+type BcpaCandidateResult =
+  | { kind: "ok"; parcels: BCPAParcel[] }
+  | { kind: "error"; message: string }
+  | { kind: "too_many_candidates" };
+
+// Shared fetch + parse against the FeatureServer for a given WHERE clause,
+// filtered by a caller-supplied address matcher.
+async function fetchBcpaWhere(
+  where: string,
+  matches: (addr: string) => boolean
+): Promise<BcpaCandidateResult> {
   const url = new URL(BCPA_URL);
   url.searchParams.set("where", where);
   url.searchParams.set("outFields", SEARCH_FIELDS);
@@ -186,10 +183,10 @@ export async function searchByAddressGIS(
     };
   });
 
-  const filtered = parcels.filter((p) => matchesKeyword(p.address));
+  const filtered = parcels.filter((p) => matches(p.address));
 
   if (filtered.length > 0) {
-    return { kind: "ok", parcels: sortParcels(filtered, houseNum, dir, streetType) };
+    return { kind: "ok", parcels: filtered };
   }
 
   // Full page of non-matching rows — can't isolate without a tighter query.
@@ -198,6 +195,134 @@ export async function searchByAddressGIS(
   }
 
   return { kind: "ok", parcels: [] };
+}
+
+// Runs one house-number + keyword attempt against the FeatureServer. Split out
+// from searchByAddressGIS so it can be retried with alternate house numbers
+// (hyphenated ranges) and alternate keywords (bare numbered-street form).
+async function fetchBcpaCandidate(
+  houseNum: number,
+  dir: string | null,
+  kw: string,
+  matches: (addr: string) => boolean
+): Promise<BcpaCandidateResult> {
+  // Tight server-side WHERE: house number + street keyword (+ directional when present).
+  // Confirmed working on this service, e.g. PHY_ADDR1 LIKE '2116 SHERMAN%'.
+  const prefix = dir ? `${houseNum} ${dir} ${kw}` : `${houseNum} ${kw}`;
+  return fetchBcpaWhere(`PHY_ADDR1 LIKE '${prefix}%'`, matches);
+}
+
+// The county sometimes files a whole block under ONE record whose own address
+// is itself a range that merely CONTAINS the numbers a broker typed — e.g.
+// querying "2317-2321 Stirling Rd" against a parcel recorded as
+// "2301-2363 STIRLING RD" (confirmed against the live Broward service; neither
+// 2317 nor 2321 exists as its own record). Last resort after both exact
+// endpoints miss: widen to a block-level prefix (drop the last 2 digits) and
+// keep only candidates that are an exact match or a recorded range overlapping
+// [houseNum, houseNumAlt].
+function parseRecordedAddressRange(addr: string): { start: number; end: number } | null {
+  const m = addr.match(/^(\d+)-(\d+)\s/);
+  if (!m) return null;
+  const start = parseInt(m[1], 10);
+  const end = parseInt(m[2], 10);
+  return start <= end ? { start, end } : null;
+}
+
+async function fetchBcpaBlockRangeCandidate(
+  houseNum: number,
+  houseNumAlt: number,
+  dir: string | null,
+  kw: string
+): Promise<BcpaCandidateResult> {
+  const digits = String(houseNum);
+  if (digits.length <= 2) return { kind: "ok", parcels: [] };
+  const blockPrefix = digits.slice(0, -2);
+
+  const where = dir
+    ? `PHY_ADDR1 LIKE '${blockPrefix}%${dir} ${kw}%'`
+    : `PHY_ADDR1 LIKE '${blockPrefix}%${kw}%'`;
+
+  const overlapsQueriedRange = (addr: string): boolean => {
+    const range = parseRecordedAddressRange(addr);
+    if (range) return houseNum <= range.end && houseNumAlt >= range.start;
+    return matchesKeyword(String(houseNum), addr) || matchesKeyword(String(houseNumAlt), addr);
+  };
+
+  return fetchBcpaWhere(
+    where,
+    (addr) => overlapsQueriedRange(addr) && matchesKeyword(kw, addr)
+  );
+}
+
+/**
+ * Search Broward parcels by address.
+ *
+ * @param rawAddress  Street address, optionally with city suffix (e.g. "2116 Sherman St, Hollywood").
+ * @param _city       Reserved for county-router compatibility; unused — the Broward parcel
+ *                    service accepts a tight house-number + keyword WHERE, so city scoping
+ *                    is no longer needed.
+ *
+ * Returns:
+ *   { kind: "ok"; parcels }           — success (parcels may be empty = genuine miss)
+ *   { kind: "error"; message }        — service failure; caller should log + surface to user
+ *   { kind: "too_many_candidates" }   — result page saturated with no keyword match after
+ *                                       JS filter; parcel may exist but can't be isolated
+ *
+ * Retries before giving up on a genuine miss:
+ *   - hyphenated house-number ranges ("2317-2321 Stirling Rd") try 2317, then 2321,
+ *     then (last resort) a block-level search for a recorded range that contains them
+ *     (e.g. the county may file the whole block as "2301-2363 Stirling Rd")
+ *   - numbered streets with an ordinal suffix ("21ST") also try the bare form ("21"),
+ *     since PHY_ADDR1 may store either
+ */
+export async function searchByAddressGIS(
+  rawAddress: string,
+  _city?: string
+): Promise<GISSearchResult> {
+  const parsed = parseAddressForGIS(rawAddress);
+  if (!parsed) {
+    throw new Error(
+      "Could not parse a street number from that address. Include the building number (e.g. '200 W Broward Blvd')."
+    );
+  }
+
+  const { houseNum, houseNumAlt, streetKeyword, directional, streetType } = parsed;
+  const kw = streetKeyword.toUpperCase();
+  const dir = directional?.toUpperCase() ?? null;
+  const bareKw = bareNumberedStreetForm(kw);
+
+  const houseCandidates = houseNumAlt !== undefined ? [houseNum, houseNumAlt] : [houseNum];
+  const kwCandidates = bareKw && bareKw !== kw ? [kw, bareKw] : [kw];
+
+  let sawTooMany = false;
+  for (const hn of houseCandidates) {
+    for (const candidateKw of kwCandidates) {
+      const matcher = candidateKw === bareKw
+        ? (addr: string) => matchesBareNumberedKeyword(candidateKw, addr)
+        : (addr: string) => matchesKeyword(candidateKw, addr);
+      const result = await fetchBcpaCandidate(hn, dir, candidateKw, matcher);
+      if (result.kind === "error") return result;
+      if (result.kind === "too_many_candidates") {
+        sawTooMany = true;
+        continue;
+      }
+      if (result.parcels.length > 0) {
+        return { kind: "ok", parcels: sortParcels(result.parcels, hn, dir, streetType) };
+      }
+    }
+  }
+
+  if (houseNumAlt !== undefined) {
+    const blockResult = await fetchBcpaBlockRangeCandidate(houseNum, houseNumAlt, dir, kw);
+    if (blockResult.kind === "error") return blockResult;
+    if (blockResult.kind === "too_many_candidates") {
+      sawTooMany = true;
+    } else if (blockResult.parcels.length > 0) {
+      return { kind: "ok", parcels: sortParcels(blockResult.parcels, houseNum, dir, streetType) };
+    }
+  }
+
+  return sawTooMany ? { kind: "too_many_candidates" } : { kind: "ok", parcels: [] };
 }
 
 // ─── Folio detail ─────────────────────────────────────────────────────────────

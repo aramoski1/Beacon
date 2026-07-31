@@ -49,12 +49,24 @@ const TYPES = new Set([
 // Returns null if a house number cannot be extracted.
 export function parseAddressForGIS(
   raw: string
-): { houseNum: number; streetKeyword: string; directional: string | null; streetType: string | null } | null {
+): {
+  houseNum: number;
+  // Second number in a hyphenated house-number range (e.g. "2317-2321 Stirling
+  // Rd" -> 2321). Commercial parcels are often addressed as a range; callers
+  // should retry with this number if houseNum finds nothing. Consuming the
+  // whole "2317-2321" prefix here also keeps "-2321" from leaking into the
+  // street-keyword parsing below.
+  houseNumAlt?: number;
+  streetKeyword: string;
+  directional: string | null;
+  streetType: string | null;
+} | null {
   const street = raw.replace(/,.*$/, "").trim();
 
-  const numMatch = street.match(/^(\d+)/);
+  const numMatch = street.match(/^(\d+)(?:-(\d+))?/);
   if (!numMatch) return null;
   const houseNum = parseInt(numMatch[1], 10);
+  const houseNumAlt = numMatch[2] ? parseInt(numMatch[2], 10) : undefined;
 
   const rest = street.slice(numMatch[0].length).trim().toUpperCase();
   const allWords = rest.split(/\s+/).filter((w) => w.length > 0);
@@ -80,7 +92,7 @@ export function parseAddressForGIS(
   const streetKeyword = words[0].replace(/[^A-Z0-9]/g, "");
   if (streetKeyword.length < 2) return null;
 
-  return { houseNum, streetKeyword, directional, streetType };
+  return { houseNum, houseNumAlt, streetKeyword, directional, streetType };
 }
 
 export async function searchByAddressGIS(

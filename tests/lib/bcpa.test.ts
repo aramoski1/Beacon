@@ -101,6 +101,28 @@ describe("parseAddressForGIS applied to Broward addresses", () => {
   it("returns null when no house number is present", () => {
     expect(parseAddressForGIS("Broward Blvd")).toBeNull();
   });
+
+  it("parses a hyphenated house-number range, keeping the street keyword intact", () => {
+    // Regression: the old regex only captured "2317" and left "-2321" to leak
+    // into the street-name tokens, corrupting streetKeyword to "2321" instead
+    // of "STIRLING". houseNumAlt carries the second number for retry.
+    expect(parseAddressForGIS("2317-2321 Stirling Rd")).toEqual({
+      houseNum: 2317,
+      houseNumAlt: 2321,
+      streetKeyword: "STIRLING",
+      directional: null,
+      streetType: "RD",
+    });
+  });
+
+  it("parses a numbered street with an ordinal suffix (no range)", () => {
+    expect(parseAddressForGIS("1900 NW 21st Ave")).toEqual({
+      houseNum: 1900,
+      streetKeyword: "21ST",
+      directional: "NW",
+      streetType: "AVE",
+    });
+  });
 });
 
 // ─── searchByAddressGIS — WHERE clause construction ──────────────────────────
@@ -290,6 +312,169 @@ describe("searchByAddressGIS (Broward)", () => {
     const parcels = okParcels(await searchByAddressGIS("200 W Broward Blvd"));
     expect(parcels[0].address).toBe("200 W BROWARD BLVD");
   });
+});
+
+// ─── searchByAddressGIS — retries for ranged and numbered-street addresses ───
+
+describe("searchByAddressGIS — retries before giving up", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  type FakeFeature = { PARCELNO: string; PHY_ADDR1: string; PHY_CITY: string };
+
+  function stubFetchSequence(pages: FakeFeature[][]) {
+    const capturedUrls: string[] = [];
+    let call = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      capturedUrls.push(url);
+      const features = pages[call] ?? [];
+      call++;
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+    return capturedUrls;
+  }
+
+  function whereFrom(rawUrl: string): string {
+    return new URL(rawUrl).searchParams.get("where") ?? "";
+  }
+
+  it("2317-2321 Stirling Rd — retries with the second house number in the range when the first finds nothing", async () => {
+    const urls = stubFetchSequence([
+      [], // 2317 STIRLING — no match
+      [{ PARCELNO: "504210040099", PHY_ADDR1: "2321 STIRLING RD", PHY_CITY: "HOLLYWOOD" }], // 2321 STIRLING — match
+    ]);
+
+    const result = await searchByAddressGIS("2317-2321 Stirling Rd");
+
+    expect(urls).toHaveLength(2);
+    expect(whereFrom(urls[0])).toBe("PHY_ADDR1 LIKE '2317 STIRLING%'");
+    expect(whereFrom(urls[1])).toBe("PHY_ADDR1 LIKE '2321 STIRLING%'");
+
+    const parcels = okParcels(result);
+    expect(parcels).toHaveLength(1);
+    expect(parcels[0].address).toBe("2321 STIRLING RD");
+  });
+
+  it("does not retry the second house number when the first one already matches", async () => {
+    const urls = stubFetchSequence([
+      [{ PARCELNO: "504210040099", PHY_ADDR1: "2317 STIRLING RD", PHY_CITY: "HOLLYWOOD" }],
+    ]);
+
+    const result = await searchByAddressGIS("2317-2321 Stirling Rd");
+
+    expect(urls).toHaveLength(1);
+    expect(okParcels(result)[0].address).toBe("2317 STIRLING RD");
+  });
+
+  it("1900 NW 21st Ave — retries with the bare number when the tax roll dropped the ordinal suffix", async () => {
+    const urls = stubFetchSequence([
+      [], // "1900 NW 21ST" — no match (tax roll stores it without the suffix)
+      [{ PARCELNO: "504210040088", PHY_ADDR1: "1900 NW 21 AVE", PHY_CITY: "FORT LAUDERDALE" }], // "1900 NW 21" — match
+    ]);
+
+    const result = await searchByAddressGIS("1900 NW 21st Ave");
+
+    expect(urls).toHaveLength(2);
+    expect(whereFrom(urls[0])).toBe("PHY_ADDR1 LIKE '1900 NW 21ST%'");
+    expect(whereFrom(urls[1])).toBe("PHY_ADDR1 LIKE '1900 NW 21%'");
+
+    const parcels = okParcels(result);
+    expect(parcels).toHaveLength(1);
+    expect(parcels[0].address).toBe("1900 NW 21 AVE");
+  });
+
+  it("does not retry the bare numbered-street form when the ordinal form already matches", async () => {
+    const urls = stubFetchSequence([
+      [{ PARCELNO: "504210040088", PHY_ADDR1: "1900 NW 21ST AVE", PHY_CITY: "FORT LAUDERDALE" }],
+    ]);
+
+    const result = await searchByAddressGIS("1900 NW 21st Ave");
+
+    expect(urls).toHaveLength(1);
+    expect(okParcels(result)[0].address).toBe("1900 NW 21ST AVE");
+  });
+
+  it("the bare-number retry does not false-match a different house number on the same street (21 vs 210)", async () => {
+    // Broward's LIKE '1900 NW 21%' prefix also surfaces "1900 NW 210 AVE" as a
+    // raw candidate; the retry's stricter boundary check must reject it.
+    stubFetchSequence([
+      [],
+      [
+        { PARCELNO: "1", PHY_ADDR1: "1900 NW 210 AVE", PHY_CITY: "FORT LAUDERDALE" },
+        { PARCELNO: "2", PHY_ADDR1: "1900 NW 21 AVE", PHY_CITY: "FORT LAUDERDALE" },
+      ],
+    ]);
+
+    const parcels = okParcels(await searchByAddressGIS("1900 NW 21st Ave"));
+
+    expect(parcels).toHaveLength(1);
+    expect(parcels[0].address).toBe("1900 NW 21 AVE");
+  });
+
+  it("2317-2321 Stirling Rd — falls back to a block-level search when the county recorded a wider containing range", async () => {
+    // Real-world case: Broward doesn't record 2317 or 2321 individually — the
+    // whole block is filed as one parcel, "2301-2363 STIRLING RD".
+    const urls = stubFetchSequence([
+      [], // exact "2317 STIRLING" — no match
+      [], // exact "2321 STIRLING" — no match
+      [
+        { PARCELNO: "504232410010", PHY_ADDR1: "2301-2363 STIRLING RD", PHY_CITY: "DANIA BEACH" },
+        { PARCELNO: "504232010860", PHY_ADDR1: "2300 STIRLING RD", PHY_CITY: "DANIA BEACH" },
+        { PARCELNO: "504232410020", PHY_ADDR1: "2381-2385 STIRLING RD", PHY_CITY: "DANIA BEACH" },
+      ],
+    ]);
+
+    const result = await searchByAddressGIS("2317-2321 Stirling Rd");
+
+    expect(urls).toHaveLength(3);
+    expect(whereFrom(urls[2])).toBe("PHY_ADDR1 LIKE '23%STIRLING%'");
+
+    const parcels = okParcels(result);
+    expect(parcels).toHaveLength(1);
+    expect(parcels[0].address).toBe("2301-2363 STIRLING RD");
+  });
+
+  it("block-level fallback excludes a recorded range that does not overlap the queried numbers", async () => {
+    const urls = stubFetchSequence([
+      [],
+      [],
+      [{ PARCELNO: "504232410020", PHY_ADDR1: "2381-2385 STIRLING RD", PHY_CITY: "DANIA BEACH" }],
+    ]);
+
+    const result = await searchByAddressGIS("2317-2321 Stirling Rd");
+
+    expect(urls).toHaveLength(3);
+    expect(result.kind).toBe("ok");
+    expect(okParcels(result)).toHaveLength(0);
+  });
+
+  it("returns a genuine miss when the range, bare-number, and block-level retries all find nothing", async () => {
+    stubFetchSequence([[], [], []]);
+    const result = await searchByAddressGIS("2317-2321 Stirling Rd");
+    expect(result.kind).toBe("ok");
+    expect(okParcels(result)).toHaveLength(0);
+  });
+});
+
+// ─── Live Broward parcel service — the two example addresses from the report ─
+
+describe("live Broward parcel service — real-world address formats", () => {
+  it("2317-2321 Stirling Rd (hyphenated range) resolves to a real Broward parcel", async () => {
+    const result = await searchByAddressGIS("2317-2321 Stirling Rd");
+    const parcels = okParcels(result);
+    expect(parcels.length).toBeGreaterThanOrEqual(1);
+    expect(parcels[0].address).toContain("STIRLING");
+  }, 30_000);
+
+  it("1900 NW 21st Ave (ordinal suffix dropped in tax roll) resolves to a real Broward parcel", async () => {
+    const result = await searchByAddressGIS("1900 NW 21st Ave");
+    const parcels = okParcels(result);
+    expect(parcels.length).toBeGreaterThanOrEqual(1);
+  }, 30_000);
 });
 
 // ─── getPropertyDetail ────────────────────────────────────────────────────────
