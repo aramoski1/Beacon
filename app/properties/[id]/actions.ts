@@ -13,6 +13,13 @@ import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFi
 import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
+import {
+  getPropertyDetail as pbcpaDetail,
+  extractOwnerMailing as pbcpaExtractMailing,
+  primaryOwnerName as pbcpaOwnerName,
+  pbSaleDate,
+  type PBRecord,
+} from "@/lib/pbcpa";
 import { extractPropertyFields, type ExtractedProperty, type PipelineContent } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
@@ -367,9 +374,13 @@ export type EnhancementPreview = {
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-// County detection from strap length: Broward folios are 12 digits, Miami-Dade 13.
+// County detection from strap length: Broward folios are 12 digits,
+// Miami-Dade 13, Palm Beach PCNs 17 (confirmed live — see lib/pbcpa.ts).
 function countyFromStrap(strap: string): SupportedCounty {
-  return strap.replace(/-/g, "").length === 12 ? "broward" : "miami-dade";
+  const digits = strap.replace(/-/g, "").length;
+  if (digits === 12) return "broward";
+  if (digits === 17) return "palm-beach";
+  return "miami-dade";
 }
 
 function dorCodeToPropertyType(code: string | null): string {
@@ -407,7 +418,7 @@ export async function initiateCountyEnhancement(
   if (prop.source === "tax_roll") {
     return { error: "This property is already sourced from the county property appraiser." };
   }
-  if (prop.source_url?.startsWith("mdpa:") || prop.source_url?.startsWith("bcpa:")) {
+  if (prop.source_url?.startsWith("mdpa:") || prop.source_url?.startsWith("bcpa:") || prop.source_url?.startsWith("pbcpa:")) {
     return { error: "This property has already been enhanced with county data." };
   }
   if (!prop.address?.trim()) {
@@ -439,24 +450,27 @@ export async function initiateCountyEnhancement(
         };
       }
     } else {
-      // Unknown city — search both counties in parallel and merge results
-      const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
+      // Unknown city — search all supported counties in parallel and merge results
+      const [mdpaSettled, bcpaSettled, pbcpaSettled] = await Promise.allSettled([
         searchParcelsByAddress(address, "miami-dade"),
         searchParcelsByAddress(address, "broward"),
+        searchParcelsByAddress(address, "palm-beach"),
       ]);
       const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : { kind: "error" as const, message: String(mdpaSettled.reason) };
       const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : { kind: "error" as const, message: String(bcpaSettled.reason) };
+      const pbcpaResult = pbcpaSettled.status === "fulfilled" ? pbcpaSettled.value : { kind: "error" as const, message: String(pbcpaSettled.reason) };
       parcels = [
         ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
         ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
+        ...(pbcpaResult.kind === "ok" ? pbcpaResult.parcels : []),
       ];
 
       if (parcels.length === 0) {
-        // Couldn't route the city to a supported county, and both searches
+        // Couldn't route the city to a supported county, and every search
         // genuinely came back empty — most likely outside coverage (e.g.
-        // Palm Beach), not a property that doesn't exist.
+        // Orlando/Orange County), not a property that doesn't exist.
         return {
-          error: "This address appears to be outside our current coverage (Miami-Dade and Broward only).",
+          error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach only).",
         };
       }
     }
@@ -537,6 +551,41 @@ export async function previewCountyEnhancement(
       land_sqft: rec.LND_SQFOOT != null ? Math.round(rec.LND_SQFOOT) : null,
       asset_description: dorCode ? `DOR ${dorCode} — ${dorCodeToPropertyType(dorCode)}` : null,
       // BCPA is a deterministic field mapping (no Claude call) — broker-defined
+      // custom fields can't be extracted from it, so leave them null.
+      custom_fields: Object.fromEntries(customExtractFields.map((f) => [fieldSlug(f.field_name), null])),
+    };
+  } else if (county === "palm-beach") {
+    // ── Palm Beach: PBRecord maps directly — no Claude needed ──────────────────
+    let rec: PBRecord | null;
+    try {
+      rec = await pbcpaDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `PBCPA detail fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: `No Palm Beach parcel record found for folio ${strap}.` };
+
+    // No building-square-footage field exists in Palm Beach's public table
+    // (unlike Broward's TOT_LVG_AREA) — size_sqft stays null rather than guessed.
+    const acres = rec.ACRES;
+    const lotSizeSqft = typeof acres === "number" && acres > 0 ? Math.round(acres * 43_560) : null;
+    const useDescription = rec.PROPERTY_USE ? `Palm Beach PROPERTY_USE: ${rec.PROPERTY_USE}` : null;
+    bc = {
+      lot_size_sqft: lotSizeSqft,
+      assessed_value: rec.ASSESSED_VAL ?? null,
+      dor_code: null,
+      dor_description: useDescription,
+    };
+    mdpaData = {
+      owner_name: pbcpaOwnerName(rec),
+      size_sqft: null,
+      last_sale_date: pbSaleDate(rec.SALE_DATE),
+      last_sale_price: rec.PRICE ?? null,
+      building_composition: bc,
+      owner_mailing_address: pbcpaExtractMailing(rec),
+      land_sqft: lotSizeSqft,
+      asset_description: useDescription,
+      // PBCPA is a deterministic field mapping (no Claude call) — broker-defined
       // custom fields can't be extracted from it, so leave them null.
       custom_fields: Object.fromEntries(customExtractFields.map((f) => [fieldSlug(f.field_name), null])),
     };
@@ -672,6 +721,7 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
   const sourceUrl = prop.source_url as string | null;
   const strap = sourceUrl?.startsWith("mdpa:") ? sourceUrl.replace("mdpa:", "")
     : sourceUrl?.startsWith("bcpa:") ? sourceUrl.replace("bcpa:", "")
+    : sourceUrl?.startsWith("pbcpa:") ? sourceUrl.replace("pbcpa:", "")
     : null;
   if (!strap) return { error: "No county folio on record. Run county enhancement first." };
 
@@ -691,6 +741,18 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
     newOwner = rec.OWN_NAME?.trim() ?? null;
     // BCPA only has year+month; compare year-month for change detection
     newSaleDate = rec.SALE_YR1 ? `${rec.SALE_YR1}-${String(rec.SALE_MO1 ?? "01").padStart(2, "0")}-01` : null;
+  } else if (county === "palm-beach") {
+    let rec: PBRecord | null;
+    try {
+      rec = await pbcpaDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `PBCPA fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: "Palm Beach parcel record not found." };
+    newOwner = pbcpaOwnerName(rec);
+    // PBCPA has full day-level SALE_DATE — compare exactly (see saleDatesDiffer "full" call below)
+    newSaleDate = pbSaleDate(rec.SALE_DATE);
   } else {
     let detail: unknown;
     try {
@@ -878,7 +940,9 @@ export async function applyCountyEnhancement(
       asset_description:     mdpaData.asset_description,
       custom_fields:         customFieldsUpdate,
       field_sources:         fieldSourcesUpdate,
-      source_url:            countyFromStrap(strap) === "broward" ? `bcpa:${strap}` : `mdpa:${strap}`,
+      source_url:            countyFromStrap(strap) === "broward" ? `bcpa:${strap}`
+                              : countyFromStrap(strap) === "palm-beach" ? `pbcpa:${strap}`
+                              : `mdpa:${strap}`,
       confidence_flags:      [...remainingFlags, ...newCustomFlags],
       ingested_at:           new Date().toISOString(),
     })

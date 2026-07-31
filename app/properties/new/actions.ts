@@ -5,6 +5,14 @@ import { redirect } from "next/navigation";
 import { detectCounty, parseCityFromAddress, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
 import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing } from "@/lib/mdpa";
+import {
+  getPropertyDetail as pbcpaDetail,
+  extractOwnerMailing as pbcpaExtractMailing,
+  primaryOwnerName as pbcpaOwnerName,
+  propertyUseToType,
+  pbSaleDate,
+  type PBRecord,
+} from "@/lib/pbcpa";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -82,6 +90,36 @@ function bcpaToFields(rec: BCPARecord, customFields: Record<string, null> = {}):
   };
 }
 
+// Palm Beach's public table has no building-square-footage field (unlike
+// Broward's TOT_LVG_AREA) — size_sqft is left null rather than guessed.
+// property_type comes from a free-text PROPERTY_USE description, not a
+// numeric DOR code, via lib/pbcpa.ts's keyword classifier.
+function pbcpaToFields(rec: PBRecord, customFields: Record<string, null> = {}): ExtractedProperty {
+  const ownerName = pbcpaOwnerName(rec);
+  const ownerNorm = (ownerName ?? "").replace(/\./g, "");
+  const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
+  const acres = rec.ACRES;
+  return {
+    address: rec.SITE_ADDR_STR ?? null,
+    city: rec.MUNICIPALITY ? titleCase(rec.MUNICIPALITY) : null,
+    submarket: null,
+    owner_name: ownerName,
+    ownership_type: isEntity ? "institutional" : (ownerName ? "private" : "unknown"),
+    size_sqft: null,
+    property_type: propertyUseToType(rec.PROPERTY_USE),
+    last_sale_date: pbSaleDate(rec.SALE_DATE),
+    last_sale_price: rec.PRICE ?? null,
+    building_composition: {
+      lot_size_sqft: typeof acres === "number" && acres > 0 ? Math.round(acres * 43_560) : null,
+      assessed_value: rec.ASSESSED_VAL ?? null,
+      dor_code: null,
+      dor_description: rec.PROPERTY_USE ? `Palm Beach PROPERTY_USE: ${rec.PROPERTY_USE}` : null,
+    },
+    confidence_flags: [],
+    custom_fields: customFields,
+  };
+}
+
 // ─── Step 1: Identify ─────────────────────────────────────────────────────────
 // Always returns the full candidate list — the broker must confirm before we fetch anything.
 
@@ -125,28 +163,32 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
       };
     }
   } else {
-    // City missing or unrecognised — search both counties in parallel.
-    const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
+    // City missing or unrecognised — search all supported counties in parallel.
+    const [mdpaSettled, bcpaSettled, pbcpaSettled] = await Promise.allSettled([
       searchParcelsByAddress(address, "miami-dade"),
       searchParcelsByAddress(address, "broward"),
+      searchParcelsByAddress(address, "palm-beach"),
     ]);
 
     const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : { kind: "error" as const, message: String(mdpaSettled.reason) };
     const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : { kind: "error" as const, message: String(bcpaSettled.reason) };
+    const pbcpaResult = pbcpaSettled.status === "fulfilled" ? pbcpaSettled.value : { kind: "error" as const, message: String(pbcpaSettled.reason) };
 
     matches = [
       ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
       ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
+      ...(pbcpaResult.kind === "ok" ? pbcpaResult.parcels : []),
     ];
 
     if (matches.length === 0) {
-      if (bcpaResult.kind === "too_many_candidates") {
+      if (bcpaResult.kind === "too_many_candidates" || pbcpaResult.kind === "too_many_candidates") {
         return {
           error: "Too many candidates for that address — include the city to narrow the search (e.g. '2116 Sherman St, Hollywood').",
         };
       }
       const firstError = mdpaResult.kind === "error" ? mdpaResult.message
         : bcpaResult.kind === "error" ? bcpaResult.message
+        : pbcpaResult.kind === "error" ? pbcpaResult.message
         : null;
       if (firstError) {
         await logIngestionError(supabase, user.id, {
@@ -158,13 +200,14 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
         return { error: `Property search failed: ${firstError}` };
       }
 
-      // We couldn't route the city to a supported county, and both county
-      // searches came back with a genuine (not erroring) empty result — this
-      // address is most likely outside our coverage area entirely (e.g. Palm
-      // Beach), not a property that doesn't exist. Say so instead of "no
-      // parcel found", which wrongly implies the property itself is missing.
+      // We couldn't route the city to a supported county, and every county
+      // search came back with a genuine (not erroring) empty result — this
+      // address is most likely outside our coverage area entirely (e.g.
+      // Orlando/Orange County), not a property that doesn't exist. Say so
+      // instead of "no parcel found", which wrongly implies the property
+      // itself is missing.
       return {
-        error: "This address appears to be outside our current coverage (Miami-Dade and Broward only).",
+        error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach only).",
       };
     }
   }
@@ -236,6 +279,64 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
         strap,
         county: "broward",
         owner_mailing_address: bcpaExtractMailing(rec),
+        sunbiz_result,
+        sunbiz_error,
+      },
+    };
+  }
+
+  // ── Palm Beach: PBRecord maps directly — no Claude needed ────────────────────
+  if (county === "palm-beach") {
+    let rec: PBRecord | null;
+    try {
+      rec = await pbcpaDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await logIngestionError(supabase, user.id, {
+        stage: "bcpa_fetch",
+        source_type: "address",
+        source_ref: `${strap} (${siteAddress})`,
+        error_message: msg,
+      });
+      return { error: `PBCPA detail fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: `No Palm Beach parcel record found for folio ${strap}.` };
+
+    const customExtractDefs = (await fetchFieldDefs(supabase, "property")).filter(f => f.fill_mode === "extract");
+    const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
+    const fields = pbcpaToFields(rec, nullCustom);
+
+    const ownerName = fields.owner_name?.trim() ?? "";
+    const ownerNorm = ownerName.replace(/\./g, "");
+    const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
+
+    let sunbiz_result: SunbizResult | null = null;
+    let sunbiz_error: string | null = null;
+    if (isEntity && ownerName) {
+      try {
+        const lookup = await searchAndExtractSunbiz(ownerName);
+        sunbiz_result = lookup.result;
+        if (!sunbiz_result) sunbiz_error = "No matching entity found on Sunbiz.";
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sunbiz_error = `Sunbiz lookup failed: ${msg}`;
+        await logIngestionError(supabase, user.id, {
+          stage: "sunbiz_search",
+          source_type: "address",
+          source_ref: ownerName,
+          error_message: `Auto Sunbiz: ${msg}`,
+        });
+      }
+    }
+
+    return {
+      preview: {
+        ...fields,
+        address: siteAddress,
+        city: rec.MUNICIPALITY ? titleCase(rec.MUNICIPALITY) : "Palm Beach County",
+        strap,
+        county: "palm-beach",
+        owner_mailing_address: pbcpaExtractMailing(rec),
         sunbiz_result,
         sunbiz_error,
       },
@@ -360,6 +461,8 @@ export async function saveIngestedProperty(
 
   const sourceUrl = preview.county === "broward"
     ? `bcpa:${preview.strap}`
+    : preview.county === "palm-beach"
+    ? `pbcpa:${preview.strap}`
     : `mdpa:${preview.strap}`;
 
   let id: string;

@@ -3,12 +3,12 @@
  * (app/properties/new/actions.ts).
  *
  * When detectCounty can't route an address's city to a supported county AND
- * both Miami-Dade and Broward searches genuinely return nothing (no error, no
- * too-many-candidates), the error must say the address is outside coverage —
- * not "no parcel found", which wrongly implies the property itself doesn't
- * exist (e.g. "730 South Military Trail" is Palm Beach, which isn't built).
- * A genuine miss inside a *known, supported* county still says "no parcel
- * found".
+ * every county search (Miami-Dade, Broward, Palm Beach) genuinely returns
+ * nothing (no error, no too-many-candidates), the error must say the address
+ * is outside coverage — not "no parcel found", which wrongly implies the
+ * property itself doesn't exist (e.g. an Orlando/Orange County address isn't
+ * built). A genuine miss inside a *known, supported* county still says "no
+ * parcel found".
  */
 import { describe, expect, it, vi, beforeEach, type Mock } from "vitest";
 
@@ -47,23 +47,40 @@ beforeEach(() => {
 });
 
 describe("ingestAddress — coverage vs. genuine-miss error messages", () => {
-  it("says the address is outside coverage when the city can't be routed and both counties come back empty (Palm Beach example)", async () => {
-    // "730 South Military Trail" has no comma, so parseCityFromAddress
-    // returns undefined and detectCounty is never given anything to match.
+  it("says the address is outside coverage when the city can't be routed and every county comes back empty (Orlando example)", async () => {
+    // "500 N Orange Ave" has no city suffix, so parseCityFromAddress returns
+    // undefined and detectCounty is never given anything to match.
     (parseCityFromAddress as Mock).mockReturnValue(undefined);
     (detectCounty as Mock).mockReturnValue(null);
     (searchParcelsByAddress as Mock).mockResolvedValue({ kind: "ok", parcels: [] });
 
-    const result = await ingestAddress(formDataWithAddress("730 South Military Trail"));
+    const result = await ingestAddress(formDataWithAddress("500 N Orange Ave"));
 
     expect("error" in result).toBe(true);
     if ("error" in result) {
       expect(result.error).toContain("outside our current coverage");
-      expect(result.error).toContain("Miami-Dade and Broward only");
+      expect(result.error).toContain("Miami-Dade, Broward, and Palm Beach only");
       expect(result.error).not.toContain("No parcel found");
     }
-    expect(searchParcelsByAddress).toHaveBeenCalledWith("730 South Military Trail", "miami-dade");
-    expect(searchParcelsByAddress).toHaveBeenCalledWith("730 South Military Trail", "broward");
+    expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "miami-dade");
+    expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "broward");
+    expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "palm-beach");
+  });
+
+  it("says 'No parcel found' (not a coverage message) for a genuine miss in a known, supported Palm Beach city", async () => {
+    (parseCityFromAddress as Mock).mockReturnValue("Boca Raton");
+    (detectCounty as Mock).mockReturnValue("palm-beach");
+    (searchParcelsByAddress as Mock).mockResolvedValue({ kind: "ok", parcels: [] });
+
+    const result = await ingestAddress(formDataWithAddress("9999 Nonexistent Rd, Boca Raton"));
+
+    expect("error" in result).toBe(true);
+    if ("error" in result) {
+      expect(result.error).toContain("No parcel found");
+      expect(result.error).not.toContain("outside our current coverage");
+    }
+    expect(searchParcelsByAddress).toHaveBeenCalledTimes(1);
+    expect(searchParcelsByAddress).toHaveBeenCalledWith("9999 Nonexistent Rd, Boca Raton", "palm-beach");
   });
 
   it("says 'No parcel found' (not a coverage message) for a genuine miss in a known, supported county", async () => {
@@ -104,7 +121,8 @@ describe("ingestAddress — coverage vs. genuine-miss error messages", () => {
     (detectCounty as Mock).mockReturnValue(null);
     (searchParcelsByAddress as Mock)
       .mockResolvedValueOnce({ kind: "error", message: "HTTP 503" }) // miami-dade
-      .mockResolvedValueOnce({ kind: "ok", parcels: [] }); // broward
+      .mockResolvedValueOnce({ kind: "ok", parcels: [] }) // broward
+      .mockResolvedValueOnce({ kind: "ok", parcels: [] }); // palm-beach
 
     const result = await ingestAddress(formDataWithAddress("123 Some Rd"));
 
