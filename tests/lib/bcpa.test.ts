@@ -780,7 +780,7 @@ describe("detectCounty", () => {
   });
 
   it("returns null for an unknown city", () => {
-    expect(detectCounty("Palm Beach")).toBeNull();
+    expect(detectCounty("Orlando")).toBeNull();
   });
 
   it("returns null for an empty string", () => {

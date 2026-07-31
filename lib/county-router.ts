@@ -1,8 +1,8 @@
 // County router — selects the right property appraiser lookup based on county.
 //
-// Supported counties: Miami-Dade, Broward.
-// Palm Beach and others can be added by extending SupportedCounty and the
-// city maps, then wiring up the county-specific lib (lib/pbcpa.ts, etc.).
+// Supported counties: Miami-Dade, Broward, Palm Beach.
+// Others can be added by extending SupportedCounty and the city maps, then
+// wiring up the county-specific lib (lib/<county>cpa.ts, etc.).
 //
 // Usage:
 //   const county = detectCounty(property.city);
@@ -23,9 +23,15 @@ import {
   type GISSearchResult,
 } from "./bcpa";
 
+import {
+  searchByAddressGIS as pbcpaSearch,
+  getPropertyDetail as pbcpaDetail,
+  extractOwnerMailing as pbcpaExtractMailing,
+} from "./pbcpa";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type SupportedCounty = "miami-dade" | "broward";
+export type SupportedCounty = "miami-dade" | "broward" | "palm-beach";
 
 export type RoutedParcel = {
   folio: string;
@@ -116,6 +122,45 @@ const BROWARD: ReadonlySet<string> = new Set([
   "NORTH ANDREWS GARDENS",
 ]);
 
+const PALM_BEACH: ReadonlySet<string> = new Set([
+  "WEST PALM BEACH",
+  "BOCA RATON",
+  "DELRAY BEACH",
+  "BOYNTON BEACH",
+  "JUPITER",
+  "WELLINGTON",
+  "PALM BEACH GARDENS",
+  "LAKE WORTH",
+  "LAKE WORTH BEACH",
+  "ROYAL PALM BEACH",
+  "GREENACRES",
+  "RIVIERA BEACH",
+  "NORTH PALM BEACH",
+  "PALM BEACH",
+  "PALM SPRINGS",
+  "LANTANA",
+  "TEQUESTA",
+  "JUNO BEACH",
+  "JUPITER INLET COLONY",
+  "HIGHLAND BEACH",
+  "OCEAN RIDGE",
+  "GULF STREAM",
+  "MANALAPAN",
+  "SOUTH PALM BEACH",
+  "HYPOLUXO",
+  "ATLANTIS",
+  "HAVERHILL",
+  "GLEN RIDGE",
+  "CLOUD LAKE",
+  "GOLFVIEW",
+  "MANGONIA PARK",
+  "BELLE GLADE",
+  "PAHOKEE",
+  "SOUTH BAY",
+  "LOXAHATCHEE GROVES",
+  "CANAL POINT",
+]);
+
 // ─── City extraction ──────────────────────────────────────────────────────────
 
 /**
@@ -151,6 +196,7 @@ export function detectCounty(city: string): SupportedCounty | null {
   const normalized = city.toUpperCase().trim();
   if (MIAMI_DADE.has(normalized)) return "miami-dade";
   if (BROWARD.has(normalized)) return "broward";
+  if (PALM_BEACH.has(normalized)) return "palm-beach";
   return null;
 }
 
@@ -184,9 +230,24 @@ export async function searchParcelsByAddress(
     }
   }
 
-  // Broward — city is still parsed for detectCounty / callers; bcpaSearch no
-  // longer needs it for server-side filtering (tight keyword WHERE).
+  // Broward / Palm Beach — city is still parsed for detectCounty / callers;
+  // bcpaSearch/pbcpaSearch no longer need it for server-side filtering (tight
+  // keyword WHERE).
   const city = parseCityFromAddress(rawAddress);
+
+  if (county === "palm-beach") {
+    const result = await pbcpaSearch(rawAddress, city);
+    if (result.kind !== "ok") return result;
+    return {
+      kind: "ok",
+      parcels: result.parcels.map((p) => ({
+        folio: p.folio,
+        strap: p.strap,
+        address: p.address,
+        county: "palm-beach" as const,
+      })),
+    };
+  }
 
   const result = await bcpaSearch(rawAddress, city);
   if (result.kind !== "ok") return result;
@@ -204,7 +265,7 @@ export async function searchParcelsByAddress(
 /**
  * Fetches the raw detail record for a confirmed strap/folio.
  * For Miami-Dade, pass the dashed strap (e.g. "01-4137-065-0001").
- * For Broward, pass either the 12-digit folio or the dashed strap (both are accepted).
+ * For Broward and Palm Beach, pass either the undashed folio/PCN or the dashed strap (both are accepted).
  * Returns the raw record as-is; callers use extractMailingAddress to pull specific fields.
  */
 export async function fetchParcelDetail(
@@ -213,6 +274,9 @@ export async function fetchParcelDetail(
 ): Promise<unknown> {
   if (county === "miami-dade") {
     return mdpaDetail(strapOrFolio);
+  }
+  if (county === "palm-beach") {
+    return pbcpaDetail(strapOrFolio);
   }
   return bcpaDetail(strapOrFolio);
 }
@@ -227,6 +291,9 @@ export function extractMailingAddress(
 ): string | null {
   if (county === "miami-dade") {
     return mdpaExtractMailing(raw);
+  }
+  if (county === "palm-beach") {
+    return pbcpaExtractMailing(raw);
   }
   return bcpaExtractMailing(raw);
 }
