@@ -46,6 +46,12 @@ import {
   type DocumentEnhancementPreview,
 } from "./actions";
 
+const COUNTY_SOURCE_LABEL: Record<string, string> = {
+  broward: "BCPA",
+  "palm-beach": "PBCPA",
+  "miami-dade": "MDPA",
+};
+
 // ── Types derived from action return types ────────────────────────────────────
 
 type SunbizResult = NonNullable<EnhancementPreview["sunbiz_result"]>;
@@ -573,7 +579,7 @@ export function EnrichPanel({
                               <th className="text-left px-3 py-2 font-medium text-muted-foreground w-1/4">Field</th>
                               <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">Current</th>
                               <th className="text-left px-3 py-2 font-medium text-muted-foreground w-[37.5%]">
-                                County ({preview.county === "broward" ? "BCPA" : "MDPA"})
+                                County ({COUNTY_SOURCE_LABEL[preview.county]})
                               </th>
                             </tr>
                           </thead>

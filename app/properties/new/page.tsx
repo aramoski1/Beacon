@@ -209,11 +209,13 @@ function AddressPreviewCard({
           <CheckCircle2 className="size-4 text-green-500 shrink-0" />
           {preview.county === "broward"
             ? "Structured from Broward County Property Appraiser record."
+            : preview.county === "palm-beach"
+            ? "Structured from Palm Beach County Property Appraiser record."
             : "Structured from Miami-Dade Property Appraiser record."}
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground pl-6 flex-wrap">
           <span>Folio: <span className="font-mono text-foreground">{preview.strap}</span></span>
-          {preview.county !== "broward" && (
+          {preview.county === "miami-dade" && (
             <>
               <span>·</span>
               <a href="https://www.miamidade.gov/Apps/PA/propertysearch/#/" target="_blank" rel="noopener noreferrer"
@@ -787,7 +789,7 @@ function AddPropertyInner() {
                   <Input id="address" name="address" type="text" placeholder="3401 N Miami Ave"
                     autoComplete="off" required disabled={isPending} className="pl-9" />
                 </div>
-                <p className="text-xs text-muted-foreground">Street number + name only. Supports Miami-Dade and Broward County.</p>
+                <p className="text-xs text-muted-foreground">Street number + name only. Supports Miami-Dade, Broward, and Palm Beach County.</p>
               </div>
               {error && <ErrorBox msg={error} />}
               <Button type="submit" disabled={isPending} className="w-full">

@@ -104,22 +104,30 @@ function folio(sourceUrl: string | null) {
   if (!sourceUrl?.startsWith("mdpa:")) return null;
   return sourceUrl.replace("mdpa:", "");
 }
-// County-agnostic strap/folio extraction (MDPA or BCPA) — used for re-running
-// county enhancement directly, since folio() above is Miami-Dade-only.
+// County-agnostic strap/folio extraction (MDPA, BCPA, or PBCPA) — used for
+// re-running county enhancement directly, since folio() above is Miami-Dade-only.
 function countyStrap(sourceUrl: string | null): string | null {
   if (sourceUrl?.startsWith("mdpa:")) return sourceUrl.replace("mdpa:", "");
   if (sourceUrl?.startsWith("bcpa:")) return sourceUrl.replace("bcpa:", "");
+  if (sourceUrl?.startsWith("pbcpa:")) return sourceUrl.replace("pbcpa:", "");
   return null;
 }
-function sourceLabel(source: string | null) {
-  if (source === "tax_roll") return "Tax roll · MDPA";
+function sourceLabel(source: string | null, sourceUrl?: string | null) {
+  if (source === "tax_roll") {
+    if (sourceUrl?.startsWith("bcpa:")) return "Tax roll · BCPA";
+    if (sourceUrl?.startsWith("pbcpa:")) return "Tax roll · PBCPA";
+    return "Tax roll · MDPA";
+  }
   if (source === "url") return "Listing URL";
   if (source === "upload") return "Uploaded file";
   if (source === "forward") return "Email forward";
   return source ?? "Unknown";
 }
+function isCountySourceUrl(sUrl: string | null): boolean {
+  return !!sUrl && (sUrl.startsWith("mdpa:") || sUrl.startsWith("bcpa:") || sUrl.startsWith("pbcpa:"));
+}
 function listingUrl(source: string | null, sUrl: string | null) {
-  if (source === "url" && sUrl && !sUrl.startsWith("mdpa:")) return sUrl;
+  if (source === "url" && sUrl && !isCountySourceUrl(sUrl)) return sUrl;
   return null;
 }
 
@@ -302,11 +310,11 @@ export default async function PropertyPage({
               rel="noopener noreferrer"
             >
               <Badge variant="outline" className="hover:bg-muted transition-colors cursor-pointer">
-                {sourceLabel(p.source)} ↗
+                {sourceLabel(p.source, p.source_url)} ↗
               </Badge>
             </a>
           ) : (
-            <Badge variant="outline">{sourceLabel(p.source)}</Badge>
+            <Badge variant="outline">{sourceLabel(p.source, p.source_url)}</Badge>
           )}
           <Link
             href="/properties/new"
@@ -360,7 +368,7 @@ export default async function PropertyPage({
       ) : listingUrl(p.source, p.source_url) ? (
         <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
           <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Source</span>
-          <span className="font-medium">{sourceLabel(p.source)}</span>
+          <span className="font-medium">{sourceLabel(p.source, p.source_url)}</span>
           <a
             href={listingUrl(p.source, p.source_url)!}
             target="_blank"
@@ -419,7 +427,7 @@ export default async function PropertyPage({
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Added via {sourceLabel(p.source)}
+            Added via {sourceLabel(p.source, p.source_url)}
             {p.created_at && ` · ${fmtDate(p.created_at)}`}
           </p>
           <div className="divide-y rounded-lg border">
