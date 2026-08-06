@@ -42,7 +42,9 @@ export default function LoginPage() {
             <BeaconBrand logoClassName="size-9" className="gap-3 [&>span]:text-xl" />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            {isSignIn ? "Sign in to your account" : "Create a new account"}
+            {isSignIn
+              ? "Sign in to your account"
+              : "Create a new account — no confirmation email needed"}
           </p>
         </div>
 

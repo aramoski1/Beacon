@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { pilotConfirmUserEmail } from "@/lib/auth-pilot-confirm";
 
 type ActionResult = { error: string } | { message: string } | null;
 
@@ -22,15 +23,32 @@ function authErrorMessage(error: { message: string; status?: number }): string {
   return error.message;
 }
 
+/** Site origin for auth email links — prefer env, fall back to localhost for pilot. */
+function siteOrigin(): string {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  if (raw) return raw;
+  return "http://localhost:3000";
+}
+
+async function enterApp() {
+  revalidatePath("/", "layout");
+  redirect("/onboarding");
+}
+
 export async function signIn(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
   const supabase = await createClient();
+  const email = (formData.get("email") as string)?.trim() ?? "";
+  const password = formData.get("password") as string;
+
+  // Pilot: confirm first so an earlier failed confirmation email doesn't block login.
+  await pilotConfirmUserEmail(email);
 
   const { error } = await supabase.auth.signInWithPassword({
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
+    email,
+    password,
   });
 
   if (error) return { error: authErrorMessage(error) };
@@ -44,18 +62,54 @@ export async function signUp(
   formData: FormData
 ): Promise<ActionResult> {
   const supabase = await createClient();
+  const email = (formData.get("email") as string)?.trim() ?? "";
+  const password = formData.get("password") as string;
+  const origin = siteOrigin();
 
-  const { error } = await supabase.auth.signUp({
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/onboarding`,
+      // Kept for when Confirm email + SMTP are enabled later.
+      emailRedirectTo: `${origin}/auth/callback?next=/onboarding`,
     },
   });
 
-  if (error) return { error: authErrorMessage(error) };
+  if (error) {
+    const msg = error.message.toLowerCase();
+    // Already registered — confirm + try sign-in so stuck users aren't blocked.
+    if (msg.includes("already") || msg.includes("registered")) {
+      await pilotConfirmUserEmail(email);
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (!signInError) await enterApp();
+      return {
+        message:
+          "That email already has an account. Use Sign in with your password (confirmation email is not required).",
+      };
+    }
+    return { error: authErrorMessage(error) };
+  }
 
-  return { message: "Check your email to confirm your account." };
+  // Autoconfirm / Confirm-email-off → session on signup.
+  if (data.session) await enterApp();
+
+  // Confirm via Postgres, then sign in — skips the inbox entirely for pilot.
+  await pilotConfirmUserEmail(email);
+
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (!signInError) await enterApp();
+
+  return {
+    message:
+      "Account ready. Confirmation email is not required for this pilot — use Sign in with the same email and password.",
+  };
 }
 
 export async function signOut() {

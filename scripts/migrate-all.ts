@@ -152,6 +152,11 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-storage-leases-delete-policy.ts",
     description: "Storage — add owner-scoped DELETE/UPDATE RLS policies on the leases bucket so account deletion actually purges uploaded PDFs",
   },
+  {
+    file: "migrate-auth-pilot-autoconfirm.ts",
+    description:
+      "Auth pilot — auto-confirm email on signup (skip unreliable Supabase mailer) + confirm existing unconfirmed users",
+  },
 ];
 
 const hr = "─".repeat(60);
