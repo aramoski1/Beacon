@@ -232,6 +232,7 @@ export default async function DashboardPage() {
         name={heroName}
         date={today}
         briefing={briefing}
+        attentionCount={attentionCount}
         portfolio={portfolio}
         cadence={cadence}
         search={<BeaconCopilot />}

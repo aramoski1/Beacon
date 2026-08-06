@@ -58,6 +58,7 @@ export function DashboardHero({
   name,
   date,
   briefing,
+  attentionCount,
   portfolio,
   cadence,
   search,
@@ -65,16 +66,34 @@ export function DashboardHero({
   name: string;
   date: string;
   briefing: BriefingMetrics;
+  /** Count of items actually in the "Do these today" queue below — keep this
+   *  in sync with that queue so the headline never contradicts it. */
+  attentionCount: number;
   portfolio: PortfolioSnapshot;
   cadence: CadenceHealth;
   search?: React.ReactNode;
 }) {
+  // Broader book-wide signals — unworked opportunities, data issues, cold
+  // Tier-1 contacts — that briefing.actionItems used to fold into this same
+  // "today" headline, even though none of them appear in the Today desk
+  // queue below — a broker would read "N items need your attention today"
+  // then see "Nothing due" right underneath it. Those signals are still
+  // real and still worth surfacing, just not as "today" — they live in the
+  // "ready to pursue" / "data issues" pills (PriorityPills) instead. Summed
+  // directly from briefing's own sub-counts rather than derived by
+  // subtracting attentionCount from actionItems, since the Today desk items
+  // are capped at 12 and drawn from slightly different buckets than
+  // actionItems' inputs — subtraction could go negative or double-count.
+  const bookWideItems = briefing.unworkedOpportunities + briefing.dataIssues + briefing.coldTier1;
+
   const playbookLine =
-    briefing.actionItems > 0
-      ? `${briefing.actionItems} item${briefing.actionItems !== 1 ? "s" : ""} need your attention today.`
-      : cadence.compliancePct >= 90
-        ? "Your book is in great shape — stay on cadence and keep building."
-        : "No fires today. Good time to prospect or enrich your pipeline.";
+    attentionCount > 0
+      ? `${attentionCount} item${attentionCount !== 1 ? "s" : ""} need your attention today.`
+      : bookWideItems > 0
+        ? `Nothing due today — ${bookWideItems} item${bookWideItems !== 1 ? "s" : ""} elsewhere in your book could use a look.`
+        : cadence.compliancePct >= 90
+          ? "Your book is in great shape — stay on cadence and keep building."
+          : "No fires today. Good time to prospect or enrich your pipeline.";
 
   return (
     <div className="dashboard-hero p-6 md:p-8">
