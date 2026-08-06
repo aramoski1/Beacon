@@ -27,7 +27,7 @@ function CompRow({ c }: { c: TaxRollComp }) {
         <p className="truncate text-xs text-muted-foreground">
           {c.strap}
           {c.city ? ` · ${c.city}` : ""}
-          {c.dorCode ? ` · DOR ${c.dorCode}` : ""}
+          {c.dorCode ? ` · DOR ${c.dorCode}` : c.dorDescription ? ` · ${c.dorDescription}` : ""}
         </p>
       </div>
       <div className="hidden text-sm tabular-nums text-muted-foreground sm:block">

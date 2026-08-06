@@ -15,6 +15,13 @@ const MAX_DETAIL_FETCHES = 12;
 const RECENT_YEARS = 7;
 const DETAIL_DELAY_MS = 200;
 
+// Tax rolls record $0/$1/$10/$100 "sales" for quitclaims, family transfers,
+// and other non-arm's-length deed recordings — these are not market comps.
+// Shared across all three counties (lib/bcpa-comps.ts, lib/pbcpa-comps.ts) so
+// a broker sees the same sanity floor regardless of which county sourced the
+// comp.
+export const MIN_COMP_SALE_PRICE = 5_000;
+
 export type TaxRollComp = {
   folio: string;
   strap: string;
@@ -292,7 +299,7 @@ export async function fetchTaxRollComps(
       sale = null;
     }
 
-    if (sale && isSaleRecent(sale.saleDate) && sale.salePrice != null) {
+    if (sale && isSaleRecent(sale.saleDate) && sale.salePrice != null && sale.salePrice >= MIN_COMP_SALE_PRICE) {
       comps.push({
         folio,
         strap: folioToStrap(folio),
