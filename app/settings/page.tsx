@@ -29,6 +29,7 @@ import {
   upsertUserSettings,
   changePassword,
   deleteAllData,
+  deleteAccount,
   getIngestionErrorCount,
   type UserSettings,
 } from "./actions";
@@ -112,6 +113,10 @@ function AccountSection({
   const [pwSaved, setPwSaved] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
 
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaved(false);
@@ -147,6 +152,21 @@ function AccountSection({
       }
     } finally {
       setPwPending(false);
+    }
+  }
+
+  async function handleDeleteAccount(e: React.FormEvent) {
+    e.preventDefault();
+    setDeleteError(null);
+    if (deleteConfirm !== "DELETE") return;
+    setDeletePending(true);
+    try {
+      const result = await deleteAccount();
+      if (result?.error) setDeleteError(result.error);
+    } catch {
+      // redirect() throws; treat as success navigation
+    } finally {
+      setDeletePending(false);
     }
   }
 
@@ -229,6 +249,43 @@ function AccountSection({
         <Button variant="outline" size="sm" onClick={() => signOut()}>
           Sign out
         </Button>
+      </div>
+
+      <div className="border-t pt-6">
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-5 space-y-4 max-w-md">
+          <div>
+            <p className="text-sm font-semibold text-destructive">Delete account</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Permanently deletes all of your data and your login. This cannot be undone.
+              To wipe data but keep this email/password, use Danger Zone instead.
+            </p>
+          </div>
+          <form onSubmit={handleDeleteAccount} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="account_delete_confirm" className="text-xs">
+                Type <span className="font-mono font-semibold">DELETE</span> to confirm
+              </Label>
+              <Input
+                id="account_delete_confirm"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder="DELETE"
+                disabled={deletePending}
+                className="font-mono max-w-[160px]"
+              />
+            </div>
+            {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+            <Button
+              type="submit"
+              variant="destructive"
+              size="sm"
+              disabled={deleteConfirm !== "DELETE" || deletePending}
+            >
+              {deletePending && <Loader2 className="animate-spin" />}
+              Delete account
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -706,7 +763,8 @@ function DangerZoneSection() {
           <p className="text-sm font-semibold text-destructive">Delete all data</p>
           <p className="text-xs text-muted-foreground mt-1">
             Permanently deletes all properties, contacts, leases, activities, follow-ups, and custom
-            fields. This cannot be undone. Your login credentials are preserved.
+            fields. This cannot be undone. Your login credentials are preserved. To remove your
+            login too, use Account → Delete account.
           </p>
         </div>
         <form onSubmit={handleDelete} className="space-y-3">

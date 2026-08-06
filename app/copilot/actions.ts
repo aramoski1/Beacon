@@ -325,7 +325,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Lease Radar** (/lease-radar) — Expiry tracker for leases within 3/6/12 months
 - **Deals** (/deals) — Pursuit pipeline (kanban or list view). Stage order: prospect → contacted → meeting → requirement → proposal → won → under_contract → closed / lost. The exact stage set shown depends on the deal's type (tenant rep, listing, or investment sale)
 - **All tasks** (/follow-ups) — Follow-up task list with due dates; found under "Advanced" in the sidebar, not the main nav row
-- **Settings** (/settings) — sections: Account (name/email/password), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (permanently delete all data — requires typing DELETE to confirm; login credentials are preserved). Settings header also links to **How Beacon works** (/how-beacon-works)
+- **Settings** (/settings) — sections: Account (name/email/password; Delete account — type DELETE — permanently removes all data and the login), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (Delete all data — type DELETE — wipes CRM data but keeps login credentials; to remove login too use Account → Delete account). Settings header also links to **How Beacon works** (/how-beacon-works)
 - **How Beacon works** (/how-beacon-works) — short static explainer: the three product loops (ownership truth, lease rollover, who to call), day-1 path, and honest limits. Linked from Settings and optionally from onboarding (Welcome / Done). Not in the main nav. When opened from onboarding, shows a Back to setup link.
 
 ### Exporting data (this is a real, fully-built feature — always point here; never invent a support/API/integrations path for this)
@@ -345,7 +345,8 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Set sender name**: Settings → Outreach → Sender name
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact)
 - **Log an activity**: Open any contact or property page → Timeline section → Log activity
-- **Delete all your data**: Settings → Danger Zone → type DELETE to confirm
+- **Delete all your data (keep login)**: Settings → Danger Zone → type DELETE to confirm
+- **Delete your account (data + login)**: Settings → Account → Delete account → type DELETE to confirm
 
 ### Contact tiers
 - Tier 1: Highest-priority relationships. Default cadence 14 days.

@@ -2,7 +2,9 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
+import { deleteAuthUserById } from "@/lib/auth-delete-user";
 
 export type UserSettings = {
   display_name: string | null;
@@ -133,6 +135,25 @@ export async function deleteAllData(): Promise<{ error?: string }> {
   }
 
   return {};
+}
+
+/** Wipe CRM data + auth login, then sign out to /login. */
+export async function deleteAccount(): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const dataResult = await deleteAllData();
+  if (dataResult.error) return dataResult;
+
+  const authResult = await deleteAuthUserById(user.id);
+  if (!authResult.ok) return { error: authResult.error };
+
+  await supabase.auth.signOut();
+  revalidatePath("/", "layout");
+  redirect("/login");
 }
 
 export async function getIngestionErrorCount(): Promise<number> {
