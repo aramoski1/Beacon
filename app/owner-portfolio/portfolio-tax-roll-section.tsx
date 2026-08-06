@@ -17,15 +17,19 @@ import type { MdpaSearchQuery } from "@/lib/owner-portfolio";
 import {
   discoverMdpaPortfolio,
   discoverBcpaPortfolio,
+  discoverPbcpaPortfolio,
   importAllMdpaPortfolioParcels,
   importAllBcpaPortfolioParcels,
+  importAllPbcpaPortfolioParcels,
   importMdpaPortfolioParcel,
   importBcpaPortfolioParcel,
+  importPbcpaPortfolioParcel,
   type MdpaPortfolioDiscovery,
   type BcpaPortfolioDiscovery,
+  type PbcpaPortfolioDiscovery,
 } from "./discovery-actions";
 
-type County = "miami-dade" | "broward";
+type County = "miami-dade" | "broward" | "palm-beach";
 
 type TaxRollParcel = {
   county: County;
@@ -42,6 +46,7 @@ type TaxRollParcel = {
 const COUNTY_LABEL: Record<County, string> = {
   "miami-dade": "Miami-Dade",
   broward: "Broward",
+  "palm-beach": "Palm Beach",
 };
 
 const mdpaVerifyUrl = (folio: string) =>
@@ -50,9 +55,25 @@ const mdpaVerifyUrl = (folio: string) =>
 const bcpaVerifyUrl = (folio: string) =>
   `https://gisweb-adapters.bcpa.net/bcpawebmap_ex_new_web/bcpawebmap.aspx?FOLIO=${folio.replace(/-/g, "")}`;
 
+const pbcpaVerifyUrl = (folio: string) =>
+  `https://pbcpao.gov/Property/Details?parcelId=${folio.replace(/-/g, "")}`;
+
+function verifyUrlFor(county: County, strap: string): string {
+  if (county === "miami-dade") return mdpaVerifyUrl(strap);
+  if (county === "palm-beach") return pbcpaVerifyUrl(strap);
+  return bcpaVerifyUrl(strap);
+}
+
+function verifyLabelFor(county: County): string {
+  if (county === "miami-dade") return "MDPA";
+  if (county === "palm-beach") return "PBCPA";
+  return "BCPA";
+}
+
 function mergeParcels(
   mdpa: MdpaPortfolioDiscovery | null,
   bcpa: BcpaPortfolioDiscovery | null,
+  pbcpa: PbcpaPortfolioDiscovery | null,
 ): TaxRollParcel[] {
   const parcels: TaxRollParcel[] = [];
   for (const p of mdpa?.parcels ?? []) {
@@ -60,6 +81,9 @@ function mergeParcels(
   }
   for (const p of bcpa?.parcels ?? []) {
     parcels.push({ county: "broward", ...p });
+  }
+  for (const p of pbcpa?.parcels ?? []) {
+    parcels.push({ county: "palm-beach", ...p });
   }
   return parcels.sort((a, b) => (a.address ?? a.folio).localeCompare(b.address ?? b.folio));
 }
@@ -72,41 +96,55 @@ export function PortfolioTaxRollSection({
   const router = useRouter();
   const [mdpa, setMdpa] = useState<MdpaPortfolioDiscovery | null>(null);
   const [bcpa, setBcpa] = useState<BcpaPortfolioDiscovery | null>(null);
+  const [pbcpa, setPbcpa] = useState<PbcpaPortfolioDiscovery | null>(null);
   const [loading, setLoading] = useState(true);
   const [importingStrap, setImportingStrap] = useState<string | null>(null);
   const [bulkPending, startBulk] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [bcpaNotice, setBcpaNotice] = useState<string | null>(null);
+  const [otherCountyNotice, setOtherCountyNotice] = useState<string | null>(null);
 
   const runDiscovery = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setBcpaNotice(null);
+    setOtherCountyNotice(null);
 
-    const [mdpaSettled, bcpaSettled] = await Promise.allSettled([
+    const [mdpaSettled, bcpaSettled, pbcpaSettled] = await Promise.allSettled([
       discoverMdpaPortfolio(queries),
       discoverBcpaPortfolio(queries),
+      discoverPbcpaPortfolio(queries),
     ]);
 
     const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : null;
     const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : null;
+    const pbcpaResult = pbcpaSettled.status === "fulfilled" ? pbcpaSettled.value : null;
 
     setMdpa(mdpaResult);
     setBcpa(bcpaResult);
+    setPbcpa(pbcpaResult);
 
     // Miami-Dade errors are surfaced as the primary error (this county has the
-    // deepest/most reliable coverage); Broward failures are shown as an honest
-    // notice so the section stays useful even if that search is limited.
+    // deepest/most reliable coverage); Broward/Palm Beach failures are shown
+    // as an honest notice so the section stays useful even if one of those
+    // searches is limited.
     if (mdpaResult?.error) {
       setError(mdpaResult.error);
     } else if (mdpaSettled.status === "rejected") {
       setError(String(mdpaSettled.reason));
     }
 
+    const limitedNotices: string[] = [];
     if (bcpaResult?.error) {
-      setBcpaNotice(`Broward tax roll search limited: ${bcpaResult.error}`);
+      limitedNotices.push(`Broward: ${bcpaResult.error}`);
     } else if (bcpaSettled.status === "rejected") {
-      setBcpaNotice(`Broward tax roll search limited: ${String(bcpaSettled.reason)}`);
+      limitedNotices.push(`Broward: ${String(bcpaSettled.reason)}`);
+    }
+    if (pbcpaResult?.error) {
+      limitedNotices.push(`Palm Beach: ${pbcpaResult.error}`);
+    } else if (pbcpaSettled.status === "rejected") {
+      limitedNotices.push(`Palm Beach: ${String(pbcpaSettled.reason)}`);
+    }
+    if (limitedNotices.length > 0) {
+      setOtherCountyNotice(`Tax roll search limited — ${limitedNotices.join(" · ")}`);
     }
 
     setLoading(false);
@@ -122,6 +160,8 @@ export function PortfolioTaxRollSection({
     const res =
       county === "miami-dade"
         ? await importMdpaPortfolioParcel(strap, address ?? strap, city)
+        : county === "palm-beach"
+        ? await importPbcpaPortfolioParcel(strap, address ?? strap, city)
         : await importBcpaPortfolioParcel(strap, address ?? strap, city);
     setImportingStrap(null);
     if ("error" in res && !("existingId" in res && res.existingId)) {
@@ -139,21 +179,27 @@ export function PortfolioTaxRollSection({
     const toImportBcpa = (bcpa?.parcels ?? [])
       .filter((p) => !p.inCrm)
       .map((p) => ({ strap: p.strap, address: p.address ?? p.strap, city: p.city }));
-    if (toImportMdpa.length === 0 && toImportBcpa.length === 0) return;
+    const toImportPbcpa = (pbcpa?.parcels ?? [])
+      .filter((p) => !p.inCrm)
+      .map((p) => ({ strap: p.strap, address: p.address ?? p.strap, city: p.city }));
+    if (toImportMdpa.length === 0 && toImportBcpa.length === 0 && toImportPbcpa.length === 0) return;
 
     startBulk(async () => {
       setError(null);
-      const [mdpaRes, bcpaRes] = await Promise.all([
+      const [mdpaRes, bcpaRes, pbcpaRes] = await Promise.all([
         toImportMdpa.length > 0
           ? importAllMdpaPortfolioParcels(toImportMdpa)
           : Promise.resolve({ imported: [], skipped: 0, errors: [] as string[] }),
         toImportBcpa.length > 0
           ? importAllBcpaPortfolioParcels(toImportBcpa)
           : Promise.resolve({ imported: [], skipped: 0, errors: [] as string[] }),
+        toImportPbcpa.length > 0
+          ? importAllPbcpaPortfolioParcels(toImportPbcpa)
+          : Promise.resolve({ imported: [], skipped: 0, errors: [] as string[] }),
       ]);
-      const errors = [...mdpaRes.errors, ...bcpaRes.errors];
-      const importedCount = mdpaRes.imported.length + bcpaRes.imported.length;
-      const skipped = mdpaRes.skipped + bcpaRes.skipped;
+      const errors = [...mdpaRes.errors, ...bcpaRes.errors, ...pbcpaRes.errors];
+      const importedCount = mdpaRes.imported.length + bcpaRes.imported.length + pbcpaRes.imported.length;
+      const skipped = mdpaRes.skipped + bcpaRes.skipped + pbcpaRes.skipped;
       if (errors.length > 0) {
         setError(`Imported ${importedCount}; ${skipped} skipped. ${errors[0]}`);
       }
@@ -162,12 +208,12 @@ export function PortfolioTaxRollSection({
     });
   }
 
-  const parcels = mergeParcels(mdpa, bcpa);
+  const parcels = mergeParcels(mdpa, bcpa, pbcpa);
   const notInCrm = parcels.filter((p) => !p.inCrm);
   const totalOnTaxRoll = parcels.length;
   const inCrmCount = parcels.filter((p) => p.inCrm).length;
-  const truncated = Boolean(mdpa?.truncated || bcpa?.truncated);
-  const hasAnyResult = Boolean(mdpa || bcpa);
+  const truncated = Boolean(mdpa?.truncated || bcpa?.truncated || pbcpa?.truncated);
+  const hasAnyResult = Boolean(mdpa || bcpa || pbcpa);
 
   const searchSummary = queries
     .map((q) => q.label ?? q.query)
@@ -183,7 +229,7 @@ export function PortfolioTaxRollSection({
             Tax roll portfolio
           </h2>
           <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-            County-wide search (Miami-Dade + Broward):{" "}
+            County-wide search (Miami-Dade + Broward + Palm Beach):{" "}
             <span className="font-medium text-foreground">{searchSummary}</span>
             {" "}— all parcels owned under matching LLC / owner names on the tax roll.
           </p>
@@ -222,22 +268,22 @@ export function PortfolioTaxRollSection({
         </p>
       )}
 
-      {bcpaNotice && (
+      {otherCountyNotice && (
         <p className="text-xs text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2">
-          {bcpaNotice}
+          {otherCountyNotice}
         </p>
       )}
 
       {loading && !hasAnyResult && (
         <div className="rounded-xl border bg-card px-4 py-10 flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          Searching Miami-Dade and Broward tax rolls…
+          Searching Miami-Dade, Broward, and Palm Beach tax rolls…
         </div>
       )}
 
       {hasAnyResult && !loading && parcels.length === 0 && !error && (
         <p className="text-sm text-muted-foreground rounded-xl border bg-card px-4 py-8 text-center">
-          No matching parcels on the Miami-Dade or Broward tax rolls for this owner.
+          No matching parcels on the Miami-Dade, Broward, or Palm Beach tax rolls for this owner.
         </p>
       )}
 
@@ -288,11 +334,11 @@ export function PortfolioTaxRollSection({
                 )}
                 <div className="flex items-center gap-1.5 shrink-0">
                   <a
-                    href={p.county === "miami-dade" ? mdpaVerifyUrl(p.strap) : bcpaVerifyUrl(p.strap)}
+                    href={verifyUrlFor(p.county, p.strap)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-1.5 text-muted-foreground hover:text-foreground"
-                    title={`Verify on ${p.county === "miami-dade" ? "MDPA" : "BCPA"}`}
+                    title={`Verify on ${verifyLabelFor(p.county)}`}
                   >
                     <ExternalLink className="size-3.5" />
                   </a>

@@ -24,6 +24,8 @@
 // parseAddressForGIS is shared from lib/mdpa since address parsing logic is identical.
 
 import { parseAddressForGIS } from "./mdpa";
+import { normalizeOwnerName, personNameMatchesOwnerField } from "@/lib/owner-contacts";
+import { entityOwnerNamesMatch } from "./mdpa-owner-search";
 
 export { parseAddressForGIS };
 
@@ -433,4 +435,216 @@ export function propertyUseToType(use: string | null | undefined): string {
   if (/(MULTIFAMILY|^MFR|CONDOMINIUM|COOPERATIVE|APARTMENT)/.test(u)) return "multifamily";
   if (/(SINGLE FAMILY|TOWNHOUSE|MOBILE HOME|MISC RESIDENCE|ZERO LOT LINE)/.test(u)) return "residential";
   return "other";
+}
+
+// ─── Owner name search (tax roll portfolio discovery) ────────────────────────
+// Same PAO.PROPINFO_PUB table as address search / folio detail above, filtered
+// by OWNER_NAME1/OWNER_NAME2 instead of SITE_ADDR_STR/PARCEL_NUMBER. Palm Beach
+// exposes two owner fields (vs. Miami-Dade's three, Broward's one) — the WHERE
+// clause and match verification follow lib/bcpa.ts's shape rather than
+// lib/mdpa-owner-search.ts's. entityOwnerNamesMatch is reused from
+// mdpa-owner-search.ts since it operates on generic owner-name strings, not
+// Miami-Dade-specific data. No building-square-footage field exists in this
+// table (see file header) — buildingSqft is always null for Palm Beach hits.
+
+export type PbcpaSearchMode = "entity" | "person";
+
+export type PbcpaOwnerParcelHit = {
+  folio: string;
+  strap: string;
+  ownerName: string;
+  address: string | null;
+  city: string | null;
+  buildingSqft: number | null;
+};
+
+type OwnerSearchAttributes = {
+  PARCEL_NUMBER?: string;
+  OWNER_NAME1?: string | null;
+  OWNER_NAME2?: string | null;
+  SITE_ADDR_STR?: string | null;
+  MUNICIPALITY?: string | null;
+};
+
+const OWNER_SEARCH_FIELDS = "PARCEL_NUMBER,OWNER_NAME1,OWNER_NAME2,SITE_ADDR_STR,MUNICIPALITY";
+
+const OWNER_PAGE_SIZE = 1000;
+const OWNER_MAX_PARCELS = 3000;
+
+const ENTITY_STOP_WORDS = new Set([
+  "LLC", "INC", "CORP", "LP", "LLP", "LLLP", "LTD", "CO", "PA", "PL", "PLLC",
+  "THE", "AND", "OF", "A", "FL", "FLORIDA",
+]);
+
+function sanitizeOwnerLikeToken(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ownerEntitySearchTokens(query: string): string[] {
+  const upper = sanitizeOwnerLikeToken(query).toUpperCase();
+  let tokens = upper
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !ENTITY_STOP_WORDS.has(w));
+  if (tokens.length === 0) {
+    tokens = upper.split(/\s+/).filter((w) => w.length >= 2);
+  }
+  tokens.sort((a, b) => b.length - a.length);
+  return tokens.slice(0, 2);
+}
+
+function buildOwnerWhereClause(query: string, mode: PbcpaSearchMode): string {
+  const safe = sanitizeOwnerLikeToken(query);
+  if (safe.length < 2) {
+    throw new Error("Owner name is too short to search the tax roll.");
+  }
+
+  if (mode === "person") {
+    const parts = safe.split(/\s+/).filter((p) => p.length >= 2);
+    if (parts.length === 0) {
+      throw new Error("Owner name is too short to search the tax roll.");
+    }
+    const fieldClauses = ["OWNER_NAME1", "OWNER_NAME2"].map((field) => {
+      const andParts = parts.map((p) => `UPPER(${field}) LIKE UPPER('%${p}%')`).join(" AND ");
+      return `(${andParts})`;
+    });
+    return `(${fieldClauses.join(" OR ")})`;
+  }
+
+  const tokens = ownerEntitySearchTokens(query);
+  if (tokens.length === 0) {
+    throw new Error("Could not build a tax roll search from that owner name.");
+  }
+  const fieldClauses = ["OWNER_NAME1", "OWNER_NAME2"].map((field) => {
+    const andParts = tokens.map((p) => `UPPER(${field}) LIKE '%${p}%'`).join(" AND ");
+    return `(${andParts})`;
+  });
+  return `(${fieldClauses.join(" OR ")})`;
+}
+
+function ownerNames(attrs: OwnerSearchAttributes): string[] {
+  return [attrs.OWNER_NAME1, attrs.OWNER_NAME2]
+    .map((n) => n?.trim())
+    .filter((n): n is string => !!n);
+}
+
+function ownerParcelMatchesQuery(
+  attrs: OwnerSearchAttributes,
+  query: string,
+  mode: PbcpaSearchMode,
+): boolean {
+  const names = ownerNames(attrs);
+  if (names.length === 0) return false;
+  if (mode === "entity") return names.some((name) => entityOwnerNamesMatch(query, name));
+  return names.some((name) => personNameMatchesOwnerField(query, name));
+}
+
+function hitFromOwnerAttributes(attrs: OwnerSearchAttributes): PbcpaOwnerParcelHit | null {
+  const folioRaw = attrs.PARCEL_NUMBER?.trim();
+  if (!folioRaw) return null;
+  const folio = folioRaw.replace(/-/g, "");
+  const ownerName = attrs.OWNER_NAME1?.trim() || attrs.OWNER_NAME2?.trim();
+  if (!ownerName) return null;
+
+  return {
+    folio,
+    strap: folioToStrap(folio),
+    ownerName,
+    address: attrs.SITE_ADDR_STR?.trim() || null,
+    city: attrs.MUNICIPALITY?.trim() || null,
+    buildingSqft: null,
+  };
+}
+
+async function fetchOwnerParcelsPage(
+  where: string,
+  offset: number,
+): Promise<{ features: { attributes: OwnerSearchAttributes }[]; exceededTransferLimit?: boolean }> {
+  const url = new URL(PBCPA_URL);
+  url.searchParams.set("where", where);
+  url.searchParams.set("outFields", OWNER_SEARCH_FIELDS);
+  url.searchParams.set("returnGeometry", "false");
+  url.searchParams.set("orderByFields", "OBJECTID");
+  url.searchParams.set("resultRecordCount", String(OWNER_PAGE_SIZE));
+  url.searchParams.set("resultOffset", String(offset));
+  url.searchParams.set("f", "json");
+
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 0 },
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Palm Beach tax roll owner search failed: HTTP ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    features?: { attributes: OwnerSearchAttributes }[];
+    error?: { message: string };
+    exceededTransferLimit?: boolean;
+  };
+
+  if (data.error) {
+    throw new Error(`Tax roll search error: ${data.error.message}`);
+  }
+
+  return {
+    features: data.features ?? [],
+    exceededTransferLimit: data.exceededTransferLimit,
+  };
+}
+
+/** Search Palm Beach tax roll by owner / entity name (OWNER_NAME1/OWNER_NAME2). */
+export async function searchParcelsByOwnerName(
+  query: string,
+  mode: PbcpaSearchMode,
+): Promise<PbcpaOwnerParcelHit[]> {
+  const where = buildOwnerWhereClause(query, mode);
+
+  const byFolio = new Map<string, PbcpaOwnerParcelHit>();
+  let offset = 0;
+
+  while (byFolio.size < OWNER_MAX_PARCELS) {
+    const { features, exceededTransferLimit } = await fetchOwnerParcelsPage(where, offset);
+    if (features.length === 0) break;
+
+    for (const f of features) {
+      if (!ownerParcelMatchesQuery(f.attributes, query, mode)) continue;
+      const hit = hitFromOwnerAttributes(f.attributes);
+      if (hit) byFolio.set(hit.folio, hit);
+    }
+
+    offset += features.length;
+    if (features.length < OWNER_PAGE_SIZE) break;
+    if (exceededTransferLimit && offset >= OWNER_MAX_PARCELS) break;
+  }
+
+  return [...byFolio.values()].sort((a, b) =>
+    (a.address ?? a.folio).localeCompare(b.address ?? b.folio),
+  );
+}
+
+/** Run multiple tax roll owner searches and merge by folio. */
+export async function searchParcelsByOwnerQueries(
+  queries: { query: string; mode: PbcpaSearchMode }[],
+): Promise<PbcpaOwnerParcelHit[]> {
+  const byFolio = new Map<string, PbcpaOwnerParcelHit>();
+  const seen = new Set<string>();
+
+  for (const { query, mode } of queries) {
+    const trimmed = query.trim();
+    if (!trimmed) continue;
+    const key = `${mode}:${normalizeOwnerName(trimmed)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const hits = await searchParcelsByOwnerName(trimmed, mode);
+    for (const hit of hits) {
+      byFolio.set(hit.folio, hit);
+    }
+  }
+
+  return [...byFolio.values()].sort((a, b) =>
+    (a.address ?? a.folio).localeCompare(b.address ?? b.folio),
+  );
 }

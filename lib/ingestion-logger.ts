@@ -10,6 +10,7 @@ export type IngestionStage =
   | "gis_fetch"      // County GIS address search
   | "mdpa_fetch"     // MDPA folio detail lookup
   | "bcpa_fetch"     // BCPA folio detail lookup (Florida DOR statewide service)
+  | "pbcpa_fetch"    // PBCPA folio detail lookup (PAO.PROPINFO_PUB table)
   | "jina_fetch"     // Jina Reader web page fetch
   | "ai_extract"     // Claude field extraction
   | "db_save"        // Supabase upsert

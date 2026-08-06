@@ -7,6 +7,8 @@ import {
   primaryOwnerName,
   propertyUseToType,
   pbSaleDate,
+  searchParcelsByOwnerName,
+  searchParcelsByOwnerQueries,
   type PBParcel,
   type PBRecord,
   type GISSearchResult,
@@ -435,6 +437,163 @@ describe("pbSaleDate (Palm Beach)", () => {
   });
 });
 
+// ─── searchParcelsByOwnerName (Palm Beach tax roll owner search) ─────────────
+
+describe("searchParcelsByOwnerName (Palm Beach)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  type FakeOwnerFeature = {
+    PARCEL_NUMBER: string;
+    OWNER_NAME1: string;
+    OWNER_NAME2?: string | null;
+    SITE_ADDR_STR?: string;
+    MUNICIPALITY?: string;
+  };
+
+  function stubOwnerFetch(pages: FakeOwnerFeature[][]) {
+    const capturedUrls: string[] = [];
+    let call = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      capturedUrls.push(url);
+      const features = pages[call] ?? [];
+      call++;
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+    return capturedUrls;
+  }
+
+  function whereFrom(rawUrl: string): string {
+    return new URL(rawUrl).searchParams.get("where") ?? "";
+  }
+
+  it("builds an entity WHERE clause across OWNER_NAME1/OWNER_NAME2 using the top 2 significant tokens", async () => {
+    const urls = stubOwnerFetch([[]]);
+    await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(whereFrom(urls[0])).toBe(
+      "((UPPER(OWNER_NAME1) LIKE '%HOLDINGS%' AND UPPER(OWNER_NAME1) LIKE '%ACME%') OR (UPPER(OWNER_NAME2) LIKE '%HOLDINGS%' AND UPPER(OWNER_NAME2) LIKE '%ACME%'))",
+    );
+  });
+
+  it("builds a person WHERE clause across OWNER_NAME1/OWNER_NAME2 ANDing every name part", async () => {
+    const urls = stubOwnerFetch([[]]);
+    await searchParcelsByOwnerName("John Smith", "person");
+    expect(whereFrom(urls[0])).toBe(
+      "((UPPER(OWNER_NAME1) LIKE UPPER('%John%') AND UPPER(OWNER_NAME1) LIKE UPPER('%Smith%')) OR (UPPER(OWNER_NAME2) LIKE UPPER('%John%') AND UPPER(OWNER_NAME2) LIKE UPPER('%Smith%')))",
+    );
+  });
+
+  it("maps matching features to PbcpaOwnerParcelHit with folio, strap, and null building sqft", async () => {
+    stubOwnerFetch([
+      [
+        {
+          PARCEL_NUMBER: "08434520180001140",
+          OWNER_NAME1: "MODENA CAPITAL INVESTMENTS LLC",
+          SITE_ADDR_STR: "1210 OLD BOYNTON RD 114",
+          MUNICIPALITY: "BOYNTON BEACH",
+        },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("Modena Capital Investments LLC", "entity");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toEqual({
+      folio: "08434520180001140",
+      strap: "08-43-45-20-18-000-1140",
+      ownerName: "MODENA CAPITAL INVESTMENTS LLC",
+      address: "1210 OLD BOYNTON RD 114",
+      city: "BOYNTON BEACH",
+      buildingSqft: null,
+    });
+  });
+
+  it("falls back to OWNER_NAME2 when OWNER_NAME1 is blank", async () => {
+    stubOwnerFetch([
+      [{ PARCEL_NUMBER: "1", OWNER_NAME1: "", OWNER_NAME2: "SMITH JOHN" }],
+    ]);
+    const hits = await searchParcelsByOwnerName("John Smith", "person");
+    expect(hits.map((h) => h.ownerName)).toEqual(["SMITH JOHN"]);
+  });
+
+  it("filters out rows whose owner fields do not actually match the entity query (LIKE false positives)", async () => {
+    stubOwnerFetch([
+      [
+        { PARCEL_NUMBER: "1", OWNER_NAME1: "ACME HOLDINGS LLC" },
+        { PARCEL_NUMBER: "2", OWNER_NAME1: "BETA ACME PARTNERS LLC" },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(hits.map((h) => h.ownerName)).toEqual(["ACME HOLDINGS LLC"]);
+  });
+
+  it("filters person search to owners containing every name part", async () => {
+    stubOwnerFetch([
+      [
+        { PARCEL_NUMBER: "1", OWNER_NAME1: "SMITH JOHN" },
+        { PARCEL_NUMBER: "2", OWNER_NAME1: "SMITH JANE" },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("John Smith", "person");
+    expect(hits.map((h) => h.ownerName)).toEqual(["SMITH JOHN"]);
+  });
+
+  it("dedupes by folio when the same parcel appears twice", async () => {
+    stubOwnerFetch([
+      [
+        { PARCEL_NUMBER: "1", OWNER_NAME1: "ACME HOLDINGS LLC", SITE_ADDR_STR: "A" },
+        { PARCEL_NUMBER: "1", OWNER_NAME1: "ACME HOLDINGS LLC", SITE_ADDR_STR: "A" },
+      ],
+    ]);
+    const hits = await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(hits).toHaveLength(1);
+  });
+
+  it("throws when the owner name is too short to search", async () => {
+    stubOwnerFetch([[]]);
+    await expect(searchParcelsByOwnerName("A", "entity")).rejects.toThrow();
+  });
+
+  it("skips rows with both owner fields blank", async () => {
+    stubOwnerFetch([[{ PARCEL_NUMBER: "1", OWNER_NAME1: "" }]]);
+    const hits = await searchParcelsByOwnerName("Acme Holdings LLC", "entity");
+    expect(hits).toHaveLength(0);
+  });
+});
+
+describe("searchParcelsByOwnerQueries (Palm Beach)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("merges hits from multiple queries by folio and dedupes repeated queries", async () => {
+    let call = 0;
+    vi.stubGlobal("fetch", async () => {
+      call++;
+      const features =
+        call === 1
+          ? [{ PARCEL_NUMBER: "1", OWNER_NAME1: "ACME HOLDINGS LLC", SITE_ADDR_STR: "A ST" }]
+          : [{ PARCEL_NUMBER: "2", OWNER_NAME1: "JOHN SMITH", SITE_ADDR_STR: "B ST" }];
+      return {
+        ok: true,
+        json: async () => ({ features: features.map((f) => ({ attributes: f })) }),
+      } as unknown as Response;
+    });
+
+    const hits = await searchParcelsByOwnerQueries([
+      { query: "Acme Holdings LLC", mode: "entity" },
+      { query: "acme holdings llc", mode: "entity" }, // duplicate — should be skipped
+      { query: "John Smith", mode: "person" },
+    ]);
+
+    expect(hits.map((h) => h.folio).sort()).toEqual(["1", "2"]);
+    // Only 2 fetch calls: the duplicate normalized query was skipped before any fetch.
+    expect(call).toBe(2);
+  });
+});
+
 // ─── detectCounty ─────────────────────────────────────────────────────────────
 
 describe("detectCounty — Palm Beach cities", () => {
@@ -471,5 +630,15 @@ describe("live Palm Beach parcel service", () => {
     const detail = await getPropertyDetail(parcels[0].folio);
     expect(detail).not.toBeNull();
     expect(detail!.PARCEL_NUMBER).toBe("08434529010190251");
+  }, 30_000);
+
+  // Confirmed live: SAINTE GEORGE INVESTMENTS LLC owns multiple condo units at
+  // 2701 NW 2nd Ave, Boca Raton — a real multi-parcel portfolio for exercising
+  // owner-name discovery end to end against the live PAO.PROPINFO_PUB table.
+  it("SAINTE GEORGE INVESTMENTS LLC resolves to multiple parcels at 2701 NW 2nd Ave, Boca Raton", async () => {
+    const hits = await searchParcelsByOwnerName("Sainte George Investments LLC", "entity");
+    expect(hits.length).toBeGreaterThanOrEqual(2);
+    expect(hits.every((h) => h.ownerName === "SAINTE GEORGE INVESTMENTS LLC")).toBe(true);
+    expect(hits.every((h) => h.address?.startsWith("2701 NW 2ND AVE"))).toBe(true);
   }, 30_000);
 });
