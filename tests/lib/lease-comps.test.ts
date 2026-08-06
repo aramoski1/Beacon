@@ -75,6 +75,21 @@ describe("selectLeaseComps", () => {
       expirationDate: null,
       isSubjectProperty: false,
     },
+    // Same SF band as the subject, but a different submarket AND a
+    // different property type — an SF-only coincidence, not a real comp
+    // (e.g. a residential unit surfacing against an industrial subject).
+    {
+      leaseId: "l4",
+      propertyId: "p4",
+      address: "Unrelated Residential Unit",
+      submarket: "Kendall",
+      propertyType: "Residential",
+      sizeSqft: 85_000,
+      baseRate: 20,
+      term: "1 year",
+      expirationDate: null,
+      isSubjectProperty: false,
+    },
   ];
 
   it("ranks same submarket+type+SF and drops subject / no rate / unrelated", () => {
@@ -84,6 +99,28 @@ describe("selectLeaseComps", () => {
     expect(comps[0]!.sameSubmarket).toBe(true);
     expect(comps[0]!.sameType).toBe(true);
     expect(comps[0]!.withinSfBand).toBe(true);
+  });
+
+  it("does not surface a comp that only matches on SF band with a different submarket and type", () => {
+    const comps = selectLeaseComps(candidates, band, 8);
+    expect(comps.some((c) => c.leaseId === "l4")).toBe(false);
+  });
+
+  it("SF-band-only match (no submarket or type match) is excluded entirely", () => {
+    const sfOnlyCandidate: LeaseCompCandidate = {
+      leaseId: "sf-only",
+      propertyId: "p5",
+      address: "SF Coincidence",
+      submarket: "Kendall",
+      propertyType: "Residential",
+      sizeSqft: 80_000,
+      baseRate: 18,
+      term: "2 years",
+      expirationDate: null,
+      isSubjectProperty: false,
+    };
+    const comps = selectLeaseComps([sfOnlyCandidate], band, 8);
+    expect(comps).toHaveLength(0);
   });
 
   it("normalizeBandKey trims case", () => {

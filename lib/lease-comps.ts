@@ -99,8 +99,13 @@ export function selectLeaseComps(
       !!typ && normalizeBandKey(c.propertyType) === typ;
     const inSf = withinSfBand(band.subjectSqft, c.sizeSqft, tol);
 
-    // Need at least one of submarket / type / SF band to qualify
-    if (!sameSubmarket && !sameType && !inSf) continue;
+    // Need at least a submarket or type match to qualify. SF proximity alone
+    // is not enough to call two leases comps — e.g. a residential unit that
+    // happens to be near an industrial subject's square footage is not a
+    // real comp for it. SF band is used only as a scoring/sort preference
+    // below (scoreLeaseComp, tie-break by closeness), never as the sole
+    // qualifying signal.
+    if (!sameSubmarket && !sameType) continue;
 
     rows.push({
       leaseId: c.leaseId,
