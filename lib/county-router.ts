@@ -236,7 +236,30 @@ export async function searchParcelsByAddress(
   const city = parseCityFromAddress(rawAddress);
 
   if (county === "palm-beach") {
-    const result = await pbcpaSearch(rawAddress, city);
+    // pbcpaSearch throws (not just rejects with a GISSearchResult) when the
+    // address can't be parsed into a house number/keyword — mirror the
+    // Miami-Dade branch above so that throw degrades to a friendly
+    // { kind: "error" } instead of an uncaught server crash.
+    try {
+      const result = await pbcpaSearch(rawAddress, city);
+      if (result.kind !== "ok") return result;
+      return {
+        kind: "ok",
+        parcels: result.parcels.map((p) => ({
+          folio: p.folio,
+          strap: p.strap,
+          address: p.address,
+          county: "palm-beach" as const,
+        })),
+      };
+    } catch (e) {
+      return { kind: "error", message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  // bcpaSearch has the same throw-on-unparseable-address behavior as pbcpaSearch.
+  try {
+    const result = await bcpaSearch(rawAddress, city);
     if (result.kind !== "ok") return result;
     return {
       kind: "ok",
@@ -244,22 +267,12 @@ export async function searchParcelsByAddress(
         folio: p.folio,
         strap: p.strap,
         address: p.address,
-        county: "palm-beach" as const,
+        county: "broward" as const,
       })),
     };
+  } catch (e) {
+    return { kind: "error", message: e instanceof Error ? e.message : String(e) };
   }
-
-  const result = await bcpaSearch(rawAddress, city);
-  if (result.kind !== "ok") return result;
-  return {
-    kind: "ok",
-    parcels: result.parcels.map((p) => ({
-      folio: p.folio,
-      strap: p.strap,
-      address: p.address,
-      county: "broward" as const,
-    })),
-  };
 }
 
 /**
