@@ -773,7 +773,13 @@ export default function SettingsPage() {
       <div className="mb-8">
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Account, brokerage, data sources, and platform preferences.
+          Account, brokerage, data sources, and platform preferences.{" "}
+          <Link
+            href="/how-beacon-works"
+            className="text-foreground/80 hover:text-foreground underline underline-offset-4 decoration-muted-foreground/40"
+          >
+            How Beacon works
+          </Link>
         </p>
       </div>
 

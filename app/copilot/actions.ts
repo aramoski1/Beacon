@@ -325,7 +325,8 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Lease Radar** (/lease-radar) — Expiry tracker for leases within 3/6/12 months
 - **Deals** (/deals) — Pursuit pipeline (kanban or list view). Stage order: prospect → contacted → meeting → requirement → proposal → won → under_contract → closed / lost. The exact stage set shown depends on the deal's type (tenant rep, listing, or investment sale)
 - **All tasks** (/follow-ups) — Follow-up task list with due dates; found under "Advanced" in the sidebar, not the main nav row
-- **Settings** (/settings) — sections: Account (name/email/password), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (permanently delete all data — requires typing DELETE to confirm; login credentials are preserved)
+- **Settings** (/settings) — sections: Account (name/email/password), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (permanently delete all data — requires typing DELETE to confirm; login credentials are preserved). Settings header also links to **How Beacon works** (/how-beacon-works)
+- **How Beacon works** (/how-beacon-works) — short static explainer: the three product loops (ownership truth, lease rollover, who to call), day-1 path, and honest limits. Linked from Settings and optionally from onboarding (Welcome / Done). Not in the main nav. When opened from onboarding, shows a Back to setup link.
 
 ### Exporting data (this is a real, fully-built feature — always point here; never invent a support/API/integrations path for this)
 - **From Workspace** (/crm): each tab (Properties, Leases, Contacts) has an "Export all" button that downloads the full list as an XLSX file — beacon-properties.xlsx, beacon-leases.xlsx, beacon-contacts.xlsx. Each tab also has "Export this page" and "Export selected" (select rows with the checkboxes first).
@@ -334,6 +335,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 
 ### How to do common things
 - **Import a spreadsheet**: /onboarding
+- **Learn how Beacon works**: /how-beacon-works (also linked from Settings and onboarding)
 - **Abstract a lease**: /abstracts/new — upload a PDF, AI extracts key fields automatically
 - **Add a property**: /properties/new (address lookup, listing URL, or file upload), or "+ New" in the sidebar
 - **Add a contact**: /contacts/new, or "+ New" in the sidebar

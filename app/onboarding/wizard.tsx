@@ -2,6 +2,7 @@
 
 import { useState, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Upload, CheckCircle2, ArrowRight, Building2, Users, Loader2, X, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -97,6 +98,12 @@ function WelcomeStep({
         >
           Skip — I&apos;ll add data manually
         </button>
+        <Link
+          href="/how-beacon-works?from=onboarding"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4 decoration-muted-foreground/40"
+        >
+          How Beacon works
+        </Link>
       </div>
     </div>
   );
@@ -545,6 +552,12 @@ function DoneStep({
         >
           Import another file
         </button>
+        <Link
+          href="/how-beacon-works?from=onboarding"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4 decoration-muted-foreground/40"
+        >
+          How Beacon works
+        </Link>
         {result.propertiesImported > 0 && (
           <p className="text-xs text-muted-foreground text-center">
             Enrich queues Miami-Dade/Broward/Palm Beach address lookups and Sunbiz for entity owners.
