@@ -93,7 +93,7 @@ export async function importBcpaFolio(
     return { error: `No Broward parcel record found for folio ${normalizedStrap}.` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     (f) => f.fill_mode === "extract",
   );
   const nullCustom = Object.fromEntries(customExtractFields.map((f) => [f.field_name, null]));

@@ -85,7 +85,7 @@ export async function countSmartListMatches(
   let leaseCount = 0;
   if (search.leases && (search.target === "leases" || search.target === "both")) {
     let lq = supabase.from("lease_abstracts").select("*", { count: "exact", head: true }).eq("owner_id", ownerId);
-    lq = await applyLeaseFilters(lq, search.leases, supabase);
+    lq = await applyLeaseFilters(lq, search.leases, { ownerId, supabase });
     const { count } = await lq;
     leaseCount = count ?? 0;
   }

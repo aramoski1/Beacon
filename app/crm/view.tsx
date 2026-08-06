@@ -2325,6 +2325,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setContactsLoading(true);
     setContactsError(null);
     const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
     const from = conPage * PAGE_SIZE;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2336,17 +2337,20 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
 
     if (activeSearch?.contacts || activeSearch?.target === "both") {
       if (activeSearch?.target === "both" && activeSearch.properties) {
-        const propertyIds = await fetchMatchingPropertyIdsFromClient(supabase, activeSearch.properties);
+        if (!user) {
+          setContacts([]);
+          setTotalCons(0);
+          setContactsLoading(false);
+          return;
+        }
+        const propertyIds = await fetchMatchingPropertyIdsFromClient(supabase, user.id, activeSearch.properties);
         if (propertyIds.length === 0) {
           setContacts([]);
           setTotalCons(0);
           setContactsLoading(false);
           return;
         }
-        const { data: { user } } = await supabase.auth.getUser();
-        const linkedIds = user
-          ? await contactIdsForProperties(supabase, user.id, propertyIds)
-          : [];
+        const linkedIds = await contactIdsForProperties(supabase, user.id, propertyIds);
         if (linkedIds.length === 0) {
           setContacts([]);
           setTotalCons(0);
@@ -2376,7 +2380,6 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       return;
     }
     const rows = (data ?? []).map((x: Contact) => ({ ...x, action_tags: x.action_tags ?? [] }));
-    const { data: { user } } = await supabase.auth.getUser();
     if (user && rows.length > 0) {
       try {
         const byContact = await propertyIdsByContactIds(
@@ -2403,6 +2406,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setLeasesLoading(true);
     setLeasesError(null);
     const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    const leaseFilterCtx = user ? { ownerId: user.id, supabase } : undefined;
     const from = leasePage * PAGE_SIZE;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2413,7 +2418,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       .range(from, from + PAGE_SIZE - 1);
 
     if (activeSearch?.leases) {
-      q = await applyLeaseFilters(q, activeSearch.leases as LeaseSearchFilters, supabase);
+      q = await applyLeaseFilters(q, activeSearch.leases as LeaseSearchFilters, leaseFilterCtx);
     } else {
       const f: LeaseSearchFilters = {};
       if (leaseFilters.expirationWindow) {
@@ -2423,7 +2428,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       if (leaseFilters.hasTenantContact === "yes" || leaseFilters.hasTenantContact === "no") {
         f.has_tenant_contact = leaseFilters.hasTenantContact === "yes";
       }
-      q = await applyLeaseFilters(q, f, supabase);
+      q = await applyLeaseFilters(q, f, leaseFilterCtx);
     }
 
     const { data, count, error } = await q;

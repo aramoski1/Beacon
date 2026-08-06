@@ -122,7 +122,9 @@ function PreviewFields({ preview: p }: { preview: PropertyPreview | UrlPreview |
   const [customDefs, setCustomDefs] = useState<FieldDefinition[]>([]);
   useEffect(() => {
     const supabase = createClient();
-    fetchFieldDefs(supabase, "property").then(setCustomDefs);
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(setCustomDefs);
+    });
   }, []);
   const extractDefs = customDefs.filter(f => f.fill_mode === "extract");
   if (extractDefs.length === 0) return null;
@@ -172,7 +174,9 @@ function AddressPreviewCard({
 
   useEffect(() => {
     const supabase = createClient();
-    fetchFieldDefs(supabase, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+    });
   }, []);
 
   const flagMap = new Map(preview.confidence_flags.map(f => [f.field, f.reason]));
@@ -351,7 +355,9 @@ function UrlPreviewCard({
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   useEffect(() => {
     const supabase = createClient();
-    fetchFieldDefs(supabase, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+    });
   }, []);
 
   const flags = new Set(preview.confidence_flags.map(f => f.field));
@@ -459,7 +465,9 @@ function UploadPreviewCard({
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   useEffect(() => {
     const supabase = createClient();
-    fetchFieldDefs(supabase, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+    });
   }, []);
 
   const flags = new Set(preview.confidence_flags.map(f => f.field));

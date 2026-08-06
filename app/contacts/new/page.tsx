@@ -69,7 +69,9 @@ export default function NewContactPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    fetchFieldDefs(supabase, "contact").then(setCustomDefs);
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) fetchFieldDefs(supabase, user.id, "contact").then(setCustomDefs);
+    });
   }, []);
 
   function toggleAsset(val: string) {

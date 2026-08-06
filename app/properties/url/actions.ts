@@ -63,7 +63,7 @@ export async function ingestUrl(formData: FormData): Promise<UrlIngestResult> {
     return { error: "fetch_failed", detail: `Could not fetch the page: ${msg}` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     f => f.fill_mode === "extract"
   );
   try {
@@ -108,7 +108,7 @@ export async function ingestPastedContent(
   if (!text || text.length < 50)
     return { error: "Please paste at least a few lines of listing content." };
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     f => f.fill_mode === "extract"
   );
   try {

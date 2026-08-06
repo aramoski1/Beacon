@@ -186,7 +186,7 @@ export function applyContactFilters(
 export async function applyLeaseFilters(
   q: QueryBuilder,
   f: LeaseSearchFilters,
-  supabase?: QueryBuilder,
+  ctx?: { ownerId: string; supabase: QueryBuilder },
 ): Promise<QueryBuilder> {
   const now = new Date().toISOString();
   const in90 = new Date(Date.now() + 90 * 86_400_000).toISOString();
@@ -214,8 +214,8 @@ export async function applyLeaseFilters(
     if (range.lte) q = q.lte("expiration_date", range.lte);
   }
 
-  if (f.linked_property_type && supabase) {
-    const propertyIds = await fetchMatchingPropertyIdsFromClient(supabase, { property_type: f.linked_property_type });
+  if (f.linked_property_type && ctx) {
+    const propertyIds = await fetchMatchingPropertyIdsFromClient(ctx.supabase, ctx.ownerId, { property_type: f.linked_property_type });
     q = q.in("linked_property", propertyIds.length > 0 ? propertyIds : ["00000000-0000-0000-0000-000000000000"]);
   }
 
@@ -225,13 +225,18 @@ export async function applyLeaseFilters(
   return q;
 }
 
-/** Property IDs matching filters (pass browser Supabase client — RLS scopes to user). */
+/**
+ * Property IDs matching filters. Scoped explicitly to `ownerId` as a backstop
+ * to RLS — this is called from both server and browser Supabase clients, so
+ * it shouldn't depend solely on the session-scoped RLS policy staying intact.
+ */
 export async function fetchMatchingPropertyIdsFromClient(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
+  ownerId: string,
   filters: PropertySearchFilters,
 ): Promise<string[]> {
-  let q = supabase.from("properties").select("id").limit(1000);
+  let q = supabase.from("properties").select("id").eq("owner_id", ownerId).limit(1000);
   q = applyPropertyFilters(q, filters);
   const { data } = await q;
   return (data ?? []).map((r: { id: string }) => r.id);

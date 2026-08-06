@@ -46,13 +46,17 @@ import {
   logOutreach,
 } from "@/app/outreach/actions";
 import { createActivity } from "@/app/activities/actions";
+import { createDeal } from "@/app/deals/actions";
+import { setLeaseTenant } from "@/app/abstracts/[id]/actions";
+import { fetchFieldDefs } from "@/lib/custom-fields";
+import { fetchMatchingPropertyIdsFromClient } from "@/lib/crm-search-filters";
 
 // ─── Mock Supabase builder ────────────────────────────────────────────────────
 
 type EqCall = { field: string; value: unknown };
 type ChainRecord = {
   table: string;
-  op: "select" | "insert" | "update" | "delete";
+  op: "select" | "insert" | "update" | "delete" | "upsert";
   eqs: EqCall[];
   data?: unknown;
 };
@@ -70,11 +74,11 @@ function buildSupabaseSpy(
 
   function resolveFor(record: ChainRecord): Promise<unknown> {
     const key =
-      record.op === "update" || record.op === "insert"
+      record.op === "update" || record.op === "insert" || record.op === "upsert"
         ? `${record.table}:${record.op}`
         : record.table;
     const fallback =
-      record.op === "insert"
+      record.op === "insert" || record.op === "upsert"
         ? { data: { id: "mock-id" }, error: null }
         : { data: null, error: null };
     return Promise.resolve(tableResponses[key] ?? fallback);
@@ -99,6 +103,13 @@ function buildSupabaseSpy(
           if (prop === "insert") {
             return (d: unknown) => {
               record.op = "insert";
+              record.data = d;
+              return proxy;
+            };
+          }
+          if (prop === "upsert") {
+            return (d: unknown) => {
+              record.op = "upsert";
               record.data = d;
               return proxy;
             };
@@ -163,6 +174,10 @@ function buildSupabaseSpy(
     /** True if any INSERT was attempted on `table`. */
     insertedInto: (table: string) =>
       chains.some((c) => c.table === table && c.op === "insert"),
+
+    /** True if any UPSERT was attempted on `table`. */
+    upsertedInto: (table: string) =>
+      chains.some((c) => c.table === table && c.op === "upsert"),
 
     /** True if any UPDATE was attempted on `table`. */
     updatedIn: (table: string) =>
@@ -503,7 +518,9 @@ describe("createActivity", () => {
 import {
   contactIdsForProperty,
   propertyIdsForContact,
+  linkContactProperty,
 } from "@/lib/contact-properties";
+import { linkPropertyToEntity, linkContactToEntity } from "@/lib/entities";
 
 describe("contact_properties auth isolation", () => {
   it("scopes property→contact lookup by owner_id", async () => {
@@ -530,5 +547,242 @@ describe("contact_properties auth isolation", () => {
     await propertyIdsForContact(supabase, USER_A, "c1");
 
     expect(spy.tableHadOwnerFilter("contact_properties", USER_A)).toBe(true);
+  });
+});
+
+// ─── Write-side FK ownership checks ────────────────────────────────────────────
+//
+// The audit that motivated these tests found that several write paths accepted
+// a foreign-key id (contact_id / property_id / entity_id) from the caller and
+// wrote it into a row without verifying that the referenced record belongs to
+// the same owner. RLS already blocks *reading* another user's row through the
+// planted pointer, but nothing stopped the pointer from being planted in the
+// first place. These tests prove the write itself is now rejected.
+
+describe("linkContactProperty — rejects planting a pointer to another owner's record", () => {
+  it("rejects when the contact does not belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: null, error: null },
+      properties: { data: { id: "p1" }, error: null },
+    });
+
+    await expect(
+      linkContactProperty(supabase, USER_A, "foreign-contact", "p1")
+    ).rejects.toThrow(/contact does not belong to this owner/i);
+    expect(spy.upsertedInto("contact_properties")).toBe(false);
+  });
+
+  it("rejects when the property does not belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: { id: "c1" }, error: null },
+      properties: { data: null, error: null },
+    });
+
+    await expect(
+      linkContactProperty(supabase, USER_A, "c1", "foreign-property")
+    ).rejects.toThrow(/property does not belong to this owner/i);
+    expect(spy.upsertedInto("contact_properties")).toBe(false);
+  });
+
+  it("links when both contact and property belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: { id: "c1" }, error: null },
+      properties: { data: { id: "p1" }, error: null },
+      "contact_properties:upsert": { data: null, error: null },
+    });
+
+    await expect(linkContactProperty(supabase, USER_A, "c1", "p1")).resolves.toBeUndefined();
+    expect(spy.upsertedInto("contact_properties")).toBe(true);
+  });
+});
+
+describe("linkPropertyToEntity — rejects planting a pointer to another owner's record", () => {
+  it("rejects when the property does not belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      properties: { data: null, error: null },
+      entities: { data: { id: "e1" }, error: null },
+    });
+
+    await expect(
+      linkPropertyToEntity(supabase, USER_A, "foreign-property", "e1")
+    ).rejects.toThrow(/property does not belong to this owner/i);
+    expect(spy.upsertedInto("entity_properties")).toBe(false);
+  });
+
+  it("rejects when the entity does not belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      properties: { data: { id: "p1" }, error: null },
+      entities: { data: null, error: null },
+    });
+
+    await expect(
+      linkPropertyToEntity(supabase, USER_A, "p1", "foreign-entity")
+    ).rejects.toThrow(/entity does not belong to this owner/i);
+    expect(spy.upsertedInto("entity_properties")).toBe(false);
+  });
+
+  it("links and updates properties.entity_id when both belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      properties: { data: { id: "p1" }, error: null },
+      entities: { data: { id: "e1" }, error: null },
+      "entity_properties:upsert": { data: null, error: null },
+      "properties:update": { data: null, error: null },
+    });
+
+    await expect(linkPropertyToEntity(supabase, USER_A, "p1", "e1")).resolves.toBeUndefined();
+    expect(spy.upsertedInto("entity_properties")).toBe(true);
+    expect(spy.updateHadOwnerFilter("properties", USER_A)).toBe(true);
+  });
+});
+
+describe("linkContactToEntity — rejects planting a pointer to another owner's record", () => {
+  it("rejects when the entity does not belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      entities: { data: null, error: null },
+      contacts: { data: { id: "c1" }, error: null },
+    });
+
+    await expect(
+      linkContactToEntity(supabase, USER_A, "foreign-entity", "c1")
+    ).rejects.toThrow(/entity does not belong to this owner/i);
+    expect(spy.upsertedInto("entity_contacts")).toBe(false);
+  });
+
+  it("rejects when the contact does not belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      entities: { data: { id: "e1" }, error: null },
+      contacts: { data: null, error: null },
+    });
+
+    await expect(
+      linkContactToEntity(supabase, USER_A, "e1", "foreign-contact")
+    ).rejects.toThrow(/contact does not belong to this owner/i);
+    expect(spy.upsertedInto("entity_contacts")).toBe(false);
+  });
+
+  it("links when both entity and contact belong to the caller", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      entities: { data: { id: "e1" }, error: null },
+      contacts: { data: { id: "c1" }, error: null },
+      "entity_contacts:upsert": { data: null, error: null },
+    });
+
+    await expect(linkContactToEntity(supabase, USER_A, "e1", "c1")).resolves.toBeUndefined();
+    expect(spy.upsertedInto("entity_contacts")).toBe(true);
+  });
+});
+
+describe("createDeal — cannot reference another owner's contact/property", () => {
+  it("rejects a deal referencing a contact the caller does not own", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await createDeal({ name: "Test Deal", contact_id: "foreign-contact" });
+
+    expect(result.error).toMatch(/contact isn't in your book/i);
+    expect(spy.insertedInto("deals")).toBe(false);
+  });
+
+  it("rejects a deal referencing a property the caller does not own", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      properties: { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await createDeal({ name: "Test Deal", property_id: "foreign-property" });
+
+    expect(result.error).toMatch(/property isn't in your book/i);
+    expect(spy.insertedInto("deals")).toBe(false);
+  });
+
+  it("creates the deal when the referenced contact and property are owned", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: { id: "c1" }, error: null },
+      properties: { data: { id: "p1" }, error: null },
+      "deals:insert": {
+        data: {
+          id: "deal-1",
+          name: "Test Deal",
+          contact_id: "c1",
+          property_id: "p1",
+          next_action: null,
+          next_action_due: null,
+        },
+        error: null,
+      },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await createDeal({ name: "Test Deal", contact_id: "c1", property_id: "p1" });
+
+    expect(result.error).toBeUndefined();
+    expect(spy.insertedInto("deals")).toBe(true);
+  });
+});
+
+describe("setLeaseTenant — cannot point a lease at another owner's contact", () => {
+  it("rejects a tenant contact the caller does not own", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await setLeaseTenant("lease-1", "foreign-contact");
+
+    expect(result.error).toMatch(/contact isn't in your book/i);
+    expect(spy.updatedIn("lease_abstracts")).toBe(false);
+  });
+
+  it("updates the lease when the tenant contact is owned", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      contacts: { data: { id: "c1" }, error: null },
+      "lease_abstracts:update": { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await setLeaseTenant("lease-1", "c1");
+
+    expect(result.error).toBeUndefined();
+    expect(spy.updatedIn("lease_abstracts")).toBe(true);
+  });
+
+  it("allows clearing the tenant contact (null) without an ownership lookup", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      "lease_abstracts:update": { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await setLeaseTenant("lease-1", null);
+
+    expect(result.error).toBeUndefined();
+    expect(spy.updatedIn("lease_abstracts")).toBe(true);
+  });
+});
+
+// ─── Read-side defense-in-depth: explicit owner_id filters backstopping RLS ────
+
+describe("fetchFieldDefs — explicit owner_id filter (defense in depth alongside RLS)", () => {
+  it("scopes the field_definitions query by owner_id", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      field_definitions: { data: [], error: null },
+    });
+
+    await fetchFieldDefs(supabase as unknown as Parameters<typeof fetchFieldDefs>[0], USER_A, "property");
+
+    expect(spy.tableHadOwnerFilter("field_definitions", USER_A)).toBe(true);
+  });
+});
+
+describe("fetchMatchingPropertyIdsFromClient — explicit owner_id filter (defense in depth alongside RLS)", () => {
+  it("scopes the properties query by owner_id", async () => {
+    const { supabase, spy } = buildSupabaseSpy(USER_A, {
+      properties: { data: [], error: null },
+    });
+
+    await fetchMatchingPropertyIdsFromClient(supabase, USER_A, {});
+
+    expect(spy.tableHadOwnerFilter("properties", USER_A)).toBe(true);
   });
 });

@@ -296,7 +296,11 @@ describe("applyLeaseFilters — expiration window, linked property type, tenant 
 
   it("resolves linked_property_type via a property lookup, then filters linked_property by id", async () => {
     const fakeSupabase = { from: () => new FakeAwaitableQuery([{ id: "p1" }, { id: "p2" }]) };
-    const q = (await applyLeaseFilters(new FakeQuery(), { linked_property_type: "industrial" }, fakeSupabase)) as FakeQuery;
+    const q = (await applyLeaseFilters(
+      new FakeQuery(),
+      { linked_property_type: "industrial" },
+      { ownerId: "owner-1", supabase: fakeSupabase },
+    )) as FakeQuery;
     expect(q.calls).toContainEqual({ method: "in", args: ["linked_property", ["p1", "p2"]] });
   });
 

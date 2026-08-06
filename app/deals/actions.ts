@@ -157,6 +157,25 @@ export async function createDeal(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  if (input.contact_id) {
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("id", input.contact_id)
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (!contact) return { error: "That contact isn't in your book." };
+  }
+  if (input.property_id) {
+    const { data: property } = await supabase
+      .from("properties")
+      .select("id")
+      .eq("id", input.property_id)
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (!property) return { error: "That property isn't in your book." };
+  }
+
   const { data, error } = await supabase
     .from("deals")
     .insert({

@@ -502,7 +502,7 @@ export async function previewCountyEnhancement(
     .single();
   if (!existing) return { error: "Property not found." };
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     (f) => f.fill_mode === "extract"
   );
 
@@ -1093,7 +1093,7 @@ export async function previewDocumentEnhancement(
   if ("error" in built) return { error: built.error };
   const { content, sourceKind, sourceDetail } = built;
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     (f) => f.fill_mode === "extract"
   );
 
@@ -1144,7 +1144,7 @@ export async function applyDocumentEnhancement(
     .single();
   if (!existing) return { error: "Property not found." };
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     (f) => f.fill_mode === "extract"
   );
 

@@ -59,11 +59,13 @@ export async function scrubCustomFieldValues(
 
 export async function fetchFieldDefs(
   supabase: SupabaseClient,
+  ownerId: string,
   entityType: EntityType
 ): Promise<FieldDefinition[]> {
   const { data } = await supabase
     .from("field_definitions")
     .select("*")
+    .eq("owner_id", ownerId)
     .eq("entity_type", entityType)
     .order("created_at", { ascending: true });
   return (data ?? []) as FieldDefinition[];

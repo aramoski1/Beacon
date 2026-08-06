@@ -52,6 +52,18 @@ export async function setLeaseTenant(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  if (contactId) {
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("id", contactId)
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (!contact) {
+      return { error: "That contact isn't in your book." };
+    }
+  }
+
   const { error } = await supabase
     .from("lease_abstracts")
     .update({ tenant_contact_id: contactId })

@@ -106,7 +106,7 @@ export async function ingestUpload(
     return { error: "Upload a file or paste property details." };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     f => f.fill_mode === "extract"
   );
   let fields: ExtractedProperty;

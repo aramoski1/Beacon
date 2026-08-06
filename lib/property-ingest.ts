@@ -99,7 +99,8 @@ export async function upsertProperty(
     const { error } = await supabase
       .from("properties")
       .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq("id", existingId);
+      .eq("id", existingId)
+      .eq("owner_id", userId);
     if (error) throw new Error(`DB update failed: ${error.message}`);
     try {
       await syncPropertyEntity(supabase, userId, existingId, payload.owner_name);

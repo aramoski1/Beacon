@@ -16,6 +16,13 @@ export async function linkContactProperty(
   contactId: string,
   propertyId: string,
 ): Promise<void> {
+  const [{ data: contact }, { data: property }] = await Promise.all([
+    supabase.from("contacts").select("id").eq("id", contactId).eq("owner_id", userId).maybeSingle(),
+    supabase.from("properties").select("id").eq("id", propertyId).eq("owner_id", userId).maybeSingle(),
+  ]);
+  if (!contact) throw new Error("contact_properties link failed: contact does not belong to this owner");
+  if (!property) throw new Error("contact_properties link failed: property does not belong to this owner");
+
   const { error } = await supabase.from("contact_properties").upsert(
     {
       owner_id: userId,

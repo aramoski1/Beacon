@@ -66,7 +66,7 @@ export async function importTaxRollFolio(
     return { error: `MDPA detail fetch failed: ${msg}` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     (f) => f.fill_mode === "extract",
   );
 

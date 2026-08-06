@@ -244,7 +244,7 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     }
     if (!rec) return { error: `No Broward parcel record found for folio ${strap}.` };
 
-    const customExtractDefs = (await fetchFieldDefs(supabase, "property")).filter(f => f.fill_mode === "extract");
+    const customExtractDefs = (await fetchFieldDefs(supabase, user.id, "property")).filter(f => f.fill_mode === "extract");
     const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
     const fields = bcpaToFields(rec, nullCustom);
 
@@ -302,7 +302,7 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     }
     if (!rec) return { error: `No Palm Beach parcel record found for folio ${strap}.` };
 
-    const customExtractDefs = (await fetchFieldDefs(supabase, "property")).filter(f => f.fill_mode === "extract");
+    const customExtractDefs = (await fetchFieldDefs(supabase, user.id, "property")).filter(f => f.fill_mode === "extract");
     const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
     const fields = pbcpaToFields(rec, nullCustom);
 
@@ -383,7 +383,7 @@ STRICT RULES — violation is not permitted:
    a. ownership_type: derive from the literal owner name string in the source — presence of LLC / CORP / INC / TRUST / FUND / REIT → "institutional"; government keywords (CITY, COUNTY, STATE, GOVT) → "institutional"; individual human-style names → "private".
    b. property_type: derive from the numeric DORCode in the source using Florida DOR mappings: 01 = "residential"; 03/04/08 = "multifamily"; 20–28 = "retail"; 30–39 = "office"; 40–49 = "industrial"; 11–18 = "land". If DORCode is absent, return null and flag.`;
 
-  const customExtractFields = (await fetchFieldDefs(supabase, "property")).filter(
+  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
     f => f.fill_mode === "extract"
   );
 

@@ -174,7 +174,9 @@ function LeasePreviewCard({
 
   useEffect(() => {
     const supabase = createClient();
-    fetchFieldDefs(supabase, "lease").then(setCustomDefs);
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) fetchFieldDefs(supabase, user.id, "lease").then(setCustomDefs);
+    });
   }, []);
 
   return (

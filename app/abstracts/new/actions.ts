@@ -172,7 +172,7 @@ export async function abstractLease(formData: FormData): Promise<AbstractResult>
   if (uploadError) return { error: `Storage upload failed: ${uploadError.message}` };
 
   // Build a dynamic tool schema that includes any broker-defined custom lease fields
-  const customLeaseFields = await fetchFieldDefs(supabase, "lease");
+  const customLeaseFields = await fetchFieldDefs(supabase, user.id, "lease");
   let extractTool = EXTRACT_TOOL;
   if (customLeaseFields.length > 0) {
     const customProps = buildCustomFieldsSchema(customLeaseFields);

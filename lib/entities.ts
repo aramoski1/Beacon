@@ -87,6 +87,13 @@ export async function linkPropertyToEntity(
   propertyId: string,
   entityId: string,
 ): Promise<void> {
+  const [{ data: property }, { data: entity }] = await Promise.all([
+    supabase.from("properties").select("id").eq("id", propertyId).eq("owner_id", userId).maybeSingle(),
+    supabase.from("entities").select("id").eq("id", entityId).eq("owner_id", userId).maybeSingle(),
+  ]);
+  if (!property) throw new Error("entity_properties link failed: property does not belong to this owner");
+  if (!entity) throw new Error("entity_properties link failed: entity does not belong to this owner");
+
   const { error: linkErr } = await supabase.from("entity_properties").upsert(
     {
       owner_id: userId,
@@ -154,6 +161,13 @@ export async function linkContactToEntity(
   contactId: string,
   role?: string | null,
 ): Promise<void> {
+  const [{ data: entity }, { data: contact }] = await Promise.all([
+    supabase.from("entities").select("id").eq("id", entityId).eq("owner_id", userId).maybeSingle(),
+    supabase.from("contacts").select("id").eq("id", contactId).eq("owner_id", userId).maybeSingle(),
+  ]);
+  if (!entity) throw new Error("entity_contacts link failed: entity does not belong to this owner");
+  if (!contact) throw new Error("entity_contacts link failed: contact does not belong to this owner");
+
   const { error } = await supabase.from("entity_contacts").upsert(
     {
       owner_id: userId,
