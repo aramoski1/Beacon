@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
 import { deleteAuthUserById } from "@/lib/auth-delete-user";
+import { deleteAllUserRows } from "@/lib/account-deletion";
 
 export type UserSettings = {
   display_name: string | null;
@@ -99,42 +100,7 @@ export async function deleteAllData(): Promise<{ error?: string }> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  const tables = [
-    "follow_ups",
-    "activities",
-    "ingestion_errors",
-    "error_logs",
-    "deals",
-    "smart_lists",
-    "lease_abstracts",
-    "entity_contacts",
-    "entity_properties",
-    "contact_properties",
-    "entities",
-    "contacts",
-    "properties",
-    "field_definitions",
-    "user_settings",
-  ];
-
-  for (const table of tables) {
-    const { error } = await supabase
-      .from(table)
-      .delete()
-      .eq("owner_id", user.id);
-    if (error) return { error: `Failed to delete ${table}: ${error.message}` };
-  }
-
-  // Delete all lease storage objects for this user
-  const { data: storageObjects } = await supabase.storage
-    .from("leases")
-    .list(user.id, { limit: 1000 });
-  if (storageObjects && storageObjects.length > 0) {
-    const paths = storageObjects.map((o) => `${user.id}/${o.name}`);
-    await supabase.storage.from("leases").remove(paths);
-  }
-
-  return {};
+  return deleteAllUserRows(supabase, user.id);
 }
 
 /** Wipe CRM data + auth login, then sign out to /login. */
