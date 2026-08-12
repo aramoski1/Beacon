@@ -9,6 +9,7 @@ import {
   type StoredOwnerContact,
 } from "@/lib/owner-contacts";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
+import { deleteDocumentsForEntity } from "@/lib/documents";
 
 // ─── Filter shapes ────────────────────────────────────────────────────────────
 // These are the ONLY operations Claude is allowed to express.
@@ -286,6 +287,9 @@ export async function deleteProperty(id: string): Promise<{ error?: string }> {
     .eq("owner_id", user.id);
   if (unlinkError) return { error: unlinkError.message };
 
+  const docsResult = await deleteDocumentsForEntity(supabase, user.id, "property", id);
+  if (docsResult.error) return docsResult;
+
   // owner_id filter is defense-in-depth; RLS already enforces this at the DB level
   const { error } = await supabase
     .from("properties")
@@ -359,6 +363,9 @@ export async function deleteContact(id: string): Promise<{ error?: string }> {
     .eq("owner_id", user.id);
   if (unlinkError) return { error: unlinkError.message };
 
+  const docsResult = await deleteDocumentsForEntity(supabase, user.id, "contact", id);
+  if (docsResult.error) return docsResult;
+
   const { error } = await supabase
     .from("contacts")
     .delete()
@@ -374,6 +381,10 @@ export async function deleteLease(id: string): Promise<{ error?: string }> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  const docsResult = await deleteDocumentsForEntity(supabase, user.id, "lease", id);
+  if (docsResult.error) return docsResult;
+
   const { error } = await supabase
     .from("lease_abstracts")
     .delete()
@@ -384,11 +395,17 @@ export async function deleteLease(id: string): Promise<{ error?: string }> {
 }
 
 /**
- * Promote ALL property staging owner contacts into CRM contacts linked to the property.
- * Skips staging names that are already linked. Does not invent contacts.
+ * Promote property staging owner contacts into CRM contacts.
+ * Pass `selectedIndices` (matching the order `resolvePropertyOwnerContacts` returns)
+ * to promote only some of them when a property has multiple owner contacts;
+ * omit to promote all. Contacts are NOT auto-linked to the property here — any
+ * newly-created or previously-unlinked contact comes back in `unlinkedContacts`
+ * so the caller can confirm linking with the broker (see linkContactsToProperty).
+ * Skips creating a duplicate when a contact with the same name already exists.
  */
 export async function promotePropertyOwnerToCrm(
   propertyId: string,
+  selectedIndices?: number[],
 ): Promise<{
   contacts?: Array<{
     id: string;
@@ -398,6 +415,7 @@ export async function promotePropertyOwnerToCrm(
   }>;
   created?: number;
   skippedExisting?: number;
+  unlinkedContacts?: Array<{ id: string; name: string | null }>;
   error?: string;
 }> {
   const supabase = await createClient();
@@ -417,34 +435,6 @@ export async function promotePropertyOwnerToCrm(
 
   if (propErr || !prop) return { error: propErr?.message ?? "Property not found." };
 
-  const { data: existingLinks, error: linkReadErr } = await supabase
-    .from("contact_properties")
-    .select("contact_id")
-    .eq("owner_id", user.id)
-    .eq("property_id", propertyId);
-
-  if (linkReadErr) {
-    return { error: `Could not check existing links: ${linkReadErr.message}` };
-  }
-
-  const existingIds = (existingLinks ?? []).map((r) => r.contact_id);
-  const existingByName = new Map<
-    string,
-    { id: string; name: string | null; email: string | null; mailing_address: string | null }
-  >();
-
-  if (existingIds.length > 0) {
-    const { data: existingContacts } = await supabase
-      .from("contacts")
-      .select("id, name, email, mailing_address")
-      .eq("owner_id", user.id)
-      .in("id", existingIds);
-    for (const c of existingContacts ?? []) {
-      const key = (c.name ?? "").trim().toLowerCase();
-      if (key) existingByName.set(key, c);
-    }
-  }
-
   const staging = resolvePropertyOwnerContacts(
     prop.owner_contacts,
     prop.owner_name,
@@ -455,7 +445,7 @@ export async function promotePropertyOwnerToCrm(
     },
   );
 
-  const people: StoredOwnerContact[] =
+  const allPeople: StoredOwnerContact[] =
     staging.length > 0
       ? staging
       : prop.owner_contact_name?.trim()
@@ -479,11 +469,33 @@ export async function promotePropertyOwnerToCrm(
             ]
           : [];
 
-  if (people.length === 0) {
+  if (allPeople.length === 0) {
     return {
       error: "No owner contacts on this property to promote. Add an owner contact name first.",
     };
   }
+
+  const people = Array.isArray(selectedIndices)
+    ? selectedIndices
+        .filter((i) => Number.isInteger(i) && i >= 0 && i < allPeople.length)
+        .map((i) => allPeople[i])
+    : allPeople;
+
+  if (people.length === 0) {
+    return { error: "No contacts selected to promote." };
+  }
+
+  // Contacts already linked to this property — never re-prompt to link these.
+  const { data: existingLinks, error: linkReadErr } = await supabase
+    .from("contact_properties")
+    .select("contact_id")
+    .eq("owner_id", user.id)
+    .eq("property_id", propertyId);
+
+  if (linkReadErr) {
+    return { error: `Could not check existing links: ${linkReadErr.message}` };
+  }
+  const linkedIdSet = new Set((existingLinks ?? []).map((r) => r.contact_id));
 
   const propertyEmail = prop.owner_email?.trim() || null;
   const resultContacts: Array<{
@@ -492,18 +504,34 @@ export async function promotePropertyOwnerToCrm(
     email: string | null;
     mailing_address: string | null;
   }> = [];
+  const unlinkedContacts: Array<{ id: string; name: string | null }> = [];
   let created = 0;
   let skippedExisting = 0;
   const errors: string[] = [];
   let assignedEmail = false;
 
   for (const person of people) {
-    const key = person.name.trim().toLowerCase();
-    const already = existingByName.get(key);
-    if (already) {
+    const trimmedName = person.name.trim();
+    if (!trimmedName) continue;
+
+    // Dedup by name across ALL of this broker's contacts (not just ones already
+    // linked to this property) so declining to link never causes a re-promote
+    // to create a duplicate contact.
+    const { data: existing } = await supabase
+      .from("contacts")
+      .select("id, name, email, mailing_address")
+      .eq("owner_id", user.id)
+      .ilike("name", trimmedName)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
       skippedExisting += 1;
-      if (!resultContacts.some((c) => c.id === already.id)) {
-        resultContacts.push(already);
+      if (!resultContacts.some((c) => c.id === existing.id)) {
+        resultContacts.push(existing);
+      }
+      if (!linkedIdSet.has(existing.id) && !unlinkedContacts.some((c) => c.id === existing.id)) {
+        unlinkedContacts.push({ id: existing.id, name: existing.name });
       }
       continue;
     }
@@ -520,12 +548,11 @@ export async function promotePropertyOwnerToCrm(
       .from("contacts")
       .insert({
         owner_id: user.id,
-        name: person.name.trim(),
+        name: trimmedName,
         email,
         mailing_address,
         title_role: titleRole,
         role: titleRole,
-        linked_properties: [propertyId],
         action_tags: ["promoted_from_property", "unverified"],
         outreach_history: [],
         custom_fields: {},
@@ -536,23 +563,13 @@ export async function promotePropertyOwnerToCrm(
       .single();
 
     if (error || !data) {
-      errors.push(`${person.name}: ${error?.message ?? "insert failed"}`);
+      errors.push(`${trimmedName}: ${error?.message ?? "insert failed"}`);
       continue;
     }
 
-    try {
-      await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
-    } catch (e) {
-      errors.push(
-        `${person.name}: contact created but link failed${
-          e instanceof Error ? ` (${e.message})` : ""
-        }`,
-      );
-    }
-
     created += 1;
-    existingByName.set(key, data);
     resultContacts.push(data);
+    unlinkedContacts.push({ id: data.id, name: data.name });
   }
 
   if (resultContacts.length === 0) {
@@ -563,8 +580,43 @@ export async function promotePropertyOwnerToCrm(
     contacts: resultContacts,
     created,
     skippedExisting,
+    unlinkedContacts: unlinkedContacts.length > 0 ? unlinkedContacts : undefined,
     error: errors.length > 0 ? errors.join("; ") : undefined,
   };
+}
+
+/** Link one or more existing CRM contacts to a property (broker-confirmed). */
+export async function linkContactsToProperty(
+  propertyId: string,
+  contactIds: string[],
+): Promise<{ linked?: number; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!prop) return { error: "Property not found." };
+
+  let linked = 0;
+  const errors: string[] = [];
+  for (const contactId of contactIds) {
+    try {
+      await linkContactPropertyAndSync(supabase, user.id, contactId, propertyId);
+      linked += 1;
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (linked === 0 && errors.length > 0) return { error: errors[0] };
+  return { linked };
 }
 
 

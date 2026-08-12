@@ -14,7 +14,7 @@ import type { EntityType } from "@/lib/custom-fields";
 import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
 import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
-import { interpretSearch, deleteProperty, deleteContact, deleteLease, promotePropertyOwnerToCrm, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
+import { interpretSearch, deleteProperty, deleteContact, deleteLease, promotePropertyOwnerToCrm, linkContactsToProperty, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { SmartListsBar, BarModeToggle, SearchListActions } from "./smart-lists-bar";
 import { primaryTabForSearch, resolveSavableSearchResult } from "@/lib/crm-search-filters";
 import type { SmartListWithCounts } from "./smart-list-actions";
@@ -956,6 +956,58 @@ function PropertiesTable({
   totalInDb?: number;
 }) {
   const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [promoteDialog, setPromoteDialog] = useState<{
+    propertyId: string;
+    propertyLabel: string;
+    people: StoredOwnerContact[];
+  } | null>(null);
+
+  async function doPromote(propertyId: string, indices: number[] | undefined, propertyLabel: string) {
+    setPromotingId(propertyId);
+    try {
+      const res = await promotePropertyOwnerToCrm(propertyId, indices);
+      if (res.error && (!res.contacts || res.contacts.length === 0)) {
+        window.alert(res.error);
+        return;
+      }
+      if (res.error) {
+        window.alert(res.error);
+      }
+      if (!res.contacts?.length) {
+        window.alert("Promote failed — no contacts were created.");
+        return;
+      }
+      if (res.unlinkedContacts?.length) {
+        const names = res.unlinkedContacts.map((c) => c.name || "Unnamed").join(", ");
+        const wantsLink = window.confirm(
+          `Link ${names} to ${propertyLabel}?`,
+        );
+        if (wantsLink) {
+          const linkRes = await linkContactsToProperty(
+            propertyId,
+            res.unlinkedContacts.map((c) => c.id),
+          );
+          if (linkRes.error) window.alert(`Some contacts could not be linked: ${linkRes.error}`);
+        }
+      }
+      onPromoted(
+        propertyId,
+        res.contacts.map((c) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          mailing_address: c.mailing_address,
+          last_activity_date: null,
+          last_activity_type: null,
+          last_activity_notes: null,
+        })),
+      );
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Promote failed.");
+    } finally {
+      setPromotingId(null);
+    }
+  }
 
   if (rows.length === 0) {
     const isFirstTime = totalInDb === 0;
@@ -1077,37 +1129,12 @@ function PropertiesTable({
               if (!ok) return;
               onSaveContact(displayOwner.contactId, field, value);
             }
-            async function handlePromote() {
-              setPromotingId(p.id);
-              try {
-                const res = await promotePropertyOwnerToCrm(p.id);
-                if (res.error && (!res.contacts || res.contacts.length === 0)) {
-                  window.alert(res.error);
-                  return;
-                }
-                if (res.error) {
-                  window.alert(res.error);
-                }
-                if (!res.contacts?.length) {
-                  window.alert("Promote failed — no contacts were created.");
-                  return;
-                }
-                onPromoted(
-                  p.id,
-                  res.contacts.map((c) => ({
-                    id: c.id,
-                    name: c.name,
-                    email: c.email,
-                    mailing_address: c.mailing_address,
-                    last_activity_date: null,
-                    last_activity_type: null,
-                    last_activity_notes: null,
-                  })),
-                );
-              } catch (e) {
-                window.alert(e instanceof Error ? e.message : "Promote failed.");
-              } finally {
-                setPromotingId(null);
+            function handlePromote() {
+              const propertyLabel = p.address ?? "this property";
+              if (ownerContacts.length > 1) {
+                setPromoteDialog({ propertyId: p.id, propertyLabel, people: ownerContacts });
+              } else {
+                void doPromote(p.id, undefined, propertyLabel);
               }
             }
             return (
@@ -1265,7 +1292,7 @@ function PropertiesTable({
                           void handlePromote();
                         }}
                         className="text-[10px] text-primary hover:underline underline-offset-2 disabled:opacity-50"
-                        title="Create CRM contacts for all listed owner contacts"
+                        title={ownerContacts.length > 1 ? "Choose which owner contacts to create as CRM contacts" : "Create a CRM contact for this owner contact"}
                       >
                         {promotingId === p.id ? "Promoting…" : "Promote to CRM"}
                       </button>
@@ -1455,6 +1482,109 @@ function PropertiesTable({
           })}
         </tbody>
       </table>
+      {promoteDialog && (
+        <PromoteContactsDialog
+          propertyLabel={promoteDialog.propertyLabel}
+          people={promoteDialog.people}
+          busy={promotingId === promoteDialog.propertyId}
+          onCancel={() => setPromoteDialog(null)}
+          onConfirm={(indices) => {
+            const { propertyId, propertyLabel } = promoteDialog;
+            setPromoteDialog(null);
+            void doPromote(propertyId, indices, propertyLabel);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PromoteContactsDialog({
+  propertyLabel,
+  people,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  propertyLabel: string;
+  people: StoredOwnerContact[];
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (indices: number[]) => void;
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set(people.map((_, i) => i)));
+
+  function toggle(i: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}
+    >
+      <div className="bg-background rounded-xl border shadow-xl w-full max-w-sm p-4 space-y-3">
+        <div>
+          <p className="text-sm font-semibold">Promote to CRM</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Choose which owner contact{people.length > 1 ? "s" : ""} on {propertyLabel} to create as CRM contacts.
+          </p>
+        </div>
+        <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          {people.map((person, i) => (
+            <label
+              key={i}
+              className="flex items-start gap-2 rounded-md border px-2.5 py-2 text-sm cursor-pointer hover:bg-muted/40"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-primary"
+                checked={selected.has(i)}
+                onChange={() => toggle(i)}
+                disabled={busy}
+              />
+              <span className="min-w-0">
+                <span className="block font-medium truncate">{person.name || "Unnamed"}</span>
+                {(person.title || person.address) && (
+                  <span className="block text-xs text-muted-foreground truncate">
+                    {[person.title, person.address].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border hover:bg-muted/50 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || selected.size === 0}
+            onClick={() => onConfirm([...selected].sort((a, b) => a - b))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                Promoting…
+              </>
+            ) : (
+              `Promote${selected.size > 0 ? ` (${selected.size})` : ""}`
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

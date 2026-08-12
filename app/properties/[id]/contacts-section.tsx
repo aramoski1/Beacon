@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createContact } from "@/app/contacts/new/actions";
+import { linkContactsToProperty } from "@/app/crm/actions";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
@@ -305,23 +306,32 @@ export function PropertyContactsSection({
     setAddError(null);
     const form = e.currentTarget;
     const formData = new FormData(form);
-    formData.set("linked_properties", propertyId);
 
     startTransition(async () => {
       const result = await createContact(formData);
       if (result.error) { setAddError(result.error); return; }
-      const newContact: LinkedContact = {
-        id: result.id!,
-        name: (formData.get("name") as string)?.trim() || null,
-        email: (formData.get("email") as string)?.trim() || null,
-        phone: (formData.get("phone") as string)?.trim() || null,
-        mailing_address: (formData.get("mailing_address") as string)?.trim() || null,
-        company: (formData.get("company") as string)?.trim() || null,
-        role: (formData.get("role") as string)?.trim() || null,
-        contact_tier: formData.get("contact_tier") ? Number(formData.get("contact_tier")) : null,
-        next_action_due: null,
-      };
-      setContacts((prev) => [...prev, newContact]);
+
+      const name = (formData.get("name") as string)?.trim() || null;
+      const wantsLink = window.confirm(`Link ${name ?? "this contact"} to this property?`);
+
+      if (wantsLink) {
+        const linkRes = await linkContactsToProperty(propertyId, [result.id!]);
+        if (linkRes.error) {
+          setAddError(`Contact created, but linking to this property failed: ${linkRes.error}`);
+        }
+        const newContact: LinkedContact = {
+          id: result.id!,
+          name,
+          email: (formData.get("email") as string)?.trim() || null,
+          phone: (formData.get("phone") as string)?.trim() || null,
+          mailing_address: (formData.get("mailing_address") as string)?.trim() || null,
+          company: (formData.get("company") as string)?.trim() || null,
+          role: (formData.get("role") as string)?.trim() || null,
+          contact_tier: formData.get("contact_tier") ? Number(formData.get("contact_tier")) : null,
+          next_action_due: null,
+        };
+        setContacts((prev) => [...prev, newContact]);
+      }
       setShowForm(false);
       form.reset();
     });
