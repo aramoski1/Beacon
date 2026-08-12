@@ -24,14 +24,17 @@ import { PropertyActivitySection, type ActivityContact, type PropertyFollowUpInp
 import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
 import { EnrichPanel } from "./enrich-panel";
 import { OwnershipCheckPanel } from "./ownership-check-panel";
-import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
+import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, normalizeOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
+import { OwnerContactCreateButton } from "./owner-contact-actions";
 import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { getUserSettings } from "@/app/settings/actions";
 import { Suspense } from "react";
 import { TaxRollCompsSection } from "./tax-roll-comps";
 import { LeaseCompsSection } from "./lease-comps";
 import { loadContactIdsForProperty } from "@/lib/contact-properties";
+import { listDocuments } from "@/lib/documents";
+import { DocumentsSection } from "@/components/documents-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -156,7 +159,7 @@ export default async function PropertyPage({
 
   const linkedContactIds = await loadContactIdsForProperty(supabase, user.id, id);
 
-  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings] = await Promise.all([
+  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings, propertyDocuments] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -184,6 +187,7 @@ export default async function PropertyPage({
       .eq("owner_id", user.id)
       .order("due_date", { ascending: true }),
     getUserSettings(),
+    listDocuments(supabase, user.id, "property", id),
   ]);
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = p.custom_fields ?? {};
@@ -194,6 +198,10 @@ export default async function PropertyPage({
     p.owner_name,
     p.owner_mailing_address,
     { owner_contact_name: p.owner_contact_name, owner_contact_address: p.owner_contact_address },
+  );
+  const ownerIsEntity = isEntityName(p.owner_name);
+  const linkedContactNameSet = new Set(
+    linkedContacts.map((c) => normalizeOwnerName(c.name ?? "")).filter(Boolean)
   );
   const activityContacts: ActivityContact[] = linkedContacts.map((c) => ({
     id: c.id,
@@ -444,7 +452,7 @@ export default async function PropertyPage({
         propertyId={id}
         address={p.address}
         ownerName={p.owner_name}
-        isEntityOwner={isEntityName(p.owner_name)}
+        isEntityOwner={ownerIsEntity}
         needsCountyEnhancement={p.source !== "tax_roll" && !folioNumber}
         isMdpa={!!folioNumber}
         existingFolio={existingFolio}
@@ -554,12 +562,19 @@ export default async function PropertyPage({
                 value={[oc.name, oc.title, oc.address].filter(Boolean).join(" · ")}
                 source={storedOwnerContacts.length > 0 ? "sunbiz" : undefined}
                 action={
-                  <OwnerPortfolioLink
-                    propertyId={id}
-                    personIndex={i}
-                    label="Portfolio →"
-                    className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10"
-                  />
+                  <>
+                    <OwnerPortfolioLink
+                      propertyId={id}
+                      personIndex={i}
+                      label="Portfolio →"
+                      className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10"
+                    />
+                    <OwnerContactCreateButton
+                      propertyId={id}
+                      mode={ownerIsEntity ? { kind: "sunbiz", personIndex: i } : { kind: "mdpa" }}
+                      alreadyLinked={linkedContactNameSet.has(normalizeOwnerName(oc.name))}
+                    />
+                  </>
                 }
               />
             ))}
@@ -718,6 +733,9 @@ export default async function PropertyPage({
           )}
         </CardContent>
       </Card>
+
+      {/* Media and documents */}
+      <DocumentsSection entityType="property" entityId={id} initialDocuments={propertyDocuments} />
 
       {/* Unified timeline: activities + follow-ups */}
       <PropertyActivitySection

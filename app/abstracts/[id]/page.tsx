@@ -4,6 +4,7 @@ import { type FieldDefinition } from "@/lib/custom-fields";
 import { LeaseReviewView } from "./review-view";
 import type { FieldCitation, FieldReviews } from "./review-utils";
 import { contactIdsForProperty } from "@/lib/contact-properties";
+import { listDocuments } from "@/lib/documents";
 
 // ─── Local types ───────────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ export default async function AbstractPage({
     ? await contactIdsForProperty(supabase, user.id, abstract.linked_property)
     : [];
 
-  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, { data: linkedPropertyData }, pdfUrlResult] =
+  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, { data: linkedPropertyData }, pdfUrlResult, leaseDocuments] =
     await Promise.all([
       supabase
         .from("field_definitions")
@@ -106,6 +107,7 @@ export default async function AbstractPage({
             .from("leases")
             .createSignedUrl(abstract.source_document, 3600)
         : Promise.resolve({ data: null }),
+      listDocuments(supabase, user.id, "lease", id),
     ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -122,6 +124,7 @@ export default async function AbstractPage({
       tenantContact={tenantContact}
       propertyContacts={propertyContacts}
       linkedProperty={linkedProperty}
+      initialDocuments={leaseDocuments}
     />
   );
 }

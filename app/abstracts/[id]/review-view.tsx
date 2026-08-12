@@ -20,6 +20,8 @@ import {
 import { saveFieldReview, acceptAllFields } from "./actions";
 import { ExportMenu } from "./export-menu";
 import type { LeaseAbstractExport } from "@/lib/lease-export";
+import { DocumentsSection } from "@/components/documents-section";
+import type { DocumentWithUrl } from "@/lib/documents";
 
 // ─── Lazy-load PDF viewer (browser only) ─────────────────────────────────────
 
@@ -70,6 +72,7 @@ interface LeaseReviewViewProps {
   tenantContact: TenantContact | null;
   propertyContacts: PropertyContact[];
   linkedProperty: LinkedProperty | null;
+  initialDocuments: DocumentWithUrl[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -302,6 +305,7 @@ export function LeaseReviewView({
   tenantContact,
   propertyContacts,
   linkedProperty,
+  initialDocuments,
 }: LeaseReviewViewProps) {
   const [reviews, setReviews] = useState<FieldReviews>(abstract.field_reviews ?? {});
   const [targetPage, setTargetPage] = useState<number | null>(null);
@@ -666,6 +670,10 @@ export function LeaseReviewView({
                 />
               </div>
             </FieldSection>
+
+            {/* Documents */}
+            <Separator />
+            <DocumentsSection entityType="lease" entityId={abstract.id} initialDocuments={initialDocuments} />
 
             {/* Option type legend at bottom for context */}
             {abstract.options.length > 0 && (

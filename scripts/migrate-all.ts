@@ -157,6 +157,11 @@ const SCRIPTS: { file: string; description: string }[] = [
     description:
       "Auth pilot — auto-confirm email on signup (skip unreliable Supabase mailer) + confirm existing unconfirmed users",
   },
+  {
+    file: "migrate-documents.ts",
+    description:
+      "Documents — generic media/document attachments table (property/lease/contact) + 'documents' storage bucket with RLS",
+  },
 ];
 
 const hr = "─".repeat(60);

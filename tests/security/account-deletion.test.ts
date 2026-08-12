@@ -40,7 +40,7 @@ if (!HAS_SUPABASE_TEST_CREDS) {
   );
 }
 
-async function seedOneRowPerTable(user: TestUser): Promise<void> {
+async function seedOneRowPerTable(user: TestUser): Promise<{ documentPath: string }> {
   const prop = await user.client
     .from("properties")
     .insert({ owner_id: user.id, address: "1 Deletion Test Way" })
@@ -85,6 +85,30 @@ async function seedOneRowPerTable(user: TestUser): Promise<void> {
     .select("id")
     .single();
   expect(contactProperty.error, `seed contact_properties failed: ${contactProperty.error?.message}`).toBeNull();
+
+  const documentPath = `${user.id}/property/${propertyId}/test.pdf`;
+  const document = await user.client
+    .from("documents")
+    .insert({
+      owner_id: user.id,
+      entity_type: "property",
+      entity_id: propertyId,
+      file_name: "test.pdf",
+      storage_path: documentPath,
+      content_type: "application/pdf",
+      size_bytes: 4,
+    })
+    .select("id")
+    .single();
+  expect(document.error, `seed documents failed: ${document.error?.message}`).toBeNull();
+
+  const documentUpload = await user.client.storage
+    .from("documents")
+    .upload(documentPath, new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: "application/pdf" }), {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+  expect(documentUpload.error, `seed document storage upload failed: ${documentUpload.error?.message}`).toBeNull();
 
   const entityProperty = await user.client
     .from("entity_properties")
@@ -159,6 +183,8 @@ async function seedOneRowPerTable(user: TestUser): Promise<void> {
       });
     expect(upload.error, `seed storage upload ${name} failed: ${upload.error?.message}`).toBeNull();
   }
+
+  return { documentPath };
 }
 
 async function rowCountsFor(pg: Client, userId: string): Promise<Record<string, number>> {
@@ -174,6 +200,8 @@ d("Account deletion leaves nothing behind", () => {
   let pg: Client;
   let deletedUser: TestUser;
   let survivorUser: TestUser;
+  let deletedDocPath: string;
+  let survivorDocPath: string;
   let deletionSucceeded = false;
 
   beforeAll(async () => {
@@ -183,8 +211,8 @@ d("Account deletion leaves nothing behind", () => {
     deletedUser = await createSignedInTestUser(pg, "del");
     survivorUser = await createSignedInTestUser(pg, "keep");
 
-    await seedOneRowPerTable(deletedUser);
-    await seedOneRowPerTable(survivorUser);
+    ({ documentPath: deletedDocPath } = await seedOneRowPerTable(deletedUser));
+    ({ documentPath: survivorDocPath } = await seedOneRowPerTable(survivorUser));
   }, 90_000);
 
   afterAll(async () => {
@@ -196,11 +224,19 @@ d("Account deletion leaves nothing behind", () => {
         .from("leases")
         .remove(["a.pdf", "b.pdf", "c.pdf"].map((n) => `${deletedUser.id}/${n}`))
         .catch(() => {});
+      await deletedUser.client.storage
+        .from("documents")
+        .remove([deletedDocPath])
+        .catch(() => {});
     }
     if (survivorUser?.client) {
       await survivorUser.client.storage
         .from("leases")
         .remove(["a.pdf", "b.pdf", "c.pdf"].map((n) => `${survivorUser.id}/${n}`))
+        .catch(() => {});
+      await survivorUser.client.storage
+        .from("documents")
+        .remove([survivorDocPath])
         .catch(() => {});
     }
 
@@ -222,6 +258,12 @@ d("Account deletion leaves nothing behind", () => {
       [deletedUser.id],
     );
     expect(storageBefore[0].n).toBe(3);
+
+    const { rows: docStorageBefore } = await pg.query(
+      `SELECT count(*)::int AS n FROM storage.objects WHERE bucket_id = 'documents' AND (storage.foldername(name))[1] = $1`,
+      [deletedUser.id],
+    );
+    expect(docStorageBefore[0].n).toBe(1);
   });
 
   it("deleteAllUserRows + deleteAuthUserById remove every row, every file, and the auth user itself", async () => {
@@ -247,6 +289,12 @@ d("Account deletion leaves nothing behind", () => {
       [deletedUser.id],
     );
     expect(storageAfter, "storage objects still exist for the deleted user").toEqual([]);
+
+    const { rows: docStorageAfter } = await pg.query(
+      `SELECT name FROM storage.objects WHERE bucket_id = 'documents' AND (storage.foldername(name))[1] = $1`,
+      [deletedUser.id],
+    );
+    expect(docStorageAfter, "document storage objects still exist for the deleted user").toEqual([]);
   }, 60_000);
 
   it("did not touch the other broker's data (deletion is scoped, not global)", async () => {
@@ -262,6 +310,12 @@ d("Account deletion leaves nothing behind", () => {
       [survivorUser.id],
     );
     expect(survivorStorage, "survivor's storage files were deleted as collateral damage").toHaveLength(3);
+
+    const { rows: survivorDocStorage } = await pg.query(
+      `SELECT name FROM storage.objects WHERE bucket_id = 'documents' AND (storage.foldername(name))[1] = $1`,
+      [survivorUser.id],
+    );
+    expect(survivorDocStorage, "survivor's document storage files were deleted as collateral damage").toHaveLength(1);
   });
 });
 
@@ -280,6 +334,7 @@ describe("deleteAllUserRows storage pagination", () => {
     const fakeSupabase = {
       from: () => ({
         delete: () => ({ eq: async () => ({ error: null }) }),
+        select: () => ({ eq: () => ({ range: async () => ({ data: [], error: null }) }) }),
       }),
       storage: {
         from: () => ({
@@ -303,5 +358,50 @@ describe("deleteAllUserRows storage pagination", () => {
     expect(listCalls[0].offset).toBe(0);
     expect(listCalls[1].offset).toBe(1000);
     expect(removedPaths).toHaveLength(1001);
+  });
+
+  it("pages past PostgREST's row cap when collecting document storage_path values, and chunks the removal", async () => {
+    const { deleteAllUserRows: run } = await import("../../lib/account-deletion");
+
+    const rangeCalls: Array<{ from: number; to: number }> = [];
+    const removedByBucket: Record<string, string[][]> = { documents: [], leases: [] };
+
+    const page1 = Array.from({ length: 1000 }, (_, i) => ({ storage_path: `u/property/p/file-${i}.pdf` }));
+    const page2 = [{ storage_path: "u/property/p/file-1000.pdf" }];
+
+    const fakeSupabase = {
+      from: () => ({
+        delete: () => ({ eq: async () => ({ error: null }) }),
+        select: () => ({
+          eq: () => ({
+            range: async (from: number, to: number) => {
+              rangeCalls.push({ from, to });
+              return { data: rangeCalls.length === 1 ? page1 : page2, error: null };
+            },
+          }),
+        }),
+      }),
+      storage: {
+        from: (bucket: string) => ({
+          list: async () => ({ data: [], error: null }),
+          remove: async (paths: string[]) => {
+            removedByBucket[bucket].push(paths);
+            return { error: null };
+          },
+        }),
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+
+    const result = await run(fakeSupabase, "fake-user-id");
+    expect(result.error).toBeUndefined();
+    expect(rangeCalls).toHaveLength(2);
+    expect(rangeCalls[0]).toEqual({ from: 0, to: 999 });
+    expect(rangeCalls[1]).toEqual({ from: 1000, to: 1999 });
+
+    const allRemovedDocPaths = removedByBucket.documents.flat();
+    expect(allRemovedDocPaths).toHaveLength(1001);
+    // Removal itself is chunked at STORAGE_LIST_PAGE_SIZE (1000).
+    expect(removedByBucket.documents.map((chunk) => chunk.length)).toEqual([1000, 1]);
   });
 });

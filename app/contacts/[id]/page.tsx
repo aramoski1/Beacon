@@ -27,6 +27,8 @@ import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { RelationshipBriefingPanel } from "./relationship-briefing";
 import { getUserSettings } from "@/app/settings/actions";
 import { cadenceMapFromSettings, cadenceDaysForTier, suggestedCadenceDays } from "@/lib/cadence";
+import { listDocuments } from "@/lib/documents";
+import { DocumentsSection } from "@/components/documents-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -182,7 +184,7 @@ export default async function ContactPage({
     c.linked_properties,
   );
 
-  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings] = await Promise.all([
+  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings, contactDocuments] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -202,6 +204,7 @@ export default async function ContactPage({
       .eq("owner_id", user.id)
       .order("due_date", { ascending: true }),
     getUserSettings(),
+    listDocuments(supabase, user.id, "contact", id),
   ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -572,6 +575,9 @@ export default async function ContactPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Media and documents */}
+      <DocumentsSection entityType="contact" entityId={id} initialDocuments={contactDocuments} />
 
       {/* Unified timeline: activities + follow-ups + outreach */}
       <ContactActivitySection

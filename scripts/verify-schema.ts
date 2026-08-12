@@ -220,9 +220,23 @@ const EXPECTED: TableSpec[] = [
       { col: "created_at",  from: "migrate-contact-properties.ts" },
     ],
   },
+  {
+    table: "documents",
+    cols: [
+      { col: "id",           from: "migrate-documents.ts" },
+      { col: "owner_id",     from: "migrate-documents.ts" },
+      { col: "entity_type",  from: "migrate-documents.ts" },
+      { col: "entity_id",    from: "migrate-documents.ts" },
+      { col: "file_name",    from: "migrate-documents.ts" },
+      { col: "storage_path", from: "migrate-documents.ts" },
+      { col: "content_type", from: "migrate-documents.ts" },
+      { col: "size_bytes",   from: "migrate-documents.ts" },
+      { col: "created_at",   from: "migrate-documents.ts" },
+    ],
+  },
 ];
 
-const EXPECTED_BUCKET = "leases";
+const EXPECTED_BUCKETS = ["leases", "documents"];
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -262,16 +276,18 @@ async function main() {
   );
   const colSet = new Set(existingCols.map((r) => `${r.table_name}.${r.column_name}`));
 
-  // ── 3. Storage bucket ─────────────────────────────────────────────────────
-  let bucketExists = false;
+  // ── 3. Storage buckets ─────────────────────────────────────────────────────
+  const bucketExists = new Map<string, boolean>();
   try {
-    const { rows } = await client.query(
-      `SELECT id FROM storage.buckets WHERE id = $1`,
-      [EXPECTED_BUCKET]
+    const { rows } = await client.query<{ id: string }>(
+      `SELECT id FROM storage.buckets WHERE id = ANY($1)`,
+      [EXPECTED_BUCKETS]
     );
-    bucketExists = rows.length > 0;
+    const found = new Set(rows.map((r) => r.id));
+    for (const b of EXPECTED_BUCKETS) bucketExists.set(b, found.has(b));
   } catch {
     // storage schema may not be accessible via this connection
+    for (const b of EXPECTED_BUCKETS) bucketExists.set(b, false);
   }
 
   // ── 4. Report ─────────────────────────────────────────────────────────────
@@ -311,11 +327,14 @@ async function main() {
   }
 
   // ── 5. Storage ────────────────────────────────────────────────────────────
-  console.log(`\n  ${bucketExists ? "✓" : "✗"} storage bucket '${EXPECTED_BUCKET}'`);
-  if (!bucketExists) {
-    anyMissing = true;
-    missing.push(`storage bucket 'leases'  (setup-storage.ts)`);
-    console.log(`    MISSING — run npm run migrate`);
+  for (const bucket of EXPECTED_BUCKETS) {
+    const exists = bucketExists.get(bucket) ?? false;
+    console.log(`\n  ${exists ? "✓" : "✗"} storage bucket '${bucket}'`);
+    if (!exists) {
+      anyMissing = true;
+      missing.push(`storage bucket '${bucket}'`);
+      console.log(`    MISSING — run npm run migrate`);
+    }
   }
 
   // ── 6. Summary ────────────────────────────────────────────────────────────

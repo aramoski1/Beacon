@@ -32,6 +32,8 @@ Scripts run in this order:
 | 2 | `scripts/migrate-contacts.ts` | Adds `size_category`, `geographic_category`, `ownership_type` columns to `contacts` |
 | 3 | `scripts/migrate-custom-fields.ts` | `field_definitions` table; adds `custom_fields` JSONB to all three entity tables |
 | 4 | `scripts/setup-storage.ts` | `leases` storage bucket (32 MB, PDF-only) with RLS |
+| ... | (additional migrations — see `SCRIPTS` in `scripts/migrate-all.ts` for the full, current list) | |
+| latest | `scripts/migrate-documents.ts` | `documents` table (property/lease/contact attachments) + `documents` storage bucket (32 MB, common doc/image types) with RLS |
 
 ## Adding a new migration
 
