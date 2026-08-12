@@ -53,7 +53,6 @@ export async function createOwnerContact(
       owner_id: user.id,
       name: prop.owner_name.trim(),
       mailing_address: prop.owner_mailing_address ?? null,
-      linked_properties: [propertyId],
       action_tags: ["mdpa_mailing", "unverified"],
       outreach_history: [],
       custom_fields: {},
@@ -62,11 +61,6 @@ export async function createOwnerContact(
     .single();
 
   if (error) return { error: error.message };
-  try {
-    await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
-  } catch {
-    // Contact row exists with array shim.
-  }
   return { id: data.id };
 }
 
@@ -185,7 +179,6 @@ export async function createContactFromSunbizOwner(
       name: person.name.trim(),
       role: person.title || null,
       mailing_address: person.address ?? null,
-      linked_properties: [propertyId],
       action_tags: ["sunbiz", "unverified"],
       outreach_history: [],
       custom_fields: {},
@@ -194,12 +187,9 @@ export async function createContactFromSunbizOwner(
     .single();
 
   if (error) return { error: error.message };
-  try {
-    await linkContactPropertyAndSync(supabase, user.id, data.id, propertyId);
-  } catch {
-    // Contact row exists with array shim.
-  }
 
+  // Entity linking (ownership LLC) is independent of the property link and
+  // stays automatic — only the property link itself is broker-confirmed.
   let entityId = prop.entity_id as string | null;
   if (!entityId && prop.owner_name?.trim()) {
     try {

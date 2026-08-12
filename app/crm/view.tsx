@@ -15,6 +15,7 @@ import { ComposeOutreach } from "@/components/compose-outreach";
 import { EnhanceDialog } from "./enhance-dialog";
 import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
 import { interpretSearch, deleteProperty, deleteContact, deleteLease, promotePropertyOwnerToCrm, linkContactsToProperty, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
+import { LinkToPropertyDialog } from "@/components/link-to-property-dialog";
 import { SmartListsBar, BarModeToggle, SearchListActions } from "./smart-lists-bar";
 import { primaryTabForSearch, resolveSavableSearchResult } from "@/lib/crm-search-filters";
 import type { SmartListWithCounts } from "./smart-list-actions";
@@ -961,6 +962,31 @@ function PropertiesTable({
     propertyLabel: string;
     people: StoredOwnerContact[];
   } | null>(null);
+  const [linkConfirm, setLinkConfirm] = useState<{
+    propertyId: string;
+    propertyLabel: string;
+    unlinked: Array<{ id: string; name: string | null }>;
+    resultContacts: Array<{ id: string; name: string | null; email: string | null; mailing_address: string | null }>;
+  } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+
+  function finishPromote(
+    propertyId: string,
+    contacts: Array<{ id: string; name: string | null; email: string | null; mailing_address: string | null }>,
+  ) {
+    onPromoted(
+      propertyId,
+      contacts.map((c) => ({
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        mailing_address: c.mailing_address,
+        last_activity_date: null,
+        last_activity_type: null,
+        last_activity_notes: null,
+      })),
+    );
+  }
 
   async function doPromote(propertyId: string, indices: number[] | undefined, propertyLabel: string) {
     setPromotingId(propertyId);
@@ -978,35 +1004,39 @@ function PropertiesTable({
         return;
       }
       if (res.unlinkedContacts?.length) {
-        const names = res.unlinkedContacts.map((c) => c.name || "Unnamed").join(", ");
-        const wantsLink = window.confirm(
-          `Link ${names} to ${propertyLabel}?`,
-        );
-        if (wantsLink) {
-          const linkRes = await linkContactsToProperty(
-            propertyId,
-            res.unlinkedContacts.map((c) => c.id),
-          );
-          if (linkRes.error) window.alert(`Some contacts could not be linked: ${linkRes.error}`);
-        }
+        setLinkConfirm({
+          propertyId,
+          propertyLabel,
+          unlinked: res.unlinkedContacts,
+          resultContacts: res.contacts,
+        });
+      } else {
+        finishPromote(propertyId, res.contacts);
       }
-      onPromoted(
-        propertyId,
-        res.contacts.map((c) => ({
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          mailing_address: c.mailing_address,
-          last_activity_date: null,
-          last_activity_type: null,
-          last_activity_notes: null,
-        })),
-      );
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Promote failed.");
     } finally {
       setPromotingId(null);
     }
+  }
+
+  async function handleConfirmLink() {
+    if (!linkConfirm) return;
+    setLinkBusy(true);
+    const linkRes = await linkContactsToProperty(
+      linkConfirm.propertyId,
+      linkConfirm.unlinked.map((c) => c.id),
+    );
+    if (linkRes.error) window.alert(`Some contacts could not be linked: ${linkRes.error}`);
+    finishPromote(linkConfirm.propertyId, linkConfirm.resultContacts);
+    setLinkBusy(false);
+    setLinkConfirm(null);
+  }
+
+  function handleCancelLink() {
+    if (!linkConfirm) return;
+    finishPromote(linkConfirm.propertyId, linkConfirm.resultContacts);
+    setLinkConfirm(null);
   }
 
   if (rows.length === 0) {
@@ -1493,6 +1523,15 @@ function PropertiesTable({
             setPromoteDialog(null);
             void doPromote(propertyId, indices, propertyLabel);
           }}
+        />
+      )}
+      {linkConfirm && (
+        <LinkToPropertyDialog
+          contactLabel={linkConfirm.unlinked.map((c) => c.name || "Unnamed").join(", ")}
+          propertyLabel={linkConfirm.propertyLabel}
+          busy={linkBusy}
+          onCancel={handleCancelLink}
+          onConfirm={handleConfirmLink}
         />
       )}
     </div>

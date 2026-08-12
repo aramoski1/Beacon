@@ -571,6 +571,8 @@ export default async function PropertyPage({
                     />
                     <OwnerContactCreateButton
                       propertyId={id}
+                      propertyLabel={p.address}
+                      contactName={oc.name}
                       mode={ownerIsEntity ? { kind: "sunbiz", personIndex: i } : { kind: "mdpa" }}
                       alreadyLinked={linkedContactNameSet.has(normalizeOwnerName(oc.name))}
                     />
@@ -678,6 +680,7 @@ export default async function PropertyPage({
       {/* Contacts */}
       <PropertyContactsSection
         propertyId={id}
+        propertyLabel={p.address}
         initialContacts={linkedContacts}
         cadenceSettings={userSettings}
       />

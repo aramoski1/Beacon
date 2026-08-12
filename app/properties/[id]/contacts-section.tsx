@@ -17,6 +17,7 @@ import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
+import { LinkToPropertyDialog } from "@/components/link-to-property-dialog";
 import { suggestedCadenceDays, type CadenceSettingsSlice, cadenceMapFromSettings } from "@/lib/cadence";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
@@ -251,10 +252,12 @@ function InlineDraftPanel({
 
 export function PropertyContactsSection({
   propertyId,
+  propertyLabel,
   initialContacts,
   cadenceSettings,
 }: {
   propertyId: string;
+  propertyLabel?: string | null;
   initialContacts: LinkedContact[];
   cadenceSettings?: CadenceSettingsSlice | null;
 }) {
@@ -264,6 +267,8 @@ export function PropertyContactsSection({
   const [addError, setAddError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [brokerContext, setBrokerContext] = useState("");
+  const [linkConfirm, setLinkConfirm] = useState<{ contact: LinkedContact } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
 
   const [phases, setPhases] = useState<Map<string, ContactPhase>>(new Map());
 
@@ -311,30 +316,34 @@ export function PropertyContactsSection({
       const result = await createContact(formData);
       if (result.error) { setAddError(result.error); return; }
 
-      const name = (formData.get("name") as string)?.trim() || null;
-      const wantsLink = window.confirm(`Link ${name ?? "this contact"} to this property?`);
-
-      if (wantsLink) {
-        const linkRes = await linkContactsToProperty(propertyId, [result.id!]);
-        if (linkRes.error) {
-          setAddError(`Contact created, but linking to this property failed: ${linkRes.error}`);
-        }
-        const newContact: LinkedContact = {
-          id: result.id!,
-          name,
-          email: (formData.get("email") as string)?.trim() || null,
-          phone: (formData.get("phone") as string)?.trim() || null,
-          mailing_address: (formData.get("mailing_address") as string)?.trim() || null,
-          company: (formData.get("company") as string)?.trim() || null,
-          role: (formData.get("role") as string)?.trim() || null,
-          contact_tier: formData.get("contact_tier") ? Number(formData.get("contact_tier")) : null,
-          next_action_due: null,
-        };
-        setContacts((prev) => [...prev, newContact]);
-      }
+      const newContact: LinkedContact = {
+        id: result.id!,
+        name: (formData.get("name") as string)?.trim() || null,
+        email: (formData.get("email") as string)?.trim() || null,
+        phone: (formData.get("phone") as string)?.trim() || null,
+        mailing_address: (formData.get("mailing_address") as string)?.trim() || null,
+        company: (formData.get("company") as string)?.trim() || null,
+        role: (formData.get("role") as string)?.trim() || null,
+        contact_tier: formData.get("contact_tier") ? Number(formData.get("contact_tier")) : null,
+        next_action_due: null,
+      };
+      setLinkConfirm({ contact: newContact });
       setShowForm(false);
       form.reset();
     });
+  }
+
+  async function handleConfirmLink() {
+    if (!linkConfirm) return;
+    setLinkBusy(true);
+    const linkRes = await linkContactsToProperty(propertyId, [linkConfirm.contact.id]);
+    if (linkRes.error) {
+      setAddError(`Contact created, but linking to this property failed: ${linkRes.error}`);
+    } else {
+      setContacts((prev) => [...prev, linkConfirm.contact]);
+    }
+    setLinkBusy(false);
+    setLinkConfirm(null);
   }
 
   const btnCls =
@@ -585,6 +594,15 @@ export function PropertyContactsSection({
           </form>
         )}
       </CardContent>
+      {linkConfirm && (
+        <LinkToPropertyDialog
+          contactLabel={linkConfirm.contact.name ?? "this contact"}
+          propertyLabel={propertyLabel ?? "this property"}
+          busy={linkBusy}
+          onCancel={() => setLinkConfirm(null)}
+          onConfirm={handleConfirmLink}
+        />
+      )}
     </Card>
   );
 }
