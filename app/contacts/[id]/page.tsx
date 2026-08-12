@@ -29,6 +29,7 @@ import { getUserSettings } from "@/app/settings/actions";
 import { cadenceMapFromSettings, cadenceDaysForTier, suggestedCadenceDays } from "@/lib/cadence";
 import { listDocuments } from "@/lib/documents";
 import { DocumentsSection } from "@/components/documents-section";
+import { CreProfileSection } from "./cre-profile-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,24 +136,6 @@ const OWNERSHIP_ROLE_LABELS: Record<string, string> = {
   other:             "Other",
 };
 
-const LEAD_SOURCE_LABELS: Record<string, string> = {
-  sunbiz:                "Sunbiz",
-  referral:              "Referral",
-  cold:                  "Cold",
-  costar:                "CoStar",
-  existing_relationship: "Existing relationship",
-  other:                 "Other",
-};
-
-const ASSET_LABELS: Record<string, string> = {
-  industrial:  "Industrial",
-  office:      "Office",
-  retail:      "Retail",
-  multifamily: "Multifamily",
-  land:        "Land",
-  mixed_use:   "Mixed Use",
-  other:       "Other",
-};
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -222,17 +205,6 @@ export default async function ContactPage({
   const es = effectiveStage(c);
   const displayRole = c.title_role || c.role;
   const displayPhone = c.phone_mobile || c.phone;
-
-  // Show CRE profile card if any field is populated
-  const hasCreProfile =
-    !!c.ownership_role ||
-    assetFocus.length > 0 ||
-    !!c.submarket ||
-    !!c.geographic_category ||
-    !!c.portfolio_size ||
-    !!c.size_category ||
-    !!c.ownership_type ||
-    !!c.lead_source;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
@@ -436,77 +408,19 @@ export default async function ContactPage({
         </Card>
       </div>
 
-      {/* CRE Profile */}
-      {hasCreProfile && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Briefcase className="size-4" />
-              CRE profile
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
-              {c.ownership_role && (
-                <div>
-                  <dt className="text-xs text-muted-foreground">Ownership role</dt>
-                  <dd className="font-medium mt-0.5">
-                    {OWNERSHIP_ROLE_LABELS[c.ownership_role] ?? c.ownership_role}
-                  </dd>
-                </div>
-              )}
-              {(c.submarket || c.geographic_category) && (
-                <div>
-                  <dt className="text-xs text-muted-foreground">Submarket</dt>
-                  <dd className="font-medium mt-0.5">{c.submarket || c.geographic_category}</dd>
-                </div>
-              )}
-              {c.portfolio_size && (
-                <div>
-                  <dt className="text-xs text-muted-foreground">Portfolio size</dt>
-                  <dd className="font-medium mt-0.5">{c.portfolio_size}</dd>
-                </div>
-              )}
-              {c.lead_source && (
-                <div>
-                  <dt className="text-xs text-muted-foreground">Lead source</dt>
-                  <dd className="font-medium mt-0.5">
-                    {LEAD_SOURCE_LABELS[c.lead_source] ?? c.lead_source}
-                  </dd>
-                </div>
-              )}
-              {c.size_category && (
-                <div>
-                  <dt className="text-xs text-muted-foreground">Size category</dt>
-                  <dd className="font-medium mt-0.5">{c.size_category}</dd>
-                </div>
-              )}
-              {c.ownership_type && (
-                <div>
-                  <dt className="text-xs text-muted-foreground">Ownership type</dt>
-                  <dd className="font-medium mt-0.5">{c.ownership_type}</dd>
-                </div>
-              )}
-            </dl>
-
-            {assetFocus.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Asset focus</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {assetFocus.map((a) => (
-                    <span
-                      key={a}
-                      className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium"
-                    >
-                      {ASSET_LABELS[a] ?? a}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* CRE Profile — always shown, blank fields editable in place */}
+      <CreProfileSection
+        contactId={c.id}
+        initial={{
+          ownership_role: c.ownership_role,
+          submarket: c.submarket || c.geographic_category,
+          portfolio_size: c.portfolio_size,
+          lead_source: c.lead_source,
+          size_category: c.size_category,
+          ownership_type: c.ownership_type,
+          asset_focus: assetFocus,
+        }}
+      />
 
       {/* Notes */}
       {c.notes && (
