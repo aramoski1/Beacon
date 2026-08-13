@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { useState, useTransition, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,8 +60,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function NewContactPage() {
+function NewContactInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const propertyId = searchParams.get("property");
+  const propertyLabel = searchParams.get("propertyLabel");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [assetFocus, setAssetFocus] = useState<string[]>([]);
@@ -85,12 +88,13 @@ export default function NewContactPage() {
     setError(null);
     const formData = new FormData(e.currentTarget);
     assetFocus.forEach((v) => formData.append("asset_focus", v));
+    if (propertyId) formData.set("linked_properties", propertyId);
     startTransition(async () => {
       const result = await createContact(formData);
       if (result.error) {
         setError(result.error);
       } else if (result.id) {
-        router.push(`/contacts/${result.id}`);
+        router.push(propertyId ? `/properties/${propertyId}` : `/contacts/${result.id}`);
       }
     });
   }
@@ -102,6 +106,12 @@ export default function NewContactPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Add a new owner contact to your CRM.
         </p>
+        {propertyId && propertyLabel && (
+          <p className="mt-2 flex items-center gap-1.5 text-sm text-primary">
+            <Building2 className="size-3.5 shrink-0" />
+            Will be linked to {propertyLabel}
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -399,5 +409,13 @@ export default function NewContactPage() {
         </Button>
       </form>
     </div>
+  );
+}
+
+export default function NewContactPage() {
+  return (
+    <Suspense>
+      <NewContactInner />
+    </Suspense>
   );
 }

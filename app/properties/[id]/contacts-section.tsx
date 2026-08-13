@@ -1,23 +1,21 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Users, Plus, Loader2, Phone, Mail, MapPin, X,
+  Users, Plus, Link2, Loader2, Phone, Mail, MapPin, X,
   Zap, Clock, CalendarDays, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { createContact } from "@/app/contacts/new/actions";
 import { linkContactsToProperty } from "@/app/crm/actions";
 import { createActivity, type ActivityType } from "@/app/activities/actions";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
 import { FollowUpNudge } from "@/components/follow-up-nudge";
-import { LinkToPropertyDialog } from "@/components/link-to-property-dialog";
+import { ContactPicker } from "@/components/contact-picker";
 import { suggestedCadenceDays, type CadenceSettingsSlice, cadenceMapFromSettings } from "@/lib/cadence";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 
@@ -253,7 +251,7 @@ function InlineDraftPanel({
 export function PropertyContactsSection({
   propertyId,
   propertyLabel,
-  initialContacts,
+  initialContacts: contacts,
   cadenceSettings,
 }: {
   propertyId: string;
@@ -261,14 +259,14 @@ export function PropertyContactsSection({
   initialContacts: LinkedContact[];
   cadenceSettings?: CadenceSettingsSlice | null;
 }) {
+  const router = useRouter();
   const cadence = cadenceMapFromSettings(cadenceSettings);
-  const [contacts, setContacts] = useState<LinkedContact[]>(initialContacts);
-  const [showForm, setShowForm] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
   const [brokerContext, setBrokerContext] = useState("");
-  const [linkConfirm, setLinkConfirm] = useState<{ contact: LinkedContact } | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [pickId, setPickId] = useState<string | null>(null);
+  const [pickLabel, setPickLabel] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const [phases, setPhases] = useState<Map<string, ContactPhase>>(new Map());
 
@@ -306,45 +304,30 @@ export function PropertyContactsSection({
     setPhase(c.id, { tag: "outreach_sent" });
   }
 
-  function handleSubmitAdd(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setAddError(null);
-    const form = e.currentTarget;
-    const formData = new FormData(form);
-
-    startTransition(async () => {
-      const result = await createContact(formData);
-      if (result.error) { setAddError(result.error); return; }
-
-      const newContact: LinkedContact = {
-        id: result.id!,
-        name: (formData.get("name") as string)?.trim() || null,
-        email: (formData.get("email") as string)?.trim() || null,
-        phone: (formData.get("phone") as string)?.trim() || null,
-        mailing_address: (formData.get("mailing_address") as string)?.trim() || null,
-        company: (formData.get("company") as string)?.trim() || null,
-        role: (formData.get("role") as string)?.trim() || null,
-        contact_tier: formData.get("contact_tier") ? Number(formData.get("contact_tier")) : null,
-        next_action_due: null,
-      };
-      setLinkConfirm({ contact: newContact });
-      setShowForm(false);
-      form.reset();
-    });
+  function cancelLink() {
+    setLinking(false);
+    setPickId(null);
+    setPickLabel(null);
+    setLinkError(null);
   }
 
-  async function handleConfirmLink() {
-    if (!linkConfirm) return;
+  async function handleLinkExisting() {
+    if (!pickId) return;
     setLinkBusy(true);
-    const linkRes = await linkContactsToProperty(propertyId, [linkConfirm.contact.id]);
-    if (linkRes.error) {
-      setAddError(`Contact created, but linking to this property failed: ${linkRes.error}`);
-    } else {
-      setContacts((prev) => [...prev, linkConfirm.contact]);
-    }
+    setLinkError(null);
+    const res = await linkContactsToProperty(propertyId, [pickId]);
     setLinkBusy(false);
-    setLinkConfirm(null);
+    if (res.error) {
+      setLinkError(res.error);
+      return;
+    }
+    cancelLink();
+    router.refresh();
   }
+
+  const newContactHref = `/contacts/new?property=${propertyId}${
+    propertyLabel ? `&propertyLabel=${encodeURIComponent(propertyLabel)}` : ""
+  }`;
 
   const btnCls =
     "inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border border-border bg-background hover:bg-muted/60 transition-colors";
@@ -359,17 +342,55 @@ export function PropertyContactsSection({
             <span className="ml-1 text-xs font-normal text-muted-foreground">({contacts.length})</span>
           )}
         </CardTitle>
-        <button
-          onClick={() => { setShowForm((v) => !v); setAddError(null); }}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {showForm ? <><X className="size-3.5" />Cancel</> : <><Plus className="size-3.5" />Add contact</>}
-        </button>
+        {linking ? (
+          <button
+            onClick={cancelLink}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="size-3.5" />Cancel
+          </button>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setLinking(true)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Link2 className="size-3.5" />Link contact
+            </button>
+            <Link
+              href={newContactHref}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="size-3.5" />New contact
+            </Link>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-3">
+        {/* Link existing contact */}
+        {linking && (
+          <div className="rounded-lg border p-4 space-y-3 bg-muted/10">
+            <p className="text-sm font-medium">Link existing contact</p>
+            <ContactPicker
+              value={pickId}
+              label={pickLabel}
+              onChange={(id, label) => { setPickId(id); setPickLabel(label); }}
+            />
+            {linkError && <p className="text-xs text-destructive">{linkError}</p>}
+            <div className="flex gap-2 pt-1">
+              <Button size="sm" disabled={!pickId || linkBusy} onClick={handleLinkExisting}>
+                {linkBusy ? <><Loader2 className="size-3.5 animate-spin" />Linking…</> : "Link"}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={linkBusy} onClick={cancelLink}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Empty state */}
-        {contacts.length === 0 && !showForm && (
+        {contacts.length === 0 && !linking && (
           <p className="text-sm text-muted-foreground">No contacts linked to this property.</p>
         )}
 
@@ -531,78 +552,7 @@ export function PropertyContactsSection({
           );
         })()}
 
-        {/* Inline add-contact form */}
-        {showForm && (
-          <form
-            onSubmit={handleSubmitAdd}
-            className="rounded-lg border p-4 space-y-3 bg-muted/10"
-          >
-            <p className="text-sm font-medium">New contact</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="pc-name" className="text-xs">Name <span className="text-destructive">*</span></Label>
-                <Input id="pc-name" name="name" required disabled={isPending} placeholder="Jane Smith" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="pc-company" className="text-xs">Company</Label>
-                <Input id="pc-company" name="company" disabled={isPending} placeholder="Acme Properties LLC" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="pc-role" className="text-xs">Role</Label>
-                <Input id="pc-role" name="role" disabled={isPending} placeholder="Owner / Asset Manager" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="pc-tier" className="text-xs">Tier</Label>
-                <select
-                  id="pc-tier"
-                  name="contact_tier"
-                  disabled={isPending}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background"
-                >
-                  <option value="">— No tier —</option>
-                  <option value="1">1 — Top priority</option>
-                  <option value="2">2 — Warm prospect</option>
-                  <option value="3">3 — Periodic check-in</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="pc-email" className="text-xs">Email</Label>
-                <Input id="pc-email" name="email" type="email" disabled={isPending} placeholder="jane@acme.com" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="pc-phone" className="text-xs">Phone</Label>
-                <Input id="pc-phone" name="phone" type="tel" disabled={isPending} placeholder="(305) 555-0100" />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label htmlFor="pc-address" className="text-xs">Mailing address</Label>
-                <Input id="pc-address" name="mailing_address" disabled={isPending} placeholder="123 Main St, Miami, FL 33101" />
-              </div>
-            </div>
-            {addError && (
-              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {addError}
-              </p>
-            )}
-            <div className="flex gap-2 pt-1">
-              <Button type="submit" disabled={isPending} size="sm">
-                {isPending ? <><Loader2 className="size-3.5 animate-spin" />Saving…</> : "Add contact"}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={isPending} onClick={() => { setShowForm(false); setAddError(null); }}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        )}
       </CardContent>
-      {linkConfirm && (
-        <LinkToPropertyDialog
-          contactLabel={linkConfirm.contact.name ?? "this contact"}
-          propertyLabel={propertyLabel ?? "this property"}
-          busy={linkBusy}
-          onCancel={() => setLinkConfirm(null)}
-          onConfirm={handleConfirmLink}
-        />
-      )}
     </Card>
   );
 }
