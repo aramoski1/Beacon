@@ -2,12 +2,40 @@ import { describe, expect, it } from "vitest";
 import {
   dorMajorClass,
   extractLatestSale,
+  extractLotSize,
   folioFromMdpaSourceUrl,
   isSaleRecent,
   normalizeSaleDate,
+  pricePerAcre,
   rankCompCandidates,
   sameDorClass,
 } from "../../lib/mdpa-comps";
+
+describe("extractLotSize", () => {
+  it("reads PropertyInfo.LotSize", () => {
+    expect(extractLotSize({ PropertyInfo: { LotSize: 225561 } })).toBe(225561);
+  });
+
+  it("returns null when LotSize is absent, zero, or unparseable", () => {
+    expect(extractLotSize({ PropertyInfo: {} })).toBeNull();
+    expect(extractLotSize({ PropertyInfo: { LotSize: 0 } })).toBeNull();
+    expect(extractLotSize({ PropertyInfo: { LotSize: "n/a" } })).toBeNull();
+    expect(extractLotSize({})).toBeNull();
+  });
+});
+
+describe("pricePerAcre", () => {
+  it("computes sale price per acre for a land-heavy comp", () => {
+    // 225,561 sf (5.178 acres) sold for $5,280,000 -> ~$1.02M/acre
+    expect(pricePerAcre(5_280_000, 225_561)).toBeCloseTo(1_019_666, -1);
+  });
+
+  it("returns null when either input is missing or land size is zero", () => {
+    expect(pricePerAcre(null, 225_561)).toBeNull();
+    expect(pricePerAcre(5_280_000, null)).toBeNull();
+    expect(pricePerAcre(5_280_000, 0)).toBeNull();
+  });
+});
 
 describe("normalizeSaleDate", () => {
   it("parses US and ISO dates", () => {

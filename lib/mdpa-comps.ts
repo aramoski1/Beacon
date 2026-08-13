@@ -30,11 +30,22 @@ export type TaxRollComp = {
   dorCode: string | null;
   dorDescription: string | null;
   sizeSqft: number | null;
+  /** Land/lot size in square feet — the meaningful comp metric for land-heavy
+   *  uses (open storage, yard, vacant land) where building SF understates value. */
+  landSqft: number | null;
   saleDate: string | null; // ISO yyyy-mm-dd when parseable
   salePrice: number | null;
   sameDor: boolean;
   sameDorClass: boolean;
 };
+
+const SQFT_PER_ACRE = 43_560;
+
+/** Sale price per acre — the number a broker actually prices land-heavy comps on. */
+export function pricePerAcre(salePrice: number | null, landSqft: number | null): number | null {
+  if (salePrice == null || landSqft == null || landSqft <= 0) return null;
+  return salePrice / (landSqft / SQFT_PER_ACRE);
+}
 
 export type TaxRollCompsResult = {
   subjectFolio: string;
@@ -60,6 +71,15 @@ export type ParsedSale = {
   salePrice: number | null;
   qualified: boolean;
 };
+
+/** Read PropertyInfo.LotSize (land SF) from a raw MDPA PA detail record. */
+export function extractLotSize(raw: unknown): number | null {
+  const d = raw as { PropertyInfo?: { LotSize?: number | string | null } };
+  const v = d?.PropertyInfo?.LotSize;
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 /** First two digits of Florida DOR code = major use class. */
 export function dorMajorClass(dorCode: string | null | undefined): string | null {
@@ -292,9 +312,11 @@ export async function fetchTaxRollComps(
     if (!folio) continue;
 
     let sale: ParsedSale | null = null;
+    let landSqft: number | null = null;
     try {
       const detail = await getPropertyDetail(folioToStrap(folio));
       sale = extractLatestSale(detail);
+      landSqft = extractLotSize(detail);
     } catch {
       sale = null;
     }
@@ -311,6 +333,7 @@ export async function fetchTaxRollComps(
           cand.BUILDING_ACTUAL_AREA != null && Number(cand.BUILDING_ACTUAL_AREA) > 0
             ? Number(cand.BUILDING_ACTUAL_AREA)
             : null,
+        landSqft,
         saleDate: sale.saleDate,
         salePrice: sale.salePrice,
         sameDor: Boolean(subjectDor && cand.DOR_CODE_CUR === subjectDor),

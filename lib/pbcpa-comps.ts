@@ -31,7 +31,7 @@ const PBCPA_URL =
   "https://maps.co.palm-beach.fl.us/arcgis/rest/services/Parcels/labels/MapServer/1/query";
 
 const SUBJECT_FIELDS = "PARCEL_NUMBER,SITE_ADDR_STR,MUNICIPALITY,PROPERTY_USE,PRICE,SALE_DATE";
-const COMP_FIELDS = "PARCEL_NUMBER,SITE_ADDR_STR,MUNICIPALITY,PROPERTY_USE,PRICE,SALE_DATE";
+const COMP_FIELDS = "PARCEL_NUMBER,SITE_ADDR_STR,MUNICIPALITY,PROPERTY_USE,PRICE,SALE_DATE,ACRES";
 const CANDIDATE_RECORD_COUNT = 200;
 const MAX_COMPS = 8;
 
@@ -67,6 +67,7 @@ type PbcpaCompAttrs = {
   PROPERTY_USE?: string | null;
   PRICE?: number | null;
   SALE_DATE?: number | null;
+  ACRES?: number | null;
 };
 
 async function fetchSameMunicipalityParcels(
@@ -134,6 +135,7 @@ export async function fetchPbcpaTaxRollComps(subjectFolioRaw: string): Promise<T
       if (!folio || !isSaleRecent(saleDate) || salePrice == null || salePrice < MIN_COMP_SALE_PRICE) return null;
       const candType = propertyUseToType(cand.PROPERTY_USE);
       const sameClass = candType === subjectType;
+      const acres = cand.ACRES;
       const comp: TaxRollComp = {
         folio,
         strap: folioToStrap(folio),
@@ -142,6 +144,7 @@ export async function fetchPbcpaTaxRollComps(subjectFolioRaw: string): Promise<T
         dorCode: null,
         dorDescription: cand.PROPERTY_USE ?? null,
         sizeSqft: null,
+        landSqft: typeof acres === "number" && acres > 0 ? Math.round(acres * 43_560) : null,
         saleDate,
         salePrice,
         sameDor: sameClass && cand.PROPERTY_USE === subjectUse,

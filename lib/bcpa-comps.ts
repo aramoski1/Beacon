@@ -28,7 +28,7 @@ import {
 const BCPA_URL =
   "https://services5.arcgis.com/wI5GZmCtnUU8ueya/arcgis/rest/services/Broward_County_Parcel_Boundary/FeatureServer/1/query";
 
-const OUT_FIELDS = "PARCELNO,PHY_ADDR1,PHY_CITY,DOR_UC,TOT_LVG_AREA,SALE_PRC1,SALE_YR1,SALE_MO1";
+const OUT_FIELDS = "PARCELNO,PHY_ADDR1,PHY_CITY,DOR_UC,TOT_LVG_AREA,LND_SQFOOT,SALE_PRC1,SALE_YR1,SALE_MO1";
 const CANDIDATE_RECORD_COUNT = 200;
 const MAX_COMPS = 8;
 
@@ -70,6 +70,7 @@ type BcpaCompAttrs = {
   PHY_CITY?: string | null;
   DOR_UC?: string | null;
   TOT_LVG_AREA?: number | null;
+  LND_SQFOOT?: number | null;
   SALE_PRC1?: number | null;
   SALE_YR1?: number | null;
   SALE_MO1?: string | number | null;
@@ -143,6 +144,8 @@ export async function fetchBcpaTaxRollComps(subjectFolioRaw: string): Promise<Ta
         dorDescription: null,
         sizeSqft:
           cand.TOT_LVG_AREA != null && Number(cand.TOT_LVG_AREA) > 0 ? Number(cand.TOT_LVG_AREA) : null,
+        landSqft:
+          cand.LND_SQFOOT != null && Number(cand.LND_SQFOOT) > 0 ? Number(cand.LND_SQFOOT) : null,
         saleDate,
         salePrice,
         sameDor: Boolean(subjectDor && cand.DOR_UC === subjectDor),
