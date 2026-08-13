@@ -57,6 +57,36 @@ export async function scrubCustomFieldValues(
   }
 }
 
+// Moves a field's stored values from the old slug to the new one across every
+// entity row for this owner, when a rename changes the derived slug (e.g.
+// "Cap Rate" -> "Cap Rate %"). Without this, a rename would silently orphan
+// every value already saved under the old slug — custom_fields has no FK
+// back to field_definitions, so the slug is the only link between the two.
+export async function renameCustomFieldValues(
+  supabase: SupabaseClient,
+  ownerId: string,
+  entityType: EntityType,
+  oldSlug: string,
+  newSlug: string
+): Promise<void> {
+  if (!oldSlug || !newSlug || oldSlug === newSlug) return;
+  const table = ENTITY_TABLES[entityType];
+  const { data: rows } = await supabase
+    .from(table)
+    .select("id, custom_fields")
+    .eq("owner_id", ownerId)
+    .not("custom_fields", "is", null);
+  if (!rows?.length) return;
+  for (const row of rows as { id: string; custom_fields: Record<string, unknown> | null }[]) {
+    const cf = row.custom_fields;
+    if (!cf || !(oldSlug in cf)) continue;
+    const rest = { ...cf };
+    rest[newSlug] = rest[oldSlug];
+    delete rest[oldSlug];
+    await supabase.from(table).update({ custom_fields: rest }).eq("id", row.id).eq("owner_id", ownerId);
+  }
+}
+
 export async function fetchFieldDefs(
   supabase: SupabaseClient,
   ownerId: string,

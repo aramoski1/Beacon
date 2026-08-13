@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { fieldSlug, scrubCustomFieldValues, type FieldDefinition, type EntityType, type FieldType, type FillMode } from "@/lib/custom-fields";
+import { fieldSlug, scrubCustomFieldValues, renameCustomFieldValues, type FieldDefinition, type EntityType, type FieldType, type FillMode } from "@/lib/custom-fields";
 
 export async function getFieldDefinitions(): Promise<FieldDefinition[]> {
   const supabase = await createClient();
@@ -67,6 +67,50 @@ export async function createFieldDefinition(
     return { error: error.message };
   }
   return { id: data.id };
+}
+
+export async function renameFieldDefinition(
+  id: string,
+  newName: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const trimmed = newName.trim();
+  if (!trimmed) return { error: "Field name is required." };
+  if (fieldSlug(trimmed).length < 1)
+    return { error: "Field name must contain at least one letter or digit." };
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("field_definitions")
+    .select("id, entity_type, field_name")
+    .eq("id", id)
+    .eq("owner_id", user.id)
+    .single();
+  if (fetchErr || !existing) return { error: "Field not found." };
+
+  if (existing.field_name === trimmed) return {};
+
+  const { error: updateErr } = await supabase
+    .from("field_definitions")
+    .update({ field_name: trimmed })
+    .eq("id", id)
+    .eq("owner_id", user.id);
+
+  if (updateErr) {
+    if (updateErr.code === "23505")
+      return { error: "A field with that name already exists for this entity." };
+    return { error: updateErr.message };
+  }
+
+  const oldSlug = fieldSlug(existing.field_name);
+  const newSlug = fieldSlug(trimmed);
+  if (oldSlug !== newSlug) {
+    await renameCustomFieldValues(supabase, user.id, existing.entity_type as EntityType, oldSlug, newSlug);
+  }
+
+  return {};
 }
 
 export async function deleteFieldDefinition(

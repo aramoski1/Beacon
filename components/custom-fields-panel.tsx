@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect, useCallback } from "react";
-import { X, Loader2, Plus, Trash2 } from "lucide-react";
+import { X, Loader2, Plus, Trash2, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   getFieldDefinitions,
   createFieldDefinition,
+  renameFieldDefinition,
   deleteFieldDefinition,
 } from "@/app/settings/fields/actions";
 import type { FieldDefinition, EntityType, FieldType } from "@/lib/custom-fields";
@@ -165,10 +166,42 @@ function AddFieldForm({
 
 // ─── Field row ────────────────────────────────────────────────────────────────
 
-function FieldRow({ field, onDeleted }: { field: FieldDefinition; onDeleted: () => void }) {
+function FieldRow({ field, onDeleted, onRenamed }: { field: FieldDefinition; onDeleted: () => void; onRenamed: () => void }) {
   const [isPending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState(field.field_name);
   const [error, setError] = useState<string | null>(null);
+
+  function startRename() {
+    setDraftName(field.field_name);
+    setError(null);
+    setRenaming(true);
+  }
+
+  function cancelRename() {
+    setRenaming(false);
+    setDraftName(field.field_name);
+    setError(null);
+  }
+
+  function handleRename() {
+    const trimmed = draftName.trim();
+    if (!trimmed || trimmed === field.field_name) {
+      setRenaming(false);
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const result = await renameFieldDefinition(field.id, trimmed);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setRenaming(false);
+      onRenamed();
+    });
+  }
 
   function handleDelete() {
     setError(null);
@@ -186,8 +219,49 @@ function FieldRow({ field, onDeleted }: { field: FieldDefinition; onDeleted: () 
   return (
     <div className="py-2.5 border-b last:border-0">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">{field.field_name}</p>
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleRename(); }}
+              className="flex items-center gap-1.5"
+            >
+              <Input
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                disabled={isPending}
+                onKeyDown={(e) => { if (e.key === "Escape") cancelRename(); }}
+                className="h-7 text-sm"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={isPending}
+                className="shrink-0 p-1.5 rounded text-primary hover:bg-primary/10 disabled:opacity-50"
+                title="Save name"
+              >
+                {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={cancelRename}
+                disabled={isPending}
+                className="shrink-0 p-1.5 rounded text-muted-foreground hover:bg-muted disabled:opacity-50"
+                title="Cancel"
+              >
+                <X className="size-3.5" />
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={startRename}
+              className="group flex items-center gap-1.5 text-left min-w-0"
+              title="Click to rename"
+            >
+              <p className="text-sm font-medium truncate">{field.field_name}</p>
+              <Pencil className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          )}
           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             <Badge variant="outline" className="text-xs py-0">
               {FIELD_TYPE_LABELS[field.field_type]}
@@ -204,7 +278,7 @@ function FieldRow({ field, onDeleted }: { field: FieldDefinition; onDeleted: () 
             ) : null}
           </div>
         </div>
-        {confirming ? (
+        {!renaming && (confirming ? (
           <div className="shrink-0 flex items-center gap-1.5 text-xs">
             <span className="text-muted-foreground whitespace-nowrap">Delete field?</span>
             <button
@@ -230,10 +304,10 @@ function FieldRow({ field, onDeleted }: { field: FieldDefinition; onDeleted: () 
           >
             <Trash2 className="size-3.5" />
           </button>
-        )}
+        ))}
       </div>
       {error && (
-        <p className="mt-1 text-xs text-destructive">Delete failed: {error}</p>
+        <p className="mt-1 text-xs text-destructive">{renaming ? "Rename failed" : "Delete failed"}: {error}</p>
       )}
     </div>
   );
@@ -301,7 +375,7 @@ export function CustomFieldsPanel({
           ) : (
             <div>
               {fields.map((f) => (
-                <FieldRow key={f.id} field={f} onDeleted={loadFields} />
+                <FieldRow key={f.id} field={f} onDeleted={loadFields} onRenamed={loadFields} />
               ))}
             </div>
           )}
