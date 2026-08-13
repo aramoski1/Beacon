@@ -494,6 +494,45 @@ function DataSourcesSection({
 
 // ─── Outreach section ─────────────────────────────────────────────────────────
 
+/**
+ * Shows exactly what app/outreach/actions.ts:generateDrafts builds as
+ * brokerSignature — [senderName, company, phone] joined by newline, same
+ * fallback order (sender_name, else display_name). A typo here is the one
+ * thing a broker will never proofread on their own, since it's set once and
+ * then appears at the bottom of every AI-drafted email afterward.
+ */
+function SignaturePreview({
+  senderName,
+  company,
+  phone,
+}: {
+  senderName: string | null;
+  company: string | null;
+  phone: string | null;
+}) {
+  const lines = [senderName, company, phone].filter((v): v is string => Boolean(v?.trim()));
+  return (
+    <div className="space-y-1.5">
+      <Label>How this appears on your emails</Label>
+      {lines.length === 0 ? (
+        <p className="text-xs text-muted-foreground rounded-md border border-dashed px-3 py-2.5">
+          Add a sender name to see how your emails will sign off.
+        </p>
+      ) : (
+        <div className="rounded-md border bg-muted/20 px-3 py-2.5">
+          {lines.map((line, i) => (
+            <p key={i} className="text-sm leading-snug">{line}</p>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Every AI-drafted email ends with exactly this. Double-check it — a typo here ships in
+        every draft until you fix it.
+      </p>
+    </div>
+  );
+}
+
 function OutreachSection({
   settings,
   onSaved,
@@ -575,6 +614,11 @@ function OutreachSection({
             <Label htmlFor="sender_email">Sender email</Label>
             <Input id="sender_email" type="email" value={form.sender_email} onChange={set("sender_email")} placeholder="jane@yourbrokerage.com" disabled={isPending} />
           </div>
+          <SignaturePreview
+            senderName={form.sender_name.trim() || settings.display_name}
+            company={settings.company}
+            phone={settings.phone}
+          />
           <div className="space-y-1.5">
             <Label htmlFor="email_provider">Email client</Label>
             <select
@@ -607,6 +651,10 @@ function OutreachSection({
             disabled={isPending}
             className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background resize-none disabled:opacity-60"
           />
+          <p className="text-xs text-muted-foreground">
+            Kept for your own reference — AI-drafted outreach doesn&rsquo;t use this text yet. It signs
+            with Sender name above plus Company and Phone from the Brokerage tab; see the preview above.
+          </p>
         </div>
 
         <div className="space-y-3">
