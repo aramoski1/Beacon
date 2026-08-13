@@ -129,6 +129,9 @@ function effectiveStage(c: Contact): string | null {
   return c.relationship_stage || c.client_status || null;
 }
 
+/** Outreach sends with nothing in the pipeline yet — worth suggesting a pursuit. */
+const PURSUIT_NUDGE_TOUCH_THRESHOLD = 3;
+
 const OWNERSHIP_ROLE_LABELS: Record<string, string> = {
   managing_member:   "Managing Member",
   authorized_signer: "Authorized Signer",
@@ -168,7 +171,7 @@ export default async function ContactPage({
     c.linked_properties,
   );
 
-  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings, contactDocuments] = await Promise.all([
+  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings, contactDocuments, { count: dealCount }] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -189,6 +192,11 @@ export default async function ContactPage({
       .order("due_date", { ascending: true }),
     getUserSettings(),
     listDocuments(supabase, user.id, "contact", id),
+    supabase
+      .from("deals")
+      .select("id", { count: "exact", head: true })
+      .eq("contact_id", id)
+      .eq("owner_id", user.id),
   ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -206,6 +214,12 @@ export default async function ContactPage({
   const es = effectiveStage(c);
   const displayRole = c.title_role || c.role;
   const displayPhone = c.phone_mobile || c.phone;
+
+  // Several real outreach touches with nothing tracked in the pipeline is
+  // exactly the moment a broker's own memory of "is this a live deal yet?"
+  // is weakest — nudge toward creating a pursuit instead of relying on recall.
+  const outreachTouchCount = (c.outreach_history ?? []).length;
+  const showPursuitNudge = outreachTouchCount >= PURSUIT_NUDGE_TOUCH_THRESHOLD && (dealCount ?? 0) === 0;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
@@ -299,6 +313,15 @@ export default async function ContactPage({
       {/* Next follow-up — prominent */}
       {c.next_action_due && (
         <NextFollowUpBanner date={c.next_action_due} />
+      )}
+
+      {/* Nudge: real outreach momentum with nothing tracked as a pursuit yet */}
+      {showPursuitNudge && (
+        <PursuitNudgeBanner
+          contactId={id}
+          contactName={c.name}
+          touchCount={outreachTouchCount}
+        />
       )}
 
       <RelationshipBriefingPanel contactId={id} />
@@ -495,6 +518,42 @@ export default async function ContactPage({
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function PursuitNudgeBanner({
+  contactId,
+  contactName,
+  touchCount,
+}: {
+  contactId: string;
+  contactName: string | null;
+  touchCount: number;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-50 dark:bg-amber-950/20 px-4 py-3">
+      <Briefcase className="size-4 text-amber-700 dark:text-amber-500 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-amber-900 dark:text-amber-400">
+          {touchCount} outreach touches, nothing in the pipeline
+        </p>
+        <p className="text-xs text-amber-800/80 dark:text-amber-400/70 mt-0.5">
+          {contactName ?? "This contact"} has {touchCount} logged emails and no tracked pursuit — worth turning this into a deal?
+        </p>
+      </div>
+      <CreateDealDialog
+        contactId={contactId}
+        contactName={contactName ?? undefined}
+        trigger={
+          <button
+            type="button"
+            className="shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium bg-amber-600 text-white hover:bg-amber-600/90 dark:bg-amber-500 dark:hover:bg-amber-500/90"
+          >
+            Track as pursuit
+          </button>
+        }
+      />
+    </div>
+  );
+}
 
 function NextFollowUpBanner({ date }: { date: string }) {
   const d = new Date(date);
