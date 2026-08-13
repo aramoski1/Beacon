@@ -30,6 +30,7 @@ import { cadenceMapFromSettings, cadenceDaysForTier, suggestedCadenceDays } from
 import { listDocuments } from "@/lib/documents";
 import { DocumentsSection } from "@/components/documents-section";
 import { CreProfileSection } from "./cre-profile-section";
+import { LinkPropertySection } from "./link-property-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -380,30 +381,7 @@ export default async function ContactPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {linkedProps.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No linked properties.</p>
-            ) : (
-              <div className="space-y-2">
-                {linkedProps.map((p) => (
-                  <Link
-                    key={p.id}
-                    href={`/properties/${p.id}`}
-                    className="block rounded-lg border bg-muted/20 px-3 py-2 hover:bg-muted/50 transition-colors"
-                  >
-                    <p className="font-medium text-sm truncate">{p.address ?? "Unknown address"}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {[
-                        p.city,
-                        p.property_type,
-                        p.size_sqft != null ? `${p.size_sqft.toLocaleString()} sf` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
+            <LinkPropertySection contactId={c.id} linkedProperties={linkedProps} />
           </CardContent>
         </Card>
       </div>
