@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureException } from "@/lib/error-reporter";
+import { sanitizeIngestionError } from "@/lib/error-messages";
 
 export type IngestionStage =
   | "gis_fetch"      // County GIS address search
@@ -41,6 +42,11 @@ export async function logIngestionError(
     error_detail?: Record<string, unknown>;
   }
 ): Promise<void> {
+  // The broker-facing message is sanitized (no subprocess command lines, no
+  // server file paths, no raw upstream API JSON) — the original is kept in
+  // error_detail.raw_message for support/debugging, never rendered in the UI.
+  const displayMessage = sanitizeIngestionError(opts.stage, opts.error_message);
+
   // DB insert and external reporting run independently so one failure
   // cannot suppress the other.
   try {
@@ -49,8 +55,8 @@ export async function logIngestionError(
       stage:         opts.stage,
       source_type:   opts.source_type,
       source_ref:    opts.source_ref ?? null,
-      error_message: opts.error_message,
-      error_detail:  opts.error_detail ?? {},
+      error_message: displayMessage,
+      error_detail:  { ...(opts.error_detail ?? {}), raw_message: opts.error_message },
     });
   } catch {
     // Intentionally swallowed
