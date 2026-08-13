@@ -16,6 +16,7 @@ import { EnhanceDialog } from "./enhance-dialog";
 import { BulkEnrichPanel, type BulkProperty } from "./bulk-enrich-panel";
 import { interpretSearch, deleteProperty, deleteContact, deleteLease, promotePropertyOwnerToCrm, linkContactsToProperty, type SearchResult, type PropertySearchFilters, type ContactSearchFilters, type LeaseSearchFilters } from "./actions";
 import { LinkToPropertyDialog } from "@/components/link-to-property-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SmartListsBar, BarModeToggle, SearchListActions } from "./smart-lists-bar";
 import { primaryTabForSearch, resolveSavableSearchResult } from "@/lib/crm-search-filters";
 import type { SmartListWithCounts } from "./smart-list-actions";
@@ -969,6 +970,21 @@ function PropertiesTable({
     resultContacts: Array<{ id: string; name: string | null; email: string | null; mailing_address: string | null }>;
   } | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  const [contactFieldConfirm, setContactFieldConfirm] = useState<{
+    contactId: string;
+    field: "name" | "email" | "mailing_address";
+    value: string | null;
+  } | null>(null);
+
+  function handleConfirmContactFieldEdit() {
+    if (!contactFieldConfirm) return;
+    onSaveContact(contactFieldConfirm.contactId, contactFieldConfirm.field, contactFieldConfirm.value);
+    setContactFieldConfirm(null);
+  }
+
+  function handleCancelContactFieldEdit() {
+    setContactFieldConfirm(null);
+  }
 
   function finishPromote(
     propertyId: string,
@@ -1151,14 +1167,6 @@ function PropertiesTable({
               );
               onSave(p.id, "owner_contacts", next.filter((oc) => oc.name.trim()));
             }
-            function saveCrmField(field: "name" | "email" | "mailing_address", value: string | null) {
-              if (!displayOwner?.contactId) return;
-              const ok = window.confirm(
-                "Update the CRM contact used for outreach and cadence? This does not change staging on the property row.",
-              );
-              if (!ok) return;
-              onSaveContact(displayOwner.contactId, field, value);
-            }
             function handlePromote() {
               const propertyLabel = p.address ?? "this property";
               if (ownerContacts.length > 1) {
@@ -1292,13 +1300,7 @@ function PropertiesTable({
                           value={c.name}
                           placeholder="—"
                           displayClassName="truncate block font-medium"
-                          onSave={(v) => {
-                            const ok = window.confirm(
-                              "Update the CRM contact used for outreach and cadence?",
-                            );
-                            if (!ok) return;
-                            onSaveContact(c.id, "name", v);
-                          }}
+                          onSave={(v) => setContactFieldConfirm({ contactId: c.id, field: "name", value: v })}
                         />
                       ))}
                     </div>
@@ -1354,13 +1356,7 @@ function PropertiesTable({
                         value={c.mailing_address}
                         placeholder="—"
                         displayClassName="truncate block text-muted-foreground"
-                        onSave={(v) => {
-                          const ok = window.confirm(
-                            "Update the CRM contact used for outreach and cadence?",
-                          );
-                          if (!ok) return;
-                          onSaveContact(c.id, "mailing_address", v);
-                        }}
+                        onSave={(v) => setContactFieldConfirm({ contactId: c.id, field: "mailing_address", value: v })}
                       />
                     ))
                   ) : ownerContacts.length > 0 ? (
@@ -1392,13 +1388,7 @@ function PropertiesTable({
                         value={c.email}
                         placeholder="—"
                         displayClassName="truncate block text-primary"
-                        onSave={(v) => {
-                          const ok = window.confirm(
-                            "Update the CRM contact used for outreach and cadence?",
-                          );
-                          if (!ok) return;
-                          onSaveContact(c.id, "email", v);
-                        }}
+                        onSave={(v) => setContactFieldConfirm({ contactId: c.id, field: "email", value: v })}
                       />
                     ))
                   ) : (
@@ -1532,6 +1522,15 @@ function PropertiesTable({
           busy={linkBusy}
           onCancel={handleCancelLink}
           onConfirm={handleConfirmLink}
+        />
+      )}
+      {contactFieldConfirm && (
+        <ConfirmDialog
+          title="Update CRM contact"
+          message="Update the CRM contact used for outreach and cadence? This does not change staging on the property row."
+          confirmLabel="Update"
+          onCancel={handleCancelContactFieldEdit}
+          onConfirm={handleConfirmContactFieldEdit}
         />
       )}
     </div>

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { uploadDocumentAction, deleteDocumentAction, fetchDocuments } from "@/app/documents/actions";
 import type { DocumentEntityType, DocumentWithUrl } from "@/lib/documents";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 function formatBytes(n: number | null): string {
   if (n == null) return "";
@@ -31,6 +32,7 @@ export function DocumentsSection({
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<DocumentWithUrl | null>(null);
   const [, startTransition] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -52,8 +54,18 @@ export function DocumentsSection({
     });
   }
 
-  function handleDelete(id: string) {
-    if (!window.confirm("Delete this file? This cannot be undone.")) return;
+  function handleDeleteRequest(doc: DocumentWithUrl) {
+    setPendingDelete(doc);
+  }
+
+  function handleDeleteCancel() {
+    setPendingDelete(null);
+  }
+
+  function handleDeleteConfirm() {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
     setDeletingId(id);
     setError(null);
     startTransition(async () => {
@@ -131,7 +143,7 @@ export function DocumentsSection({
                   </div>
                 </div>
                 <button
-                  onClick={() => handleDelete(doc.id)}
+                  onClick={() => handleDeleteRequest(doc)}
                   disabled={deletingId === doc.id}
                   className="shrink-0 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                   title="Delete file"
@@ -147,6 +159,16 @@ export function DocumentsSection({
           </div>
         )}
       </CardContent>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete file"
+          message={`Delete "${pendingDelete.file_name}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onCancel={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+        />
+      )}
     </Card>
   );
 }
