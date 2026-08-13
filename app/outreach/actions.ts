@@ -386,6 +386,10 @@ export async function generateDrafts(
       client_status: c.client_status,
       tier_tone: tierTone,
       days_since_contact: daysSince,
+      // How many of the last 4 activities were outreach emails — used to force
+      // a different opening/angle on repeat touches instead of the same
+      // "just checking in" shape every cycle.
+      recent_email_touches: activities.filter((a) => a.activity_type === "email").length,
       linked_properties: linkedProperties,
       recent_activities: activities.map((a) => ({
         type: a.activity_type,
@@ -454,6 +458,7 @@ RULES — every rule is mandatory:
 5. If recent_activities exist, reference the most recent one naturally (e.g., "Following up on our March call…").
 6. End with one short, low-friction ask (e.g., "Worth a quick call?" or "Happy to share more details.").
 7. SIGNATURE: End every email body with a blank line, then the BROKER SIGNATURE exactly as provided above. Never write "[Broker Name]" — use the text given.
+8. REPEAT-TOUCH RULE — when recent_email_touches is 2 or more, this contact has already gotten several "just checking in" emails. Do NOT reuse the "Following up on [X]... wanted to check in... worth a quick call?" shape again. Pick a genuinely different angle instead — rotate through: a direct question about a specific decision point, a plain FYI/update framing with no question at all, a market observation tied to their asset, or a concrete next step you're proposing. Two emails to the same contact should never read like restatements of each other.
 
 FACT PRIORITY — use the highest-priority fact available for each contact:
 - linked_properties[].leases[].expires → strongest hook: e.g. "your lease at 123 Main expires in 8 months"
@@ -462,7 +467,7 @@ FACT PRIORITY — use the highest-priority fact available for each contact:
 - days_since_contact → relationship hook: e.g. "it's been 45 days since we last connected"
 - recent_activities → warmest personal hook: reference the activity type and date
 
-CONTACT DATA:
+CONTACT DATA (recent_email_touches = how many of the last 4 logged activities were outreach emails — treat 2+ as a repeat touch under rule 8):
 ${JSON.stringify(chunk, null, 2)}`,
           },
         ],
