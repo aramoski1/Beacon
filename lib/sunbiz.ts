@@ -17,13 +17,13 @@ import {
   parseStoredOwnerContacts,
   type StoredOwnerContact,
 } from "./owner-contacts";
+import { SUNBIZ_BASE, buildSunbizSearchUrl } from "./sunbiz-url";
 
 export type { SunbizMatch, SunbizPerson, SunbizResult, SunbizLookup, StoredOwnerContact };
 export { storedOwnerContactsFromSunbiz, parseStoredOwnerContacts };
+export { manualSunbizSearchUrl } from "./sunbiz-url";
 
 const execFileAsync = promisify(execFile);
-
-const SUNBIZ_BASE = "https://search.sunbiz.org";
 
 // ─── HTML → plain text ────────────────────────────────────────────────────────
 
@@ -45,25 +45,10 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-// ─── Search URL construction ──────────────────────────────────────────────────
-// Sunbiz now uses a path-based results URL: /SearchResults/EntityName/{name}/Page1
-// The searchNameOrder param is the name uppercased, de-punctuated, without common
-// entity-type suffixes — used by Sunbiz as the initial alpha sort cursor.
-
-function buildSearchUrl(entityName: string): string {
-  const encoded = encodeURIComponent(entityName);
-  // searchNameOrder must strip the entity-type suffix and all punctuation.
-  // Strip periods first so "L.L.C." → "LLC" before the suffix removal pattern.
-  const order = entityName
-    .toUpperCase()
-    .replace(/\./g, "")
-    .replace(/[,\s]+(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\s*$/i, "")
-    .replace(/[^A-Z0-9]/g, "");
-  return (
-    `${SUNBIZ_BASE}/Inquiry/CorporationSearch/SearchResults/EntityName/${encoded}/Page1` +
-    `?searchNameOrder=${order}`
-  );
-}
+// Search URL construction lives in ./sunbiz-url (a pure, client-safe module —
+// components/enrich-panel.tsx etc. link to it directly without pulling in
+// this file's Node-only dependencies).
+const buildSearchUrl = buildSunbizSearchUrl;
 
 // ─── HTTP fetch ───────────────────────────────────────────────────────────────
 // Uses curl instead of Node.js native fetch.

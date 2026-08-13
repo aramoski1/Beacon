@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { manualSunbizSearchUrl } from "@/lib/sunbiz-url";
 import {
   ingestAddress, ingestChosenFolio, saveIngestedProperty,
   type FolioMatch, type PropertyPreview, type IngestResult,
@@ -285,7 +286,19 @@ function AddressPreviewCard({
             <div className="border-t pt-3">
               <div className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-50 dark:bg-yellow-950/20 px-3 py-2 text-xs text-yellow-800 dark:text-yellow-400">
                 <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
-                <span><span className="font-medium">Sunbiz auto-lookup: </span>{preview.sunbiz_error} You can still run it manually from the property detail page.</span>
+                <span>
+                  <span className="font-medium">Sunbiz auto-lookup: </span>{preview.sunbiz_error}{" "}
+                  {preview.owner_name && (
+                    <a
+                      href={manualSunbizSearchUrl(preview.owner_name)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium underline underline-offset-2 hover:text-yellow-900 dark:hover:text-yellow-300 inline-flex items-center gap-0.5"
+                    >
+                      Search Sunbiz yourself <ExternalLink className="size-3" />
+                    </a>
+                  )}
+                </span>
               </div>
             </div>
           )}

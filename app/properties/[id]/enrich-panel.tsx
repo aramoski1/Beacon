@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
 import type { StoredOwnerContact } from "@/lib/owner-contacts";
+import { manualSunbizSearchUrl } from "@/lib/sunbiz-url";
 import type { CoStarOwner, CoStarContact } from "@/lib/costar";
 import {
   initiateCountyEnhancement,
@@ -131,12 +132,22 @@ function SubHeader({ icon: Icon, title }: { icon: React.ElementType; title: stri
   );
 }
 
-function ErrorBox({ message, onBack, backLabel = "Back" }: { message: string; onBack: () => void; backLabel?: string }) {
+function ErrorBox({
+  message, onBack, backLabel = "Back", extra,
+}: {
+  message: string;
+  onBack: () => void;
+  backLabel?: string;
+  extra?: React.ReactNode;
+}) {
   return (
     <div className="space-y-2">
       <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
         <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-        {message}
+        <div className="space-y-1">
+          <p>{message}</p>
+          {extra}
+        </div>
       </div>
       <Button size="sm" variant="outline" onClick={onBack}>{backLabel}</Button>
     </div>
@@ -675,9 +686,19 @@ export function EnrichPanel({
                   )}
 
                   {preview.sunbiz_error && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                       <AlertTriangle className="size-3.5 text-yellow-500 shrink-0" />
                       Sunbiz: {preview.sunbiz_error}
+                      {preview.mdpaData.owner_name && (
+                        <a
+                          href={manualSunbizSearchUrl(preview.mdpaData.owner_name)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline underline-offset-2 hover:text-primary/80 inline-flex items-center gap-0.5"
+                        >
+                          Search Sunbiz yourself <ExternalLink className="size-3" />
+                        </a>
+                      )}
                     </p>
                   )}
 
@@ -770,7 +791,21 @@ export function EnrichPanel({
             {sunbiz.tag === "loading" && <Spinner label="Searching Sunbiz and extracting persons…" />}
 
             {sunbiz.tag === "error" && (
-              <ErrorBox message={sunbiz.message} onBack={() => setSunbiz({ tag: "idle" })} backLabel="Try again" />
+              <ErrorBox
+                message={sunbiz.message}
+                onBack={() => setSunbiz({ tag: "idle" })}
+                backLabel="Try again"
+                extra={ownerName && (
+                  <a
+                    href={manualSunbizSearchUrl(ownerName)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-xs font-medium underline underline-offset-2 hover:text-destructive/80"
+                  >
+                    Search Sunbiz yourself <ExternalLink className="size-3" />
+                  </a>
+                )}
+              />
             )}
 
             {(sunbiz.tag === "results" || sunbiz.tag === "saving") && (

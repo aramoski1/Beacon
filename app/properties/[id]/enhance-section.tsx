@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { manualSunbizSearchUrl } from "@/lib/sunbiz-url";
 import {
   initiateCountyEnhancement,
   previewCountyEnhancement,
@@ -329,9 +330,19 @@ export function CountyEnhanceContent({
         )}
 
         {preview.sunbiz_error && (
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
             <AlertTriangle className="size-3.5 text-yellow-500 shrink-0" />
             Sunbiz: {preview.sunbiz_error}
+            {preview.mdpaData.owner_name && (
+              <a
+                href={manualSunbizSearchUrl(preview.mdpaData.owner_name)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:text-primary/80 inline-flex items-center gap-0.5"
+              >
+                Search Sunbiz yourself <ExternalLink className="size-3" />
+              </a>
+            )}
           </p>
         )}
 
