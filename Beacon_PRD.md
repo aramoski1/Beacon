@@ -1,5 +1,5 @@
 # Beacon — Product Requirements Document
-**Version:** July 2026  
+**Version:** August 2026
 **Audience:** New engineers joining the Beacon project
 
 **Pilot truth for brokers:** see `Beacon_Pilot_Readiness.md` (what shipped, honest limits, day-1 path). This PRD is the engineering map.
@@ -10,15 +10,16 @@
 
 Beacon is a single-broker CRM for commercial real estate. One user. No teams, no multi-tenant. The broker uses it to:
 
-1. **Track properties** — who owns them, when they last sold, what's on the land (Miami-Dade + Broward tax roll)
+1. **Track properties** — who owns them, when they last sold, what's on the land (Miami-Dade, Broward, and Palm Beach tax roll)
 2. **Track owner contacts** — with contact tiers, outreach cadence, and relationship notes
 3. **Track lease abstracts** — expiration dates, base rates, tenants (must be linked to a property)
 4. **Stay on top of follow-ups** — lease expiry alerts, cadence overdue reminders
 5. **Draft outreach** — AI-generated emails, sent manually via the broker's own email client
-6. **Track pursuits** — type-aware deal pipeline (tenant rep / listing / investment sale)
-7. **Ask Beacon** — Copilot on the dashboard for portfolio / focus questions
+6. **Run a pursuit pipeline** — type-aware deal stages (tenant rep / listing / investment sale), worked as a kanban board, a sortable list, or a weighted forecast, with a full deal detail page
+7. **Attach documents** — files (leases, OMs, LOIs, etc.) attached directly to a property, contact, lease, or deal
+8. **Ask Beacon** — Copilot on the dashboard for portfolio / focus questions
 
-The app is South Florida–centric. Primary county sources: Miami-Dade Property Appraiser (MDPA) and Broward County Property Appraiser (BCPA GIS). Sunbiz (Florida Division of Corporations) identifies humans behind LLC owners.
+The app is South Florida–centric. Primary county sources: Miami-Dade Property Appraiser (MDPA), Broward County Property Appraiser (BCPA GIS), and Palm Beach County Property Appraiser (PBCPA). Sunbiz (Florida Division of Corporations) identifies humans behind LLC owners.
 
 ---
 
@@ -30,7 +31,8 @@ The app is South Florida–centric. Primary county sources: Miami-Dade Property 
 | React Compiler | `reactCompiler: true` in `next.config.ts` — auto-memoization, experimental |
 | Auth + DB | Supabase (email/password, PostgreSQL, RLS, Storage) |
 | Styling | Tailwind CSS v4 + shadcn/ui (Nova preset) |
-| AI | Anthropic Claude SDK — Opus 4.8 for extraction, Haiku for NLP/drafts/briefings |
+| AI | Anthropic Claude SDK — `claude-opus-4-8` for extraction, `claude-haiku-4-5-20251001` for NLP/drafts/briefings |
+| Drag-and-drop | `@dnd-kit/core` — deals kanban board |
 | Testing | Vitest v4 (unit tests for pure functions only) |
 | Spreadsheet export | `xlsx` library |
 
@@ -78,12 +80,14 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - `size_sqft`, `land_sqft`, `asset_description`
 - `last_sale_date`, `last_sale_price`
 - `building_composition jsonb` — year_built, stories, units, dor_code, assessed_value, legal_description
-- `source` — `'tax_roll'` (MDPA address lookup) | `'url'` | `'upload'`
-- `source_url` — `'mdpa:<strap>'` for county-sourced, full URL for listing-sourced
+- `source` — `'tax_roll'` (MDPA/BCPA/PBCPA address lookup) | `'url'` | `'upload'`
+- `source_url` — `'mdpa:<strap>'` / `'bcpa:<folio>'` / `'pbcpa:<pcn>'` for county-sourced, full URL for listing-sourced
 - `confidence_flags jsonb` — `[{field, reason}]` — AI uncertainty flags
+- `field_sources jsonb` — per-field provenance (county / sunbiz / document / url / pasted)
 - `prospect_number integer` — auto-incremented per owner by DB trigger
 - `custom_fields jsonb` — user-defined fields keyed by slug
-- `ownership_change_detected_at`, `ownership_change_data jsonb` — set when MDPA re-check finds different owner
+- `ownership_watch_enrolled_at`, `ownership_last_checked_at`, `ownership_change_detected_at`, `ownership_change_data jsonb` — set when a re-check finds a different owner
+- `entity_id` — FK to `entities` (durable legal-entity record), backfilled from owner name matching
 
 **`contacts`** — CRM contacts. Key columns:
 - `name`, `email`, `phone`, `phone_mobile`, `phone_office`
@@ -96,7 +100,7 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - `contact_type` — `'owner'` | `'tenant'` | `'other'`
 - `custom_fields jsonb`
 
-**`contact_properties`** — many-to-many join (contact_id, property_id, owner_id). Canonical for “contacts on asset” / “assets for contact.”
+**`contact_properties`** — many-to-many join (contact_id, property_id, owner_id). Canonical for "contacts on asset" / "assets for contact."
 
 **`lease_abstracts`** — AI-extracted lease data. Key columns:
 - `linked_property uuid FK properties` — **required on save** (server rejects null)
@@ -104,40 +108,50 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - `source_document text` — Supabase Storage path: `<owner_id>/<filename>`
 - `execution_date`, `expiration_date`, `base_rate`, `term`
 - `renewal_options`, `use_clause`, `escalation_clause`, `parking`, `operating_expenses`
+- `field_reviews jsonb` — per-field accept/reject/correct with corrections
 - `custom_fields jsonb`
 
-**`deals`** — CRE pursuit pipeline. `deal_type`: `tenant_rep` | `listing` | `investment_sale`. Stage sets are type-aware; `under_contract` and `won` are active; terminal stages are `closed` / `lost`.
+**`deals`** — CRE pursuit pipeline. `deal_type`: `tenant_rep` | `listing` | `investment_sale`. Stages are type-aware and now span the full pursuit lifecycle: `prospect → contacted → meeting → requirement → proposal → won → loi_sent → loi_executed → lease_drafting → lease_signed → psa_signed → due_diligence → under_contract → closed / lost`. Which of these apply depends on `deal_type` (e.g. tenant-rep pursuits get the lease-track stages, investment-sale pursuits get PSA/due-diligence stages) — see `STAGES_BY_DEAL_TYPE` in `lib/deals.ts`. `under_contract` and `won` are active; terminal stages are `closed` / `lost`. Each stage carries a rough historical close probability (`STAGE_PROBABILITY`) used to weight the pipeline forecast. Other key columns:
+- `estimated_commission`, `expected_close_date`
+- `notes`, `next_action`, `next_action_due`
+- `custom_fields jsonb`
 
 ### Supporting tables
 
-- **`activities`** — touch-point log. Types: `letter | email | call | note | meeting`. Linked to contact + optionally property.
-- **`follow_ups`** — tasks with due dates. Types: `manual` or `lease_expiry`. Unique constraint prevents duplicate lease-expiry follow-ups.
-- **`field_definitions`** — schema for custom fields. `entity_type: 'property' | 'contact' | 'lease'`, `fill_mode: 'extract' | 'manual'`. Extract fields are dynamically added to AI extraction schemas.
-- **`ingestion_errors`** — error log for property ingestion stages. Never blocks the ingestion caller.
+- **`activities`** — touch-point log. Types: `letter | email | call | note | meeting`. Linked to contact and/or property, and optionally a **`deal_id`** FK (`ON DELETE CASCADE`) so a deal's timeline can show its own touches.
+- **`follow_ups`** — tasks with due dates. `source_type`: `manual` or `lease_expiry`. Also carries a **`deal_id`** FK (`ON DELETE CASCADE`) — a deal's "next action due" syncs to a real follow-up row here rather than the old description-prefix soft link. Unique constraint prevents duplicate lease-expiry follow-ups.
+- **`documents`** — generic file attachments. `entity_type`: `property | lease | contact | deal`, `entity_id`, `file_name`, `storage_path`, `content_type`, `size_bytes`. Backed by the `documents` Storage bucket (32 MB cap, signed URLs, owner-scoped RLS). Rendered via the shared `DocumentsSection` component on property, contact, lease, and deal detail pages.
+- **`field_definitions`** — schema for custom fields. `entity_type: 'property' | 'contact' | 'lease' | 'deal'`, `fill_mode: 'extract' | 'manual'`. Extract fields are dynamically added to AI extraction schemas. Has both INSERT/DELETE and **UPDATE** RLS policies, so renaming a field in place (rather than delete-and-recreate) is supported end-to-end — `lib/custom-fields.ts:renameCustomFieldValues` migrates any already-stored values to the new slug.
+- **`entities`** / **`entity_properties`** / **`entity_contacts`** — durable legal-entity records (e.g. an LLC) decoupled from any one property, with join tables linking them to properties and contacts.
+- **`ingestion_errors`** / **`error_logs`** — error logs for property ingestion and general server-action failures. Never block the caller.
 - **`smart_lists`** — saved NL search filters. Schema exists; no UI to manage them yet.
-- **`user_settings`** — per-broker profile, outreach preferences, cadence intervals, CoStar toggle.
+- **`user_settings`** — per-broker profile, outreach preferences, cadence intervals, CoStar toggle, onboarding state, email provider preference.
 
 ---
 
 ## 5. Key Data Flows
 
-### 5.1 Property Ingestion (MDPA Address)
+### 5.1 Property Ingestion (County Address Lookup)
 
 ```
 User enters address
   → app/properties/new/actions.ts:ingestAddress
-  → lib/mdpa.ts:searchByAddressGIS (Miami-Dade ArcGIS REST API)
+  → lib/county-router.ts:detectCounty + searchParcelsByAddress
+      (queries Miami-Dade ArcGIS, Broward BCPA GIS, and Palm Beach PBCPA in parallel)
   → Returns candidate parcels (never auto-selects)
-User picks a folio
+User picks a folio/PCN
   → ingestChosenFolio
-  → lib/mdpa.ts:getPropertyDetail (MDPA PaServicesProxy)
+  → County-specific detail fetch (lib/mdpa.ts / lib/bcpa.ts / lib/pbcpa.ts)
   → lib/property-pipeline.ts:extractPropertyFields (Claude Opus 4.8 with strict no-hallucination prompt)
+      — Palm Beach maps its record directly to fields without a Claude call (no free-text source to parse)
   → If owner is an entity (LLC/INC/etc): lib/sunbiz.ts:searchAndExtractSunbiz (non-blocking)
   → Returns preview with confidence_flags
 User confirms save
   → saveIngestedProperty
   → lib/property-ingest.ts:upsertProperty (dedup by source_url exact match, then address case-insensitive)
 ```
+
+Coverage today is **Miami-Dade, Broward, and Palm Beach only**; an address search outside those three counties returns a coverage error rather than a false negative.
 
 ### 5.2 Property Ingestion (URL)
 
@@ -152,16 +166,17 @@ User enters URL
 ### 5.3 Property Enrichment (Post-Ingest)
 
 On the property detail page (`/properties/[id]`), the EnrichPanel provides:
-1. **County data** — GIS search for the property's address → pick folio → preview field diffs → apply (calls `applyCountyEnhancement`)
+1. **County data** — GIS search for the property's address (any of the three counties) → pick folio/PCN → preview field diffs → apply (calls `applyCountyEnhancement`)
 2. **Sunbiz owners** — looks up entity name in Sunbiz → select persons → save to `owner_contacts` JSONB
 3. **Promote to CRM** — creates a contact row from a Sunbiz person or MDPA owner
 4. **CoStar upload** — PDF/image/CSV → Claude Haiku extracts contacts → creates contact rows tagged `costar unverified`
+5. **Document/URL/paste enhancement** — attach a document, paste text, or point at a URL to fill in additional fields outside the county/Sunbiz flow
 
 ### 5.4 Outreach Flow
 
 ```
 Outreach page lists contacts due/overdue (by cadence thresholds)
-User selects contacts → generateDrafts (Claude Haiku, max 10)
+User selects contacts → generateDrafts (Claude Haiku, max 10, varies angle after repeat touches)
 User reviews draft → "Open in email ↗" → mailto: link → broker's email client
 Broker sends email manually
 User clicks "Mark as sent" → logOutreach → writes to outreach_history JSONB + updates last_contacted_at + creates activity record
@@ -207,7 +222,40 @@ From a property or contact, the "Portfolio →" link goes to `/owner-portfolio/p
 
 This page aggregates all workspace properties belonging to the same owner (entity fuzzy match or person name match) and shows a unified timeline of lease events, contacts, outreach, and activities.
 
-It also offers a county-wide tax roll search (via Miami-Dade ArcGIS) to discover the owner's properties that are NOT yet in the broker's workspace.
+It also offers a county-wide tax roll search (via Miami-Dade, Broward, and Palm Beach) to discover the owner's properties that are NOT yet in the broker's workspace.
+
+### 5.9 Deals Pipeline
+
+```
+/deals
+  → getDeals + getDealsForecast (Server Components, fetched in parallel)
+  → DealsView renders three switchable modes:
+      Kanban  — @dnd-kit drag-and-drop between type-aware stage columns; quick-log call/tour
+               and inline outreach compose from each card
+      List    — sortable/filterable table with multi-select bulk stage-change and bulk delete
+      Forecast — weighted pipeline value (commission × STAGE_PROBABILITY), win rate, stale-deal
+               count, pipeline-by-stage breakdown, and an aging-deals list
+  → Manage fields opens the same CustomFieldsPanel used elsewhere, scoped to entity_type "deal"
+/deals/[id]
+  → Deal detail page: linked contact/property cards, custom fields, DocumentsSection,
+    and a combined activity + follow-up timeline (DealActivitySection)
+  → Deleting a deal cascades its activities/follow_ups (deal_id FK) and cleans up its
+    documents (deleteDocumentsForEntity) before the deals row itself is removed
+```
+
+A contact page also nudges the broker to create a pursuit once three outreach touches have landed with zero linked deals, one click into the existing create-deal dialog.
+
+### 5.10 Document Attachments
+
+```
+Any property / contact / lease / deal detail page
+  → DocumentsSection component
+  → uploadDocument(supabase, userId, entityType, entityId, file)
+      — 32 MB cap, sanitized filename, stored at <owner_id>/<entity_type>/<entity_id>/<ts>-<name>
+  → listDocuments returns rows with a fresh 1-hour signed URL each render
+  → Deleting the parent entity calls deleteDocumentsForEntity first, so no orphaned
+    storage objects survive a property/contact/lease/deal delete
+```
 
 ---
 
@@ -215,7 +263,9 @@ It also offers a county-wide tax roll search (via Miami-Dade ArcGIS) to discover
 
 - Auth: `supabase.auth.getUser()` in every server action (validates JWT server-side). Never `getSession()`.
 - RLS: `owner_id = auth.uid()` on all tables. Server actions also check `owner_id` explicitly in queries (defense-in-depth).
-- Storage: `leases` bucket, path format `<owner_id>/<filename>`. Path traversal checked at save time.
+- Storage: `leases` bucket and `documents` bucket, path format `<owner_id>/<...>`. Path traversal checked at save time. Both buckets carry owner-scoped DELETE/UPDATE policies (not just INSERT/SELECT), so account deletion actually purges uploaded files.
+- **Account deletion**: Settings → Account → Delete account (`deleteAccount` in `app/settings/actions.ts`, backed by `lib/account-deletion.ts:deleteAllUserRows`) removes every owned row across all tables, all storage objects in both buckets, and the auth login itself. Covered by an end-to-end test plus a dedicated multi-tenant isolation test suite.
+- Signup: pilot auto-confirms email in Postgres directly rather than relying on Supabase's outbound mailer.
 - AI key: `process.env.ANTHROPIC_API_KEY` — server-side only, never exposed to client.
 
 ---
@@ -225,27 +275,30 @@ It also offers a county-wide tax roll search (via Miami-Dade ArcGIS) to discover
 ```
 /login                    Auth (no app shell)
 /onboarding               First-run gate
+/how-beacon-works         Explainer page (linked from onboarding and Settings)
 /dashboard                Broker command center — KPIs, Do these today, Ask Beacon (Copilot)
 /crm                      Workspace — properties / contacts / leases tabs
-/deals                    Pursuit pipeline (kanban); /deals?new=1 opens create dialog
+/deals                    Pursuit pipeline — kanban / list / forecast views; /deals?new=1 opens create dialog
+/deals/[id]               Deal detail — linked contact/property, custom fields, documents, timeline
 /book-map                 Corridor book map (submarket/city + OSM links)
 /properties/new           Add property (address / URL / upload)
-/properties/[id]          Property detail + enrich + tax-roll + lease comps + Owner portfolio CTA
+/properties/[id]          Property detail + enrich + tax-roll + lease comps + document attachments + Owner portfolio CTA
 /contacts/new             Add contact manually
-/contacts/[id]            Contact detail + briefing + Owner portfolio CTA
-/abstracts/new            Upload + abstract a lease (property required)
-/abstracts/[id]           Lease abstract detail
-/lease-radar              Expiring leases + tenant/owner outreach + follow-up sync
-/follow-ups               Task list (Advanced nav — primary queue is Today on dashboard)
-/outreach                 Cadence-driven outreach drafts (mailto — no send)
-/owner-portfolio/...      Owner portfolio (by property or contact) + MD/Broward tax-roll discovery
-/properties/audit         Advanced — data audit
-/properties/errors        Advanced — ingestion errors
-/settings                 User settings (cadence, profile)
-/settings/fields          Custom field definitions
-/api/export/properties    XLSX download (GET, auth-checked)
-/api/export/contacts      XLSX download (GET, auth-checked)
-/api/export/leases        XLSX download (GET, auth-checked)
+/contacts/[id]            Contact detail + briefing + document attachments + Owner portfolio CTA
+/abstracts/new             Upload + abstract a lease (property required)
+/abstracts/[id]            Lease abstract detail + document attachments
+/lease-radar               Expiring leases + tenant/owner outreach + follow-up sync
+/follow-ups                Task list (Advanced nav — primary queue is Today on dashboard)
+/outreach                  Cadence-driven outreach drafts (mailto — no send)
+/owner-portfolio/...       Owner portfolio (by property or contact) + MD/Broward/Palm Beach tax-roll discovery
+/properties/audit          Advanced — data audit
+/properties/errors         Advanced — ingestion errors
+/settings                  User settings (cadence, profile, email provider) + Account (delete account)
+/settings/fields           Custom field definitions
+/settings/errors           Advanced — server-action error log
+/api/export/properties     XLSX download (GET, auth-checked)
+/api/export/contacts       XLSX download (GET, auth-checked)
+/api/export/leases         XLSX download (GET, auth-checked)
 ```
 
 Primary nav labels: Dashboard, Workspace, Deals, Lease radar, Outreach, Settings.
@@ -253,30 +306,35 @@ Primary nav labels: Dashboard, Workspace, Deals, Lease radar, Outreach, Settings
 
 ## 8. Custom Fields System
 
-Users can define custom fields for properties, contacts, and leases at `/settings/fields`.
+Users can define custom fields for properties, contacts, leases, and **deals** at `/settings/fields`.
 
 - Fields are stored in `field_definitions` with `entity_type`, `field_name`, `field_type` (text/number/date/select), `select_options`, and `fill_mode` (extract/manual).
 - Field values are stored as JSONB in `custom_fields` on each entity, keyed by slug (`lib/custom-fields.ts:fieldSlug`).
-- Fields with `fill_mode='extract'` are dynamically injected into the Anthropic tool schema during ingestion, so the AI can populate them from source documents.
-- **Known gap:** No UPDATE RLS policy on `field_definitions`. Renaming a field requires deleting and recreating it.
+- Fields with `fill_mode='extract'` are dynamically injected into the Anthropic tool schema during ingestion, so the AI can populate them from source documents. (Deal custom fields are always `manual` — there's no AI extraction path onto a deal.)
+- Renaming a field is a first-class action: it updates `field_definitions` in place (an UPDATE RLS policy exists) and migrates any already-stored values from the old slug to the new one (`renameCustomFieldValues`) rather than requiring delete-and-recreate.
 
 ---
 
 ## 9. Known Issues / Remaining Risks
 
 ### Still watch in pilot
-1. **Ownership watch columns** — require `npm run migrate` for `ownership_watch_enrolled_at` / `ownership_last_checked_at` if verify fails.
-2. **CoStar toggle** (`user_settings.costar_enabled`): preference UX; CoStar remains **file upload only**, not a live API.
-3. **Scale**: app shell badge counts, owner portfolio, and some dashboard aggregations favor simplicity over large-book performance.
-4. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
-5. **Industrial space fields** — Prompt B deferred; use custom fields or notes until shipped.
+1. **CoStar toggle** (`user_settings.costar_enabled`): preference UX; CoStar remains **file upload only**, not a live API.
+2. **Scale**: app shell badge counts, owner portfolio, and some dashboard aggregations favor simplicity over large-book performance.
+3. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
+4. **Industrial space fields** — Prompt B deferred; use custom fields or notes until shipped.
+5. **Smart lists** — table and filter schema exist; still no UI to create/manage a saved segment.
 
 ### Fixed (do not re-open as bugs)
 - Cadence settings **do** drive due/overdue math via `lib/cadence.ts` + `user_settings`.
 - Lease abstracts **require** `linked_property` on save; clearing to null is blocked.
-- Deals / pursuit pipeline **exists** with type-aware stages.
+- Deals / pursuit pipeline **exists** with type-aware stages, a kanban/list/forecast view, and a full deal detail page — not just a flat card list.
+- Deal follow-ups and activities use a real `deal_id` FK with `ON DELETE CASCADE` — no longer a description-prefix soft link.
+- Custom field **rename** works in place; no delete-and-recreate required.
+- Palm Beach County is a **third supported county** alongside Miami-Dade and Broward, in ingestion, enrichment, and owner-portfolio discovery.
+- Document attachments **exist** for properties, contacts, leases, and deals.
+- Account deletion **exists** and is covered by an end-to-end test.
 - **Lease XLSX export** uses real abstract + linked property columns (`app/api/export/leases/route.ts`).
-- Owner portfolio tax-roll discovery covers **Miami-Dade + Broward**.
+- Owner portfolio tax-roll discovery covers **Miami-Dade, Broward, and Palm Beach**.
 - Follow-ups live primarily via **Today desk**; `/follow-ups` remains under Advanced.
 
 ### UX / polish
@@ -296,6 +354,7 @@ See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 - Map view of portfolio
 - Smart list management UI (table may exist; no producer UI)
 - Drop of legacy `linked_properties` column (join is preferred; dual-write remains)
+- County coverage beyond Miami-Dade / Broward / Palm Beach
 
 ---
 
@@ -304,7 +363,7 @@ See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 1. **New table?** Create `scripts/migrate-<name>.ts` following existing pattern (idempotent SQL). Add to `SCRIPTS` in `scripts/migrate-all.ts`. Add to `EXPECTED` in `scripts/verify-schema.ts`. Add RLS policy.
 2. **New server action?** Add `"use server"` directive. Call `supabase.auth.getUser()` first. Return `{ error?: string }` or typed result, not throw.
 3. **New AI call?** Use tool use (`tools` + `tool_choice: {type: "tool", name: "..."}`), not free text. Use Haiku for speed (NLP, search, drafts). Use Opus for extraction (structured data from documents).
-4. **Custom fields in extraction?** Call `fetchFieldDefs(supabase, entityType)` and pass to `extractPropertyFields` as `customExtractFields` arg. Only fields with `fill_mode='extract'` should be included.
+4. **Custom fields in extraction?** Call `fetchFieldDefs(supabase, entityType)` and pass to `extractPropertyFields` as `customExtractFields` arg. Only fields with `fill_mode='extract'` should be included. Entity types are `property | contact | lease | deal`.
 5. **New route?** Check auth at the top. Use `createClient` from `lib/supabase/server.ts` (not client).
-6. **Tests?** Add Vitest unit tests for any pure function in `lib/`. External services (Supabase, Claude, MDPA) are not mocked — don't write integration tests without a clear strategy for mocking them.
+6. **Tests?** Add Vitest unit tests for any pure function in `lib/`. External services (Supabase, Claude, MDPA/BCPA/PBCPA) are not mocked — don't write integration tests without a clear strategy for mocking them.
 7. **Do not delete** Copilot, Deals, Lease radar, Follow-ups, Outreach, or Owner portfolio without an explicit product decision.
