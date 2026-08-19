@@ -6,10 +6,12 @@ import {
   DEAL_STAGES,
   DEAL_TYPE_LABELS,
   STAGE_LABELS,
+  STAGE_PROBABILITY,
   TERMINAL_STAGES,
   ACTIVE_STAGES,
   validateCreateDeal,
   isDealStale,
+  daysInStage,
   isStageAllowedForType,
   type Deal,
   type DealStage,
@@ -18,11 +20,8 @@ import {
   type ValidationError,
 } from "@/lib/deals";
 import { sumEstimatedCommission } from "@/lib/dashboard-kpis";
-import {
-  dealFollowUpDescriptionPrefix,
-  formatDealFollowUpDescription,
-  isDealFollowUpDescription,
-} from "@/lib/deal-follow-up";
+import { formatDealFollowUpDescription } from "@/lib/deal-follow-up";
+import { deleteDocumentsForEntity } from "@/lib/documents";
 
 async function syncDealFollowUp(params: {
   ownerId: string;
@@ -34,25 +33,17 @@ async function syncDealFollowUp(params: {
   nextActionDue: string | null;
 }): Promise<void> {
   if (!params.nextActionDue) return;
-  if (!params.contactId && !params.propertyId) return;
 
   const supabase = await createClient();
-  const description = formatDealFollowUpDescription(
-    params.dealId,
-    params.dealName,
-    params.nextAction,
-  );
+  const description = formatDealFollowUpDescription(params.dealName, params.nextAction);
 
-  const { data: open } = await supabase
+  const { data: existing } = await supabase
     .from("follow_ups")
-    .select("id, description")
+    .select("id")
     .eq("owner_id", params.ownerId)
+    .eq("deal_id", params.dealId)
     .eq("done", false)
-    .limit(100);
-
-  const existing = (open ?? []).find((r) =>
-    isDealFollowUpDescription(r.description ?? "", params.dealId),
-  );
+    .maybeSingle();
 
   if (existing) {
     await supabase
@@ -70,6 +61,7 @@ async function syncDealFollowUp(params: {
       owner_id: params.ownerId,
       contact_id: params.contactId,
       property_id: params.propertyId,
+      deal_id: params.dealId,
       due_date: params.nextActionDue,
       description,
       source_type: "manual",
@@ -147,6 +139,69 @@ export async function getDealsDashboard(): Promise<DealsDashboard> {
   };
 }
 
+export type DealsForecast = {
+  weightedPipelineValue: number;
+  totalPipelineValue: number;
+  byStage: { stage: DealStage; count: number; value: number }[];
+  winRate: number;
+  staleCount: number;
+  agingDeals: Deal[];
+};
+
+export async function getDealsForecast(): Promise<DealsForecast> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      weightedPipelineValue: 0,
+      totalPipelineValue: 0,
+      byStage: [],
+      winRate: 0,
+      staleCount: 0,
+      agingDeals: [],
+    };
+  }
+
+  const { data } = await supabase
+    .from("deals")
+    .select("*, contacts(name, company), properties(address, city)")
+    .eq("owner_id", user.id);
+
+  const deals = (data ?? []) as Deal[];
+  const active = deals.filter((d) => !(TERMINAL_STAGES as readonly string[]).includes(d.stage));
+
+  const totalPipelineValue = sumEstimatedCommission(active.map((d) => d.estimated_commission));
+  const weightedPipelineValue = active.reduce((sum, d) => {
+    const value = d.estimated_commission ?? 0;
+    if (!Number.isFinite(value) || value < 0) return sum;
+    return sum + value * (STAGE_PROBABILITY[d.stage] / 100);
+  }, 0);
+
+  const byStage = ACTIVE_STAGES.map((stage) => {
+    const stageDeals = active.filter((d) => d.stage === stage);
+    return {
+      stage,
+      count: stageDeals.length,
+      value: sumEstimatedCommission(stageDeals.map((d) => d.estimated_commission)),
+    };
+  }).filter((s) => s.count > 0);
+
+  const closedCount = deals.filter((d) => d.stage === "closed").length;
+  const lostCount = deals.filter((d) => d.stage === "lost").length;
+  const winRate = closedCount + lostCount > 0 ? closedCount / (closedCount + lostCount) : 0;
+
+  const staleDeals = active.filter((d) => isDealStale(d)).sort((a, b) => daysInStage(b) - daysInStage(a));
+
+  return {
+    weightedPipelineValue,
+    totalPipelineValue,
+    byStage,
+    winRate,
+    staleCount: staleDeals.length,
+    agingDeals: staleDeals.slice(0, 10),
+  };
+}
+
 export async function createDeal(
   input: CreateDealInput
 ): Promise<{ deal?: Deal; error?: string; fieldErrors?: ValidationError[] }> {
@@ -189,6 +244,8 @@ export async function createDeal(
       notes: input.notes?.trim() ?? null,
       next_action: input.next_action?.trim() ?? null,
       next_action_due: input.next_action_due ?? null,
+      expected_close_date: input.expected_close_date ?? null,
+      custom_fields: input.custom_fields ?? {},
     })
     .select("*, contacts(name, company), properties(address, city)")
     .single();
@@ -271,6 +328,8 @@ export async function updateDeal(
   if ("notes" in input) patch.notes = input.notes?.trim() ?? null;
   if ("next_action" in input) patch.next_action = input.next_action?.trim() ?? null;
   if ("next_action_due" in input) patch.next_action_due = input.next_action_due ?? null;
+  if ("expected_close_date" in input) patch.expected_close_date = input.expected_close_date ?? null;
+  if ("custom_fields" in input) patch.custom_fields = input.custom_fields ?? {};
 
   const { data, error } = await supabase
     .from("deals")
@@ -302,16 +361,11 @@ export async function deleteDeal(dealId: string): Promise<{ error?: string }> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  // follow_ups has no FK back to deals (soft-linked via description prefix —
-  // see lib/deal-follow-up.ts), so it won't cascade on its own. Clean it up
-  // explicitly or a deleted deal leaves a dangling, un-completable follow-up.
-  const { error: followUpError } = await supabase
-    .from("follow_ups")
-    .delete()
-    .eq("owner_id", user.id)
-    .like("description", `${dealFollowUpDescriptionPrefix(dealId)}%`);
-  if (followUpError) return { error: followUpError.message };
+  const docsResult = await deleteDocumentsForEntity(supabase, user.id, "deal", dealId);
+  if (docsResult.error) return docsResult;
 
+  // activities.deal_id and follow_ups.deal_id are both ON DELETE CASCADE, so
+  // deleting the deal row cascades those on its own.
   const { error } = await supabase
     .from("deals")
     .delete()

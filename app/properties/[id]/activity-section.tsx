@@ -95,6 +95,7 @@ export function PropertyActivitySection({
           id: result.id!,
           contact_id,
           property_id: propertyId,
+          deal_id: null,
           activity_type,
           activity_date,
           notes,

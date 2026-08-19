@@ -103,6 +103,7 @@ export function ContactActivitySection({
           id: result.id!,
           contact_id: contactId,
           property_id: null,
+          deal_id: null,
           activity_type,
           activity_date,
           notes,

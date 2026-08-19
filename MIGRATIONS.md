@@ -33,7 +33,11 @@ Scripts run in this order:
 | 3 | `scripts/migrate-custom-fields.ts` | `field_definitions` table; adds `custom_fields` JSONB to all three entity tables |
 | 4 | `scripts/setup-storage.ts` | `leases` storage bucket (32 MB, PDF-only) with RLS |
 | ... | (additional migrations — see `SCRIPTS` in `scripts/migrate-all.ts` for the full, current list) | |
-| latest | `scripts/migrate-documents.ts` | `documents` table (property/lease/contact attachments) + `documents` storage bucket (32 MB, common doc/image types) with RLS |
+| ... | `scripts/migrate-documents.ts` | `documents` table (property/lease/contact attachments) + `documents` storage bucket (32 MB, common doc/image types) with RLS |
+| ... | `scripts/migrate-documents-deal-entity.ts` | Widens `documents.entity_type` CHECK to allow attachments on deals |
+| ... | `scripts/migrate-custom-fields-deal-entity.ts` | Widens `field_definitions.entity_type` CHECK to allow deals; adds `custom_fields` JSONB to `deals` |
+| ... | `scripts/migrate-deal-activity-links.ts` | Adds `deal_id` FK to `activities`/`follow_ups` (replaces the description-prefix soft link), backfills historical rows |
+| latest | `scripts/migrate-deal-stages-expand.ts` | Widens `deals.stage` CHECK with LOI/lease/PSA milestones; adds `expected_close_date` |
 
 ## Adding a new migration
 

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type DocumentEntityType = "property" | "lease" | "contact";
+export type DocumentEntityType = "property" | "lease" | "contact" | "deal";
 
 export type DocumentRow = {
   id: string;

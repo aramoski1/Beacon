@@ -162,6 +162,22 @@ const SCRIPTS: { file: string; description: string }[] = [
     description:
       "Documents — generic media/document attachments table (property/lease/contact) + 'documents' storage bucket with RLS",
   },
+  {
+    file: "migrate-documents-deal-entity.ts",
+    description: "Documents — widen entity_type CHECK to allow attachments on deals",
+  },
+  {
+    file: "migrate-custom-fields-deal-entity.ts",
+    description: "Custom fields — widen field_definitions entity_type CHECK to allow deals; add custom_fields JSONB to deals",
+  },
+  {
+    file: "migrate-deal-activity-links.ts",
+    description: "Deals — deal_id FK on activities/follow_ups (replaces description-prefix soft link), with backfill",
+  },
+  {
+    file: "migrate-deal-stages-expand.ts",
+    description: "Deals — widen stage CHECK with LOI/lease/PSA milestones; add expected_close_date column",
+  },
 ];
 
 const hr = "─".repeat(60);

@@ -16,6 +16,12 @@ export const DEAL_STAGES = [
   "requirement",
   "proposal",
   "won",
+  "loi_sent",
+  "loi_executed",
+  "lease_drafting",
+  "lease_signed",
+  "psa_signed",
+  "due_diligence",
   "under_contract",
   "closed",
   "lost",
@@ -31,6 +37,12 @@ export const STAGE_LABELS: Record<DealStage, string> = {
   proposal: "Proposal",
   /** Tenant-rep: mandate won / search live — still an active pursuit until Closed. */
   won: "Won (active)",
+  loi_sent: "LOI Sent",
+  loi_executed: "LOI Executed",
+  lease_drafting: "Lease Drafting",
+  lease_signed: "Lease Signed",
+  psa_signed: "PSA Signed",
+  due_diligence: "Due Diligence",
   under_contract: "Under Contract",
   closed: "Closed",
   lost: "Lost",
@@ -45,6 +57,10 @@ export const STAGES_BY_DEAL_TYPE: Record<DealType, readonly DealStage[]> = {
     "requirement",
     "proposal",
     "won",
+    "loi_sent",
+    "loi_executed",
+    "lease_drafting",
+    "lease_signed",
     "closed",
     "lost",
   ],
@@ -53,6 +69,10 @@ export const STAGES_BY_DEAL_TYPE: Record<DealType, readonly DealStage[]> = {
     "contacted",
     "meeting",
     "proposal",
+    "loi_sent",
+    "loi_executed",
+    "lease_drafting",
+    "lease_signed",
     "under_contract",
     "closed",
     "lost",
@@ -62,6 +82,10 @@ export const STAGES_BY_DEAL_TYPE: Record<DealType, readonly DealStage[]> = {
     "contacted",
     "meeting",
     "proposal",
+    "loi_sent",
+    "loi_executed",
+    "psa_signed",
+    "due_diligence",
     "under_contract",
     "closed",
     "lost",
@@ -110,10 +134,37 @@ export const STAGE_COLORS: Record<DealStage, string> = {
   requirement: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
   proposal: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
   won: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  loi_sent: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
+  loi_executed: "bg-teal-500/10 text-teal-700 dark:text-teal-400 border-teal-500/20",
+  lease_drafting: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/20",
+  lease_signed: "bg-lime-500/10 text-lime-700 dark:text-lime-400 border-lime-500/20",
+  psa_signed: "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20",
+  due_diligence: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20",
   under_contract: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/20",
   closed: "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20",
   lost: "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20",
 };
+
+/** Rough historical close probability per stage, used for weighted pipeline forecasting. */
+export const STAGE_PROBABILITY: Record<DealStage, number> = {
+  prospect: 5,
+  contacted: 10,
+  meeting: 20,
+  requirement: 25,
+  proposal: 35,
+  won: 45,
+  loi_sent: 55,
+  loi_executed: 65,
+  psa_signed: 72,
+  lease_drafting: 75,
+  due_diligence: 80,
+  lease_signed: 90,
+  under_contract: 90,
+  closed: 100,
+  lost: 0,
+};
+
+export type DealCustomFields = Record<string, string | number | null>;
 
 export type Deal = {
   id: string;
@@ -127,6 +178,8 @@ export type Deal = {
   notes: string | null;
   next_action: string | null;
   next_action_due: string | null;
+  expected_close_date: string | null;
+  custom_fields: DealCustomFields | null;
   created_at: string;
   updated_at: string;
   contacts?: { name: string | null; company: string | null } | null;
@@ -143,6 +196,8 @@ export type CreateDealInput = {
   notes?: string | null;
   next_action?: string | null;
   next_action_due?: string | null;
+  expected_close_date?: string | null;
+  custom_fields?: DealCustomFields | null;
 };
 
 export type ValidationError = { field: string; message: string };
@@ -171,6 +226,9 @@ export function validateCreateDeal(input: Partial<CreateDealInput>): ValidationE
     (isNaN(Number(input.estimated_commission)) || Number(input.estimated_commission) < 0)
   ) {
     errors.push({ field: "estimated_commission", message: "Commission must be a positive number." });
+  }
+  if (input.expected_close_date != null && isNaN(Date.parse(input.expected_close_date))) {
+    errors.push({ field: "expected_close_date", message: "Expected close date is invalid." });
   }
   return errors;
 }

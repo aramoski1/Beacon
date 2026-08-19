@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Briefcase } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getDeals } from "./actions";
+import { getDeals, getDealsForecast } from "./actions";
 import { DealsView } from "./deals-view";
 
 export default async function DealsPage({
@@ -14,7 +14,7 @@ export default async function DealsPage({
   if (!user) redirect("/login");
 
   const sp = await searchParams;
-  const deals = await getDeals();
+  const [deals, forecast] = await Promise.all([getDeals(), getDealsForecast()]);
   const totalCount = deals.length;
 
   return (
@@ -33,7 +33,7 @@ export default async function DealsPage({
         </div>
       </div>
 
-      <DealsView initialDeals={deals} autoOpenCreate={sp.new === "1"} />
+      <DealsView initialDeals={deals} initialForecast={forecast} autoOpenCreate={sp.new === "1"} />
     </div>
   );
 }

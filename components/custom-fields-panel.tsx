@@ -25,12 +25,14 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   property: "Property",
   contact:  "Contact",
   lease:    "Lease",
+  deal:     "Deal",
 };
 
 const ENTITY_HINTS: Record<EntityType, string> = {
   property: "Extract fields — Claude pulls values from a matched county record, an uploaded flyer/OM, pasted listing text, or a listing URL (never typed in manually). Manual fields — the broker fills them in.",
   contact:  "These fields appear on the Add Contact form for manual input.",
   lease:    "Claude extracts these fields from the lease PDF automatically.",
+  deal:     "These fields appear on the deal detail page for manual input.",
 };
 
 // ─── Add-field form ───────────────────────────────────────────────────────────

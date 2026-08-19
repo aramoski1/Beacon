@@ -31,6 +31,8 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
     notes: null,
     next_action: null,
     next_action_due: null,
+    expected_close_date: null,
+    custom_fields: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...overrides,
@@ -75,8 +77,9 @@ describe("validateCreateDeal", () => {
   });
 
   it("accepts all valid stages for tenant_rep", () => {
+    const notInTenantRep = ["under_contract", "psa_signed", "due_diligence"];
     for (const stage of DEAL_STAGES) {
-      if (stage === "under_contract") continue; // not in tenant_rep set
+      if (notInTenantRep.includes(stage)) continue;
       const errors = validateCreateDeal({ name: "Deal", stage, deal_type: "tenant_rep" });
       expect(errors.some((e) => e.field === "stage")).toBe(false);
     }
@@ -181,7 +184,7 @@ describe("nextStage", () => {
 
   it("skips requirement for listing deals", () => {
     expect(nextStage("meeting", "listing")).toBe("proposal");
-    expect(nextStage("proposal", "listing")).toBe("under_contract");
+    expect(nextStage("proposal", "listing")).toBe("loi_sent");
   });
 });
 
@@ -253,7 +256,7 @@ describe("stage constants", () => {
     }
   });
 
-  it("DEAL_STAGES has 9 entries", () => {
-    expect(DEAL_STAGES).toHaveLength(9);
+  it("DEAL_STAGES has 15 entries", () => {
+    expect(DEAL_STAGES).toHaveLength(15);
   });
 });

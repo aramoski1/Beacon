@@ -1,22 +1,9 @@
-/**
- * Soft-dedupe keys for deal → follow-up sync (no deal_id column required).
- */
-
-export function dealFollowUpDescriptionPrefix(dealId: string): string {
-  return `Deal:${dealId}|`;
-}
-
 export function formatDealFollowUpDescription(
-  dealId: string,
   dealName: string,
   nextAction: string | null | undefined,
 ): string {
   const action = nextAction?.trim() || "Next action due";
-  return `${dealFollowUpDescriptionPrefix(dealId)}${dealName} — ${action}`;
-}
-
-export function isDealFollowUpDescription(description: string, dealId: string): boolean {
-  return description.startsWith(dealFollowUpDescriptionPrefix(dealId));
+  return `${dealName} — ${action}`;
 }
 
 /** Soft fields encouraged for tenant_rep (never hard-required). */

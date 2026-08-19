@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type FieldType = "text" | "number" | "date" | "select";
-export type EntityType = "property" | "contact" | "lease";
+export type EntityType = "property" | "contact" | "lease" | "deal";
 export type FillMode = "extract" | "manual";
 
 export type FieldDefinition = {
@@ -27,6 +27,7 @@ const ENTITY_TABLES: Record<EntityType, string> = {
   property: "properties",
   contact: "contacts",
   lease: "lease_abstracts",
+  deal: "deals",
 };
 
 // Removes a deleted field's stored values from every entity's custom_fields JSONB

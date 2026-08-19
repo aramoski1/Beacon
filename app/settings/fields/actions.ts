@@ -32,7 +32,7 @@ export async function createFieldDefinition(
   const optionsRaw  = (formData.get("select_options") as string | null)?.trim() ?? "";
 
   if (!field_name) return { error: "Field name is required." };
-  if (!["property", "contact", "lease"].includes(entity_type))
+  if (!["property", "contact", "lease", "deal"].includes(entity_type))
     return { error: "Invalid entity type." };
   if (!["text", "number", "date", "select"].includes(field_type))
     return { error: "Invalid field type." };

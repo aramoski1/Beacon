@@ -1,17 +1,13 @@
 import { describe, expect, it } from "vitest";
-import {
-  appendTenantRepNotes,
-  dealFollowUpDescriptionPrefix,
-  formatDealFollowUpDescription,
-  isDealFollowUpDescription,
-} from "../../lib/deal-follow-up";
+import { appendTenantRepNotes, formatDealFollowUpDescription } from "../../lib/deal-follow-up";
 
 describe("deal follow-up description", () => {
-  it("prefixes deal id for soft dedupe", () => {
-    const d = formatDealFollowUpDescription("abc", "Doral pursuit", "Send LOI");
-    expect(d.startsWith(dealFollowUpDescriptionPrefix("abc"))).toBe(true);
-    expect(isDealFollowUpDescription(d, "abc")).toBe(true);
-    expect(isDealFollowUpDescription(d, "other")).toBe(false);
+  it("combines deal name and next action", () => {
+    expect(formatDealFollowUpDescription("Doral pursuit", "Send LOI")).toBe("Doral pursuit — Send LOI");
+  });
+
+  it("falls back when no next action is given", () => {
+    expect(formatDealFollowUpDescription("Doral pursuit", null)).toBe("Doral pursuit — Next action due");
   });
 });
 

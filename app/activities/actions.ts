@@ -17,6 +17,7 @@ export type Activity = {
   id: string;
   contact_id: string | null;
   property_id: string | null;
+  deal_id: string | null;
   activity_type: ActivityType;
   activity_date: string;
   notes: string | null;
@@ -26,6 +27,7 @@ export type Activity = {
 export async function createActivity(params: {
   contact_id?: string | null;
   property_id?: string | null;
+  deal_id?: string | null;
   activity_type: ActivityType;
   activity_date?: string | null;
   notes?: string | null;
@@ -40,9 +42,9 @@ export async function createActivity(params: {
     return { error: "Invalid activity type." };
   }
 
-  // Must link to at least a contact or a property
-  if (!params.contact_id && !params.property_id) {
-    return { error: "An activity must be linked to a contact, a property, or both." };
+  // Must link to at least a contact, a property, or a deal
+  if (!params.contact_id && !params.property_id && !params.deal_id) {
+    return { error: "An activity must be linked to a contact, a property, or a deal." };
   }
 
   // Verify contact belongs to this user (when provided)
@@ -67,6 +69,17 @@ export async function createActivity(params: {
     if (!property) return { error: "Property not found." };
   }
 
+  // Verify deal belongs to this user (when provided)
+  if (params.deal_id) {
+    const { data: deal } = await supabase
+      .from("deals")
+      .select("id")
+      .eq("id", params.deal_id)
+      .eq("owner_id", user.id)
+      .single();
+    if (!deal) return { error: "Deal not found." };
+  }
+
   const activityDate = params.activity_date ?? new Date().toISOString();
 
   const { data, error } = await supabase
@@ -75,6 +88,7 @@ export async function createActivity(params: {
       owner_id: user.id,
       contact_id: params.contact_id ?? null,
       property_id: params.property_id ?? null,
+      deal_id: params.deal_id ?? null,
       activity_type: params.activity_type,
       activity_date: activityDate,
       notes: params.notes ?? null,
@@ -107,7 +121,7 @@ export async function fetchActivitiesByContact(contactId: string): Promise<Activ
 
   const { data } = await supabase
     .from("activities")
-    .select("id, contact_id, property_id, activity_type, activity_date, notes, created_at")
+    .select("id, contact_id, property_id, deal_id, activity_type, activity_date, notes, created_at")
     .eq("owner_id", user.id)
     .eq("contact_id", contactId)
     .order("activity_date", { ascending: false });
@@ -124,9 +138,26 @@ export async function fetchActivitiesByProperty(propertyId: string): Promise<Act
 
   const { data } = await supabase
     .from("activities")
-    .select("id, contact_id, property_id, activity_type, activity_date, notes, created_at")
+    .select("id, contact_id, property_id, deal_id, activity_type, activity_date, notes, created_at")
     .eq("owner_id", user.id)
     .eq("property_id", propertyId)
+    .order("activity_date", { ascending: false });
+
+  return (data ?? []) as Activity[];
+}
+
+export async function fetchActivitiesByDeal(dealId: string): Promise<Activity[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("activities")
+    .select("id, contact_id, property_id, deal_id, activity_type, activity_date, notes, created_at")
+    .eq("owner_id", user.id)
+    .eq("deal_id", dealId)
     .order("activity_date", { ascending: false });
 
   return (data ?? []) as Activity[];
