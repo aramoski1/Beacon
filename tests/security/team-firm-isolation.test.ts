@@ -317,4 +317,26 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
       editValueByTeammate: "Edited by teammate B",
     });
   });
+
+  // ─── lease_abstracts (Phase 2, table 4 of 7) ───────────────────────────────
+
+  it("lease_abstracts: full visibility lifecycle — private, then team-shared, cross-firm never leaks", async () => {
+    const lease = await userA.client
+      .from("lease_abstracts")
+      .insert({ owner_id: userA.id, term: "Team-firm test lease" })
+      .select("id")
+      .single();
+    expect(lease.error, `seed lease_abstracts failed: ${lease.error?.message}`).toBeNull();
+    seeded.lease_abstracts = lease.data!.id;
+
+    await assertVisibilityLifecycle({
+      table: "lease_abstracts",
+      id: seeded.lease_abstracts,
+      owner: userA,
+      teammate: userB,
+      outsider: userC,
+      editColumn: "term",
+      editValueByTeammate: "Edited by teammate B",
+    });
+  });
 });

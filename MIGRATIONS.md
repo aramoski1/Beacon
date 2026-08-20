@@ -43,7 +43,8 @@ Scripts run in this order:
 | ... | `scripts/migrate-firms-fix-recursion.ts` | Fixes infinite recursion in `firm_members`' self-referencing RLS via `my_active_firm_id()`/`my_role_in_firm()`; adds `ON DELETE CASCADE` to `firms.created_by` |
 | ... | `scripts/migrate-activities-team-visibility.ts` | Team multi-tenancy Phase 2, table 1/7 — `activities` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 | ... | `scripts/migrate-documents-team-visibility.ts` | Team multi-tenancy Phase 2, table 2/7 — `documents` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause (table only; bucket RLS is Phase 3) |
-| latest | `scripts/migrate-follow-ups-team-visibility.ts` | Team multi-tenancy Phase 2, table 3/7 — `follow_ups` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
+| ... | `scripts/migrate-follow-ups-team-visibility.ts` | Team multi-tenancy Phase 2, table 3/7 — `follow_ups` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
+| latest | `scripts/migrate-lease-abstracts-team-visibility.ts` | Team multi-tenancy Phase 2, table 4/7 — `lease_abstracts` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 
 ## Adding a new migration
 
