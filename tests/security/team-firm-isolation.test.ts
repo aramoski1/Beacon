@@ -339,4 +339,26 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
       editValueByTeammate: "Edited by teammate B",
     });
   });
+
+  // ─── deals (Phase 2, table 5 of 7) ─────────────────────────────────────────
+
+  it("deals: full visibility lifecycle — private, then team-shared, cross-firm never leaks", async () => {
+    const deal = await userA.client
+      .from("deals")
+      .insert({ owner_id: userA.id, name: "Team-firm test deal" })
+      .select("id")
+      .single();
+    expect(deal.error, `seed deals failed: ${deal.error?.message}`).toBeNull();
+    seeded.deals = deal.data!.id;
+
+    await assertVisibilityLifecycle({
+      table: "deals",
+      id: seeded.deals,
+      owner: userA,
+      teammate: userB,
+      outsider: userC,
+      editColumn: "name",
+      editValueByTeammate: "Edited by teammate B",
+    });
+  });
 });

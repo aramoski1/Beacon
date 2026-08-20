@@ -44,7 +44,8 @@ Scripts run in this order:
 | ... | `scripts/migrate-activities-team-visibility.ts` | Team multi-tenancy Phase 2, table 1/7 — `activities` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 | ... | `scripts/migrate-documents-team-visibility.ts` | Team multi-tenancy Phase 2, table 2/7 — `documents` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause (table only; bucket RLS is Phase 3) |
 | ... | `scripts/migrate-follow-ups-team-visibility.ts` | Team multi-tenancy Phase 2, table 3/7 — `follow_ups` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
-| latest | `scripts/migrate-lease-abstracts-team-visibility.ts` | Team multi-tenancy Phase 2, table 4/7 — `lease_abstracts` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
+| ... | `scripts/migrate-lease-abstracts-team-visibility.ts` | Team multi-tenancy Phase 2, table 4/7 — `lease_abstracts` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
+| latest | `scripts/migrate-deals-team-visibility.ts` | Team multi-tenancy Phase 2, table 5/7 — `deals` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 
 ## Adding a new migration
 
