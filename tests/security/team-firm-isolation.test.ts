@@ -267,4 +267,32 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
     const afterRejoin = await userB.client.from("activities").select("id").eq("id", activityId);
     expect(afterRejoin.data?.length, "rejoining didn't restore visibility").toBe(1);
   });
+
+  // ─── documents (Phase 2, table 2 of 7) ─────────────────────────────────────
+
+  it("documents: full visibility lifecycle — private, then team-shared, cross-firm never leaks", async () => {
+    const doc = await userA.client
+      .from("documents")
+      .insert({
+        owner_id: userA.id,
+        entity_type: "contact",
+        entity_id: seeded.contacts,
+        file_name: "test.pdf",
+        storage_path: `${userA.id}/contact/${seeded.contacts}/test.pdf`,
+      })
+      .select("id")
+      .single();
+    expect(doc.error, `seed documents failed: ${doc.error?.message}`).toBeNull();
+    seeded.documents = doc.data!.id;
+
+    await assertVisibilityLifecycle({
+      table: "documents",
+      id: seeded.documents,
+      owner: userA,
+      teammate: userB,
+      outsider: userC,
+      editColumn: "file_name",
+      editValueByTeammate: "edited-by-teammate.pdf",
+    });
+  });
 });
