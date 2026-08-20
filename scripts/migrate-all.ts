@@ -183,6 +183,11 @@ const SCRIPTS: { file: string; description: string }[] = [
     description:
       "Team multi-tenancy Phase 0 — firms/firm_members/firm_invitations tables + RLS + is_firm_teammate(); backfills a personal firm per existing user",
   },
+  {
+    file: "migrate-firms-visibility.ts",
+    description:
+      "Team multi-tenancy Phase 1 — adds visibility ('private'|'team', default 'private') to properties/contacts/lease_abstracts/deals/activities/follow_ups/documents. No RLS change yet.",
+  },
 ];
 
 const hr = "─".repeat(60);

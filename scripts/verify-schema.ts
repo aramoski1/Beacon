@@ -51,6 +51,7 @@ const EXPECTED: TableSpec[] = [
       { col: "ownership_watch_enrolled_at", from: "migrate-ownership-watch.ts" },
       { col: "ownership_last_checked_at",   from: "migrate-ownership-watch.ts" },
       { col: "field_sources",         from: "migrate-field-sources.ts" },
+      { col: "visibility",            from: "migrate-firms-visibility.ts" },
     ],
   },
   {
@@ -80,6 +81,7 @@ const EXPECTED: TableSpec[] = [
       { col: "ownership_type",      from: "migrate-contacts.ts" },
       // migrate-custom-fields.ts
       { col: "custom_fields",       from: "migrate-custom-fields.ts" },
+      { col: "visibility",          from: "migrate-firms-visibility.ts" },
     ],
   },
   {
@@ -102,6 +104,7 @@ const EXPECTED: TableSpec[] = [
       { col: "updated_at",       from: "migrate.ts" },
       // migrate-custom-fields.ts
       { col: "custom_fields",    from: "migrate-custom-fields.ts" },
+      { col: "visibility",       from: "migrate-firms-visibility.ts" },
     ],
   },
   {
@@ -136,6 +139,7 @@ const EXPECTED: TableSpec[] = [
       { col: "deal_type",            from: "migrate-deal-type.ts" },
       { col: "custom_fields",        from: "migrate-custom-fields-deal-entity.ts" },
       { col: "expected_close_date",  from: "migrate-deal-stages-expand.ts" },
+      { col: "visibility",           from: "migrate-firms-visibility.ts" },
     ],
   },
   {
@@ -150,6 +154,7 @@ const EXPECTED: TableSpec[] = [
       { col: "notes",         from: "migrate-activities.ts" },
       { col: "created_at",    from: "migrate-activities.ts" },
       { col: "deal_id",       from: "migrate-deal-activity-links.ts" },
+      { col: "visibility",    from: "migrate-firms-visibility.ts" },
     ],
   },
   {
@@ -168,6 +173,7 @@ const EXPECTED: TableSpec[] = [
       { col: "lease_id",     from: "migrate-followup-source.ts" },
       { col: "lease_bucket", from: "migrate-followup-source.ts" },
       { col: "deal_id",      from: "migrate-deal-activity-links.ts" },
+      { col: "visibility",   from: "migrate-firms-visibility.ts" },
     ],
   },
   {
@@ -266,6 +272,7 @@ const EXPECTED: TableSpec[] = [
       { col: "content_type", from: "migrate-documents.ts" },
       { col: "size_bytes",   from: "migrate-documents.ts" },
       { col: "created_at",   from: "migrate-documents.ts" },
+      { col: "visibility",   from: "migrate-firms-visibility.ts" },
     ],
   },
   {

@@ -38,7 +38,8 @@ Scripts run in this order:
 | ... | `scripts/migrate-custom-fields-deal-entity.ts` | Widens `field_definitions.entity_type` CHECK to allow deals; adds `custom_fields` JSONB to `deals` |
 | ... | `scripts/migrate-deal-activity-links.ts` | Adds `deal_id` FK to `activities`/`follow_ups` (replaces the description-prefix soft link), backfills historical rows |
 | ... | `scripts/migrate-deal-stages-expand.ts` | Widens `deals.stage` CHECK with LOI/lease/PSA milestones; adds `expected_close_date` |
-| latest | `scripts/migrate-firms.ts` | Team multi-tenancy Phase 0 (see `Beacon_Team_Multitenancy_Plan.md`): `firms`/`firm_members`/`firm_invitations` tables + RLS + `is_firm_teammate()`; backfills a personal firm per existing user |
+| ... | `scripts/migrate-firms.ts` | Team multi-tenancy Phase 0 (see `Beacon_Team_Multitenancy_Plan.md`): `firms`/`firm_members`/`firm_invitations` tables + RLS + `is_firm_teammate()`; backfills a personal firm per existing user |
+| latest | `scripts/migrate-firms-visibility.ts` | Team multi-tenancy Phase 1: adds `visibility` (`'private'` default / `'team'`) to `properties`/`contacts`/`lease_abstracts`/`deals`/`activities`/`follow_ups`/`documents`. No RLS change yet |
 
 ## Adding a new migration
 
