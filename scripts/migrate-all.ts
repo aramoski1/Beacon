@@ -178,6 +178,11 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-deal-stages-expand.ts",
     description: "Deals — widen stage CHECK with LOI/lease/PSA milestones; add expected_close_date column",
   },
+  {
+    file: "migrate-firms.ts",
+    description:
+      "Team multi-tenancy Phase 0 — firms/firm_members/firm_invitations tables + RLS + is_firm_teammate(); backfills a personal firm per existing user",
+  },
 ];
 
 const hr = "─".repeat(60);

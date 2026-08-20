@@ -268,6 +268,42 @@ const EXPECTED: TableSpec[] = [
       { col: "created_at",   from: "migrate-documents.ts" },
     ],
   },
+  {
+    table: "firms",
+    cols: [
+      { col: "id",         from: "migrate-firms.ts" },
+      { col: "name",       from: "migrate-firms.ts" },
+      { col: "created_by", from: "migrate-firms.ts" },
+      { col: "created_at", from: "migrate-firms.ts" },
+    ],
+  },
+  {
+    table: "firm_members",
+    cols: [
+      { col: "id",         from: "migrate-firms.ts" },
+      { col: "firm_id",    from: "migrate-firms.ts" },
+      { col: "user_id",    from: "migrate-firms.ts" },
+      { col: "role",       from: "migrate-firms.ts" },
+      { col: "status",     from: "migrate-firms.ts" },
+      { col: "invited_by", from: "migrate-firms.ts" },
+      { col: "created_at", from: "migrate-firms.ts" },
+    ],
+  },
+  {
+    table: "firm_invitations",
+    cols: [
+      { col: "id",          from: "migrate-firms.ts" },
+      { col: "firm_id",     from: "migrate-firms.ts" },
+      { col: "email",       from: "migrate-firms.ts" },
+      { col: "role",        from: "migrate-firms.ts" },
+      { col: "token",       from: "migrate-firms.ts" },
+      { col: "invited_by",  from: "migrate-firms.ts" },
+      { col: "expires_at",  from: "migrate-firms.ts" },
+      { col: "accepted_at", from: "migrate-firms.ts" },
+      { col: "revoked_at",  from: "migrate-firms.ts" },
+      { col: "created_at",  from: "migrate-firms.ts" },
+    ],
+  },
 ];
 
 const EXPECTED_BUCKETS = ["leases", "documents"];

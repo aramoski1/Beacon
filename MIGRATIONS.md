@@ -37,7 +37,8 @@ Scripts run in this order:
 | ... | `scripts/migrate-documents-deal-entity.ts` | Widens `documents.entity_type` CHECK to allow attachments on deals |
 | ... | `scripts/migrate-custom-fields-deal-entity.ts` | Widens `field_definitions.entity_type` CHECK to allow deals; adds `custom_fields` JSONB to `deals` |
 | ... | `scripts/migrate-deal-activity-links.ts` | Adds `deal_id` FK to `activities`/`follow_ups` (replaces the description-prefix soft link), backfills historical rows |
-| latest | `scripts/migrate-deal-stages-expand.ts` | Widens `deals.stage` CHECK with LOI/lease/PSA milestones; adds `expected_close_date` |
+| ... | `scripts/migrate-deal-stages-expand.ts` | Widens `deals.stage` CHECK with LOI/lease/PSA milestones; adds `expected_close_date` |
+| latest | `scripts/migrate-firms.ts` | Team multi-tenancy Phase 0 (see `Beacon_Team_Multitenancy_Plan.md`): `firms`/`firm_members`/`firm_invitations` tables + RLS + `is_firm_teammate()`; backfills a personal firm per existing user |
 
 ## Adding a new migration
 
