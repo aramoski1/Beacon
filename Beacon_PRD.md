@@ -1,5 +1,5 @@
 # Beacon — Product Requirements Document
-**Version:** August 2026
+**Version:** August 2026 (rev. 2 — team multi-tenancy)
 **Audience:** New engineers joining the Beacon project
 
 **Pilot truth for brokers:** see `Beacon_Pilot_Readiness.md` (what shipped, honest limits, day-1 path). This PRD is the engineering map.
@@ -8,7 +8,7 @@
 
 ## 1. What Is Beacon?
 
-Beacon is a single-broker CRM for commercial real estate. One user. No teams, no multi-tenant. The broker uses it to:
+Beacon is a CRM for commercial real estate brokers. Every account still defaults to acting exactly like a single-broker tool — one owner, fully private data, nothing shared with anyone — but a broker can now invite teammates into a firm and explicitly share specific records with them. See §5.11 and `Beacon_Team_Multitenancy_Plan.md` for the full design and the safety rationale behind it; the short version is that sharing is opt-in per record, never automatic, and this was built ahead of pilot validation by explicit product decision (§9). The broker uses Beacon to:
 
 1. **Track properties** — who owns them, when they last sold, what's on the land (Miami-Dade, Broward, and Palm Beach tax roll)
 2. **Track owner contacts** — with contact tiers, outreach cadence, and relationship notes
@@ -18,6 +18,7 @@ Beacon is a single-broker CRM for commercial real estate. One user. No teams, no
 6. **Run a pursuit pipeline** — type-aware deal stages (tenant rep / listing / investment sale), worked as a kanban board, a sortable list, or a weighted forecast, with a full deal detail page
 7. **Attach documents** — files (leases, OMs, LOIs, etc.) attached directly to a property, contact, lease, or deal
 8. **Ask Beacon** — Copilot on the dashboard for portfolio / focus questions
+9. **Optionally work as a firm** — invite teammates, share specific properties/contacts/leases/deals/activities/follow-ups/documents with them, and browse "My book" vs. "Entire firm" in the Workspace
 
 The app is South Florida–centric. Primary county sources: Miami-Dade Property Appraiser (MDPA), Broward County Property Appraiser (BCPA GIS), and Palm Beach County Property Appraiser (PBCPA). Sunbiz (Florida Division of Corporations) identifies humans behind LLC owners.
 
@@ -69,7 +70,9 @@ npm test
 
 ## 4. Database Schema (Quick Reference)
 
-All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. No shared data between users.
+All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. Every row defaults to fully private — the sole exception is the opt-in team-sharing layer described below and in §5.11.
+
+**Team-sharing at a glance:** `properties`, `contacts`, `lease_abstracts`, `deals`, `activities`, `follow_ups`, and `documents` each carry a `visibility` column (`'private'` default | `'team'`). Every RLS policy on these seven tables is `auth.uid() = owner_id OR (visibility = 'team' AND is_firm_teammate(owner_id))` — strictly additive on top of the original owner-only check, never a replacement of it. `field_definitions` is the one exception with no `visibility` column at all: it's firm-wide *unconditionally* (`auth.uid() = owner_id OR is_firm_teammate(owner_id)`), since a shared record's custom-field schema needs to be consistent across teammates, not opt-in per field. `entities`/`entity_properties`/`entity_contacts`, `error_logs`, `ingestion_errors`, `smart_lists`, and `user_settings` are deliberately untouched — still owner-only, no team-sharing path at all.
 
 ### Core entities
 
@@ -121,11 +124,14 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - **`activities`** — touch-point log. Types: `letter | email | call | note | meeting`. Linked to contact and/or property, and optionally a **`deal_id`** FK (`ON DELETE CASCADE`) so a deal's timeline can show its own touches.
 - **`follow_ups`** — tasks with due dates. `source_type`: `manual` or `lease_expiry`. Also carries a **`deal_id`** FK (`ON DELETE CASCADE`) — a deal's "next action due" syncs to a real follow-up row here rather than the old description-prefix soft link. Unique constraint prevents duplicate lease-expiry follow-ups.
 - **`documents`** — generic file attachments. `entity_type`: `property | lease | contact | deal`, `entity_id`, `file_name`, `storage_path`, `content_type`, `size_bytes`. Backed by the `documents` Storage bucket (32 MB cap, signed URLs, owner-scoped RLS). Rendered via the shared `DocumentsSection` component on property, contact, lease, and deal detail pages.
-- **`field_definitions`** — schema for custom fields. `entity_type: 'property' | 'contact' | 'lease' | 'deal'`, `fill_mode: 'extract' | 'manual'`. Extract fields are dynamically added to AI extraction schemas. Has both INSERT/DELETE and **UPDATE** RLS policies, so renaming a field in place (rather than delete-and-recreate) is supported end-to-end — `lib/custom-fields.ts:renameCustomFieldValues` migrates any already-stored values to the new slug.
-- **`entities`** / **`entity_properties`** / **`entity_contacts`** — durable legal-entity records (e.g. an LLC) decoupled from any one property, with join tables linking them to properties and contacts.
-- **`ingestion_errors`** / **`error_logs`** — error logs for property ingestion and general server-action failures. Never block the caller.
-- **`smart_lists`** — saved NL search filters. Schema exists; no UI to manage them yet.
-- **`user_settings`** — per-broker profile, outreach preferences, cadence intervals, CoStar toggle, onboarding state, email provider preference.
+- **`field_definitions`** — schema for custom fields. `entity_type: 'property' | 'contact' | 'lease' | 'deal'`, `fill_mode: 'extract' | 'manual'`. Extract fields are dynamically added to AI extraction schemas. Has both INSERT/DELETE and **UPDATE** RLS policies, so renaming a field in place (rather than delete-and-recreate) is supported end-to-end — `lib/custom-fields.ts:renameCustomFieldValues` migrates any already-stored values to the new slug. Firm-wide by default (see above) — a teammate sees and can rename the whole firm's custom fields, not just their own.
+- **`entities`** / **`entity_properties`** / **`entity_contacts`** — durable legal-entity records (e.g. an LLC) decoupled from any one property, with join tables linking them to properties and contacts. Owner-only — explicitly out of scope for team-sharing in v1.
+- **`ingestion_errors`** / **`error_logs`** — error logs for property ingestion and general server-action failures. Never block the caller. Owner-only.
+- **`smart_lists`** — saved NL search filters. Schema exists; no UI to manage them yet. Owner-only — a personal saved filter can still be *run* against either Workspace scope (§5.11), it just isn't itself shared.
+- **`user_settings`** — per-broker profile, outreach preferences, cadence intervals, CoStar toggle, onboarding state, email provider preference. Owner-only; a narrow RPC (`firm_teammate_names()`) exposes just `{user_id, display_name}` to teammates for the Workspace ownership indicator — nothing else from this table.
+- **`firms`** — a brokerage/team. Every account gets a personal one automatically (at signup going forward, backfilled once for pre-existing accounts) — "solo broker" and "firm member" are the same code path, there's no separate no-firm state. `name`, `created_by` (nullable, `ON DELETE SET NULL` — the firm survives its creator's account being deleted, since other members may remain).
+- **`firm_members`** — membership + `role` (`owner | admin | member`) + `status` (`active | removed`, never hard-deleted). A partial unique index enforces at most one *active* firm per user (v1: no multi-firm membership).
+- **`firm_invitations`** — pending link-based invites (`token`, `email`, `role`, `expires_at`, `accepted_at`, `revoked_at`). No service-role key anywhere in this feature — invite redemption is a real RLS grant (`firm_members_join_via_invitation`) plus a `SECURITY INVOKER` RPC (`redeem_firm_invitation`), not a privileged bypass.
 
 ---
 
@@ -257,6 +263,48 @@ Any property / contact / lease / deal detail page
     storage objects survive a property/contact/lease/deal delete
 ```
 
+### 5.11 Team / Firm Sharing
+
+Full design, RLS rationale, and the safety testing behind this in `Beacon_Team_Multitenancy_Plan.md` — this is the condensed version.
+
+```
+Workspace (/crm)
+  → app/crm/page.tsx computes isSoloFirm + a teammate display-name map server-side
+    (lib/firms.ts:getWorkspaceTeamContext), passed down as props — no client flash,
+    no extra round-trip for the (overwhelmingly common) solo case
+  → "My book" / "Entire firm" toggle in the filter bar, rendered ONLY when the
+    broker's active firm has more than one active member
+  → "My book" adds an explicit .eq("owner_id", userId) narrowing filter;
+    "Entire firm" is the query exactly as it always was, letting RLS itself be
+    the ceiling — the unscoped query already meant "my rows only" before this
+    feature existed, purely because RLS allowed nothing else
+  → Teammate rows in the grid show a small ownership badge (name from
+    firm_teammate_names()); shared records are co-editable, not read-only
+
+Sharing a record
+  → <ShareWithFirmToggle> on the property/contact/lease/deal detail page —
+    visible only to the record's actual owner, only in a multi-member firm
+  → Flips visibility 'private' <-> 'team' directly (RLS-bound client call,
+    no server action needed — the RLS policy itself is the only real gate)
+
+Inviting a teammate
+  → Settings → Team (app/settings/team) → invite form (owner/admin only)
+  → Creates a firm_invitations row with a random token, 7-day expiry
+  → Inviting broker sends the /join/[token] link themselves (email/text/Slack) —
+    same "broker sends manually" philosophy as outreach; no transactional
+    email infra, no service-role key
+  → Invited person visits /join/[token] → signs up/in → redeem_firm_invitation()
+    RPC does, in one transaction: leave their current firm (if any), join the
+    new one, mark the invitation accepted — all still RLS-checked throughout,
+    not bypassed
+
+Leaving / removal
+  → firm_members.status flips to 'removed' (never hard-deleted) — every
+    is_firm_teammate() check involving that person stops matching immediately,
+    so their shared records disappear from former teammates' view (and vice
+    versa) with no row in any of the seven shared tables needing to change
+```
+
 ---
 
 ## 6. Authentication and Security
@@ -265,7 +313,8 @@ Any property / contact / lease / deal detail page
 - RLS: `owner_id = auth.uid()` on all tables. Server actions also check `owner_id` explicitly in queries (defense-in-depth).
 - Storage: `leases` bucket and `documents` bucket, path format `<owner_id>/<...>`. Path traversal checked at save time. Both buckets carry owner-scoped DELETE/UPDATE policies (not just INSERT/SELECT), so account deletion actually purges uploaded files.
 - **Account deletion**: Settings → Account → Delete account (`deleteAccount` in `app/settings/actions.ts`, backed by `lib/account-deletion.ts:deleteAllUserRows`) removes every owned row across all tables, all storage objects in both buckets, and the auth login itself. Covered by an end-to-end test plus a dedicated multi-tenant isolation test suite.
-- Signup: pilot auto-confirms email in Postgres directly rather than relying on Supabase's outbound mailer.
+- Signup: pilot auto-confirms email in Postgres directly rather than relying on Supabase's outbound mailer. Also bootstraps a personal firm (`lib/firms.ts:ensurePersonalFirm`).
+- **Team sharing RLS**: every team-visibility policy calls one shared `is_firm_teammate(target_owner_id)` `SECURITY DEFINER` function rather than each of the seven tables re-deriving the cross-firm join inline — collapses "did we get the cross-firm check right" into one reviewable unit instead of seven. A handful of similarly narrow `SECURITY DEFINER` helpers exist for the same reason RLS policies can't read `auth.users` directly under the `authenticated` role: `my_email()` (self-scoped only), `firm_teammate_names()` (only `{user_id, display_name}`), `mark_invitation_accepted()` (only flips `accepted_at` on an already-validated row — an invitee isn't yet admin/owner, so a general UPDATE grant would let them tamper with their own invitation's `role`/`firm_id` first). No service-role key anywhere in this feature or the app.
 - AI key: `process.env.ANTHROPIC_API_KEY` — server-side only, never exposed to client.
 
 ---
@@ -295,7 +344,9 @@ Any property / contact / lease / deal detail page
 /properties/errors         Advanced — ingestion errors
 /settings                  User settings (cadence, profile, email provider) + Account (delete account)
 /settings/fields           Custom field definitions
+/settings/team             Firm roster, role management, pending invitations, invite form
 /settings/errors           Advanced — server-action error log
+/join/[token]              Redeem a team invitation link (§5.11)
 /api/export/properties     XLSX download (GET, auth-checked)
 /api/export/contacts       XLSX download (GET, auth-checked)
 /api/export/leases         XLSX download (GET, auth-checked)
@@ -323,6 +374,8 @@ Users can define custom fields for properties, contacts, leases, and **deals** a
 3. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
 4. **Industrial space fields** — Prompt B deferred; use custom fields or notes until shipped.
 5. **Smart lists** — table and filter schema exist; still no UI to create/manage a saved segment.
+6. **Team multi-tenancy was built ahead of pilot validation**, by explicit product decision — not because a pilot broker asked for it. The RLS/data-layer is covered by an extensive real-database test suite (`tests/security/team-firm-isolation.test.ts`), but the UI itself (Workspace scope toggle, Settings → Team, the invite flow) has not had a manual browser QA pass. Treat every pilot account as single-broker unless specifically testing this.
+7. **Related sub-collections on a shared record's detail page are a known, documented gap** — e.g. opening a teammate's shared contact still only shows *your own* linked properties/deals, not theirs; a shared deal's follow-ups list is similarly scoped to the viewer. Not fixed as part of the initial build.
 
 ### Fixed (do not re-open as bugs)
 - Cadence settings **do** drive due/overdue math via `lib/cadence.ts` + `user_settings`.
@@ -350,7 +403,9 @@ See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 - Mobile app
 - Calendar sync
 - CoStar **live** API (file upload only)
-- Team / shared workspace
+- Multi-firm membership (a user belongs to at most one active firm — §5.11)
+- Per-teammate (rather than whole-firm) sharing granularity — "shared" always means "visible to everyone currently in my firm," there's no "share with just Alex"
+- Owner-role transfer / co-ownership UI for a firm (a firm's `owner` role can't be reassigned through the product yet)
 - Map view of portfolio
 - Smart list management UI (table may exist; no producer UI)
 - Drop of legacy `linked_properties` column (join is preferred; dual-write remains)
@@ -367,3 +422,4 @@ See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 5. **New route?** Check auth at the top. Use `createClient` from `lib/supabase/server.ts` (not client).
 6. **Tests?** Add Vitest unit tests for any pure function in `lib/`. External services (Supabase, Claude, MDPA/BCPA/PBCPA) are not mocked — don't write integration tests without a clear strategy for mocking them.
 7. **Do not delete** Copilot, Deals, Lease radar, Follow-ups, Outreach, or Owner portfolio without an explicit product decision.
+8. **Adding team-sharing to a new table?** Add a `visibility text NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','team'))` column, then rewrite that table's SELECT/UPDATE/DELETE RLS policies as `auth.uid() = owner_id OR (visibility = 'team' AND is_firm_teammate(owner_id))` — additive only, never replace the owner-only check outright. INSERT stays owner-only. Test with the 3-user (two teammates + one outside firm) pattern in `tests/security/team-firm-isolation.test.ts`, not just the existing 2-user suite. See `Beacon_Team_Multitenancy_Plan.md` §5 for the full rationale before touching this.
