@@ -78,3 +78,37 @@ export async function deleteTestUserIfExists(pg: Client, userId: string | undefi
   if (!userId) return;
   await pg.query(`DELETE FROM auth.users WHERE id = $1`, [userId]).catch(() => {});
 }
+
+/**
+ * Team/firm test fixtures. Like createSignedInTestUser, these use the raw
+ * DATABASE_URL client (bypasses RLS) ONLY for setup — never to perform the
+ * action under test. Mirrors migrate-firms.ts's shape exactly.
+ */
+export async function createFirm(pg: Client, name: string, createdBy: string): Promise<string> {
+  const { rows } = await pg.query(
+    `INSERT INTO firms (id, name, created_by) VALUES (gen_random_uuid(), $1, $2) RETURNING id`,
+    [name, createdBy],
+  );
+  return rows[0].id as string;
+}
+
+export async function addFirmMember(
+  pg: Client,
+  firmId: string,
+  userId: string,
+  role: "owner" | "admin" | "member",
+): Promise<void> {
+  await pg.query(
+    `INSERT INTO firm_members (firm_id, user_id, role, status) VALUES ($1, $2, $3, 'active')`,
+    [firmId, userId, role],
+  );
+}
+
+export async function setFirmMemberStatus(
+  pg: Client,
+  firmId: string,
+  userId: string,
+  status: "active" | "removed",
+): Promise<void> {
+  await pg.query(`UPDATE firm_members SET status = $3 WHERE firm_id = $1 AND user_id = $2`, [firmId, userId, status]);
+}

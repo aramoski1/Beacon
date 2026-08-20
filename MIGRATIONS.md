@@ -39,7 +39,9 @@ Scripts run in this order:
 | ... | `scripts/migrate-deal-activity-links.ts` | Adds `deal_id` FK to `activities`/`follow_ups` (replaces the description-prefix soft link), backfills historical rows |
 | ... | `scripts/migrate-deal-stages-expand.ts` | Widens `deals.stage` CHECK with LOI/lease/PSA milestones; adds `expected_close_date` |
 | ... | `scripts/migrate-firms.ts` | Team multi-tenancy Phase 0 (see `Beacon_Team_Multitenancy_Plan.md`): `firms`/`firm_members`/`firm_invitations` tables + RLS + `is_firm_teammate()`; backfills a personal firm per existing user |
-| latest | `scripts/migrate-firms-visibility.ts` | Team multi-tenancy Phase 1: adds `visibility` (`'private'` default / `'team'`) to `properties`/`contacts`/`lease_abstracts`/`deals`/`activities`/`follow_ups`/`documents`. No RLS change yet |
+| ... | `scripts/migrate-firms-visibility.ts` | Team multi-tenancy Phase 1: adds `visibility` (`'private'` default / `'team'`) to `properties`/`contacts`/`lease_abstracts`/`deals`/`activities`/`follow_ups`/`documents`. No RLS change yet |
+| ... | `scripts/migrate-firms-fix-recursion.ts` | Fixes infinite recursion in `firm_members`' self-referencing RLS via `my_active_firm_id()`/`my_role_in_firm()`; adds `ON DELETE CASCADE` to `firms.created_by` |
+| latest | `scripts/migrate-activities-team-visibility.ts` | Team multi-tenancy Phase 2, table 1/7 — `activities` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 
 ## Adding a new migration
 

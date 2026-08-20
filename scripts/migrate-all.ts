@@ -188,6 +188,15 @@ const SCRIPTS: { file: string; description: string }[] = [
     description:
       "Team multi-tenancy Phase 1 — adds visibility ('private'|'team', default 'private') to properties/contacts/lease_abstracts/deals/activities/follow_ups/documents. No RLS change yet.",
   },
+  {
+    file: "migrate-firms-fix-recursion.ts",
+    description:
+      "Fixes infinite recursion in firm_members' self-referencing RLS (caught by tests/security/team-firm-isolation.test.ts) via my_active_firm_id()/my_role_in_firm() SECURITY DEFINER functions; adds ON DELETE CASCADE to firms.created_by",
+  },
+  {
+    file: "migrate-activities-team-visibility.ts",
+    description: "Team multi-tenancy Phase 2, table 1/7 — activities SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause",
+  },
 ];
 
 const hr = "─".repeat(60);

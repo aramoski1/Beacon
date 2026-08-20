@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { pilotConfirmUserEmail } from "@/lib/auth-pilot-confirm";
+import { ensurePersonalFirm } from "@/lib/firms";
 
 type ActionResult = { error: string } | { message: string } | null;
 
@@ -104,6 +105,7 @@ export async function signUp(
     password,
   });
 
+  if (!signInError && data.user) await ensurePersonalFirm(supabase, data.user.id);
   if (!signInError) await enterApp();
 
   return {
