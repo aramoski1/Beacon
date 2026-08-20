@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isSoloFirmForUser } from "@/lib/firms";
 import { type FieldDefinition } from "@/lib/custom-fields";
 import { LeaseReviewView } from "./review-view";
 import type { FieldCitation, FieldReviews } from "./review-utils";
@@ -23,6 +24,8 @@ type TenantContact = {
 
 type LeaseAbstract = {
   id: string;
+  owner_id: string;
+  visibility: "private" | "team";
   source_document: string | null;
   execution_date: string | null;
   expiration_date: string | null;
@@ -68,7 +71,7 @@ export default async function AbstractPage({
     ? await contactIdsForProperty(supabase, user.id, abstract.linked_property)
     : [];
 
-  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, { data: linkedPropertyData }, pdfUrlResult, leaseDocuments] =
+  const [{ data: fdData }, { data: tenantContactData }, { data: propertyContactsData }, { data: linkedPropertyData }, pdfUrlResult, leaseDocuments, isSoloFirm] =
     await Promise.all([
       supabase
         .from("field_definitions")
@@ -108,6 +111,7 @@ export default async function AbstractPage({
             .createSignedUrl(abstract.source_document, 3600)
         : Promise.resolve({ data: null }),
       listDocuments(supabase, user.id, "lease", id),
+      isSoloFirmForUser(supabase, user.id),
     ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -125,6 +129,8 @@ export default async function AbstractPage({
       propertyContacts={propertyContacts}
       linkedProperty={linkedProperty}
       initialDocuments={leaseDocuments}
+      currentUserId={user.id}
+      isSoloFirm={isSoloFirm}
     />
   );
 }

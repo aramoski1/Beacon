@@ -185,12 +185,14 @@ export function CreProfileSection({
   async function save<K extends keyof CreProfileValues>(field: K, value: CreProfileValues[K]) {
     setValues((prev) => ({ ...prev, [field]: value }));
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    // RLS is the real gate (own row, or a firm-shared 'team' row per
+    // Beacon_Team_Multitenancy_Plan.md §7.6) — no client-side owner_id
+    // filter on top, since it would incorrectly reject a legitimate edit
+    // to a teammate's shared contact.
     const { error } = await supabase
       .from("contacts")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", contactId)
-      .eq("owner_id", user?.id ?? "");
+      .eq("id", contactId);
     if (error) {
       window.alert(`Failed to save: ${error.message}`);
       setValues((prev) => ({ ...prev, [field]: initial[field] }));

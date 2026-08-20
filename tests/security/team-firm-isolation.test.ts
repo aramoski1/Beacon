@@ -546,4 +546,26 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
 
     await userA.client.storage.from("documents").remove([path]).catch(() => {});
   });
+
+  // ─── firm_teammate_names() RPC (Phase 4 supporting piece) ──────────────────
+
+  it("firm_teammate_names(): returns only the caller's own firm's active teammates, never a stranger's", async () => {
+    const namesForB = await userB.client.rpc("firm_teammate_names");
+    expect(namesForB.error).toBeNull();
+    const idsForB = (namesForB.data ?? []).map((r: { user_id: string }) => r.user_id);
+    expect(idsForB).toContain(userA.id);
+    expect(idsForB).toContain(userB.id);
+    expect(idsForB).not.toContain(userC.id);
+
+    const namesForC = await userC.client.rpc("firm_teammate_names");
+    expect(namesForC.error).toBeNull();
+    const idsForC = (namesForC.data ?? []).map((r: { user_id: string }) => r.user_id);
+    expect(idsForC).toContain(userC.id);
+    expect(idsForC).not.toContain(userA.id);
+    expect(idsForC).not.toContain(userB.id);
+
+    // Only user_id + display_name are exposed — confirm no other user_settings columns leak through.
+    const row = (namesForB.data ?? [])[0] as Record<string, unknown>;
+    expect(Object.keys(row).sort()).toEqual(["display_name", "user_id"]);
+  });
 });

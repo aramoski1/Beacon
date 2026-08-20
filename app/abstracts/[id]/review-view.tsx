@@ -21,6 +21,7 @@ import { saveFieldReview, acceptAllFields } from "./actions";
 import { ExportMenu } from "./export-menu";
 import type { LeaseAbstractExport } from "@/lib/lease-export";
 import { DocumentsSection } from "@/components/documents-section";
+import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import type { DocumentWithUrl } from "@/lib/documents";
 
 // ─── Lazy-load PDF viewer (browser only) ─────────────────────────────────────
@@ -50,6 +51,8 @@ type LinkedProperty = { id: string; address: string; city: string | null };
 
 interface LeaseAbstract {
   id: string;
+  owner_id: string;
+  visibility: "private" | "team";
   source_document: string | null;
   execution_date: string | null;
   expiration_date: string | null;
@@ -73,6 +76,8 @@ interface LeaseReviewViewProps {
   propertyContacts: PropertyContact[];
   linkedProperty: LinkedProperty | null;
   initialDocuments: DocumentWithUrl[];
+  currentUserId: string;
+  isSoloFirm: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -306,6 +311,8 @@ export function LeaseReviewView({
   propertyContacts,
   linkedProperty,
   initialDocuments,
+  currentUserId,
+  isSoloFirm,
 }: LeaseReviewViewProps) {
   const [reviews, setReviews] = useState<FieldReviews>(abstract.field_reviews ?? {});
   const [targetPage, setTargetPage] = useState<number | null>(null);
@@ -433,6 +440,14 @@ export function LeaseReviewView({
           {reviewedCount}/{allFieldKeys.length} reviewed
         </span>
         <Badge variant="outline" className="shrink-0 text-[10px]">AI Abstracted</Badge>
+        <ShareWithFirmToggle
+          table="lease_abstracts"
+          id={abstract.id}
+          ownerId={abstract.owner_id}
+          currentUserId={currentUserId}
+          initialVisibility={abstract.visibility}
+          isSoloFirm={isSoloFirm}
+        />
         <ExportMenu abstract={abstract as unknown as LeaseAbstractExport} />
         <button
           onClick={handleAcceptAll}

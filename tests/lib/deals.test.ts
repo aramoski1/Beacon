@@ -33,6 +33,7 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
     next_action_due: null,
     expected_close_date: null,
     custom_fields: null,
+    visibility: "private",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...overrides,

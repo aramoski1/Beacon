@@ -14,6 +14,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { isSoloFirmForUser } from "@/lib/firms";
+import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import { loadPropertyIdsForContact } from "@/lib/contact-properties";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +38,8 @@ import { LinkPropertySection } from "./link-property-section";
 
 type Contact = {
   id: string;
+  owner_id: string;
+  visibility: "private" | "team";
   name: string | null;
   company: string | null;
   // Identity
@@ -154,11 +158,16 @@ export default async function ContactPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // No .eq("owner_id", user.id) here — RLS alone governs visibility so a
+  // teammate can open a firm-shared contact's detail page too (Beacon_
+  // Team_Multitenancy_Plan.md §7). Own-only reads elsewhere on this page
+  // (linked properties, etc.) are unchanged — a known, documented scope
+  // limit, not a bug: related sub-collections don't yet follow the viewed
+  // contact's owner across a team boundary.
   const { data, error } = await supabase
     .from("contacts")
     .select("*")
     .eq("id", id)
-    .eq("owner_id", user.id)
     .single();
 
   if (error || !data) notFound();
@@ -171,7 +180,7 @@ export default async function ContactPage({
     c.linked_properties,
   );
 
-  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings, contactDocuments, { count: dealCount }] = await Promise.all([
+  const [{ data: fdData }, linkedPropsResult, activities, { data: contactFollowUps }, settings, contactDocuments, { count: dealCount }, isSoloFirm] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -197,6 +206,7 @@ export default async function ContactPage({
       .select("id", { count: "exact", head: true })
       .eq("contact_id", id)
       .eq("owner_id", user.id),
+    isSoloFirmForUser(supabase, user.id),
   ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -245,6 +255,14 @@ export default async function ContactPage({
 
         {/* Badges */}
         <div className="flex flex-wrap gap-2 items-center">
+          <ShareWithFirmToggle
+            table="contacts"
+            id={c.id}
+            ownerId={c.owner_id}
+            currentUserId={user.id}
+            initialVisibility={c.visibility}
+            isSoloFirm={isSoloFirm}
+          />
           {c.contact_tier != null && (
             <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", tierCls(c.contact_tier))}>
               {tierLabel(c.contact_tier)}

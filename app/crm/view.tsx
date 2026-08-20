@@ -51,6 +51,7 @@ import {
 
 type Property = {
   id: string;
+  owner_id?: string;
   address: string | null;
   city: string | null;
   owner_name: string | null;
@@ -90,6 +91,7 @@ type LinkedContactInfo = {
 
 type Contact = {
   id: string;
+  owner_id?: string;
   name: string | null;
   company: string | null;
   email: string | null;
@@ -115,6 +117,7 @@ type Contact = {
 
 type LeaseAbstract = {
   id: string;
+  owner_id?: string;
   source_document: string | null;
   execution_date: string | null;
   expiration_date: string | null;
@@ -939,6 +942,7 @@ function PropertiesTable({
   onToggle,
   onToggleAll,
   totalInDb,
+  ownerName,
 }: {
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo[]>;
@@ -956,6 +960,8 @@ function PropertiesTable({
   onToggle: (id: string) => void;
   onToggleAll: (allSelected: boolean) => void;
   totalInDb?: number;
+  /** Beacon_Team_Multitenancy_Plan.md §7.4 — null for your own rows, a label for a teammate's. */
+  ownerName?: (ownerId: string | undefined) => string | null;
 }) {
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [promoteDialog, setPromoteDialog] = useState<{
@@ -1236,6 +1242,15 @@ function PropertiesTable({
                       />
                       {(p.source || p.source_url) && (
                         <SourceChip source={p.source} sourceUrl={p.source_url} className="mt-1" />
+                      )}
+                      {ownerName?.(p.owner_id) && (
+                        <span
+                          title="Shared by a teammate"
+                          className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                        >
+                          <Users className="size-2.5" />
+                          {ownerName(p.owner_id)}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1643,6 +1658,7 @@ function ContactsTable({
   onToggleAll,
   totalInDb,
   onClearFilters,
+  ownerName,
 }: {
   rows: Contact[];
   onSave: (id: string, field: string, value: unknown) => void;
@@ -1659,6 +1675,7 @@ function ContactsTable({
   onToggleAll: (allSelected: boolean) => void;
   totalInDb?: number;
   onClearFilters?: () => void;
+  ownerName?: (ownerId: string | undefined) => string | null;
 }) {
   const { startResize: cStartResize, cs: cColStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
@@ -1803,6 +1820,15 @@ function ContactsTable({
                   </Link>
                   {c.email && (
                     <span title={c.email} onClick={(e) => cShowPopup(c.email!, e)} className="text-[11px] text-muted-foreground truncate cursor-pointer hover:text-foreground block">{c.email}</span>
+                  )}
+                  {ownerName?.(c.owner_id) && (
+                    <span
+                      title="Shared by a teammate"
+                      className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    >
+                      <Users className="size-2.5" />
+                      {ownerName(c.owner_id)}
+                    </span>
                   )}
                 </div>
               </td>
@@ -1989,6 +2015,7 @@ function LeasesTable({
   onDeleteConfirm,
   onDeleteCancel,
   colVis,
+  ownerName,
 }: {
   rows: LeaseAbstract[];
   deletingId: string | null;
@@ -1996,6 +2023,7 @@ function LeasesTable({
   onDeleteConfirm: (id: string) => void;
   onDeleteCancel: () => void;
   colVis: ReturnType<typeof useColVis>;
+  ownerName?: (ownerId: string | undefined) => string | null;
 }) {
   if (rows.length === 0) {
     return (
@@ -2042,6 +2070,15 @@ function LeasesTable({
                     <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                     {sourceFileName(a.source_document)}
                   </Link>
+                  {ownerName?.(a.owner_id) && (
+                    <span
+                      title="Shared by a teammate"
+                      className="ml-5 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    >
+                      <Users className="size-2.5" />
+                      {ownerName(a.owner_id)}
+                    </span>
+                  )}
                 </td>
                 <td className={cn(tdCls, col("property"))}>
                   {a.linked_property ? (
@@ -2180,11 +2217,35 @@ const SEARCH_PLACEHOLDERS: Record<Tab, string> = {
   contacts: "e.g. tier 1 owners not contacted in 90 days…",
 };
 
-export default function CRMView({ initialTab, userEmail }: { initialTab?: string; userEmail?: string | null }) {
+type WorkspaceScope = "mine" | "firm";
+
+export default function CRMView({
+  initialTab,
+  userEmail,
+  userId,
+  isSoloFirm,
+  teammateNames,
+}: {
+  initialTab?: string;
+  userEmail?: string | null;
+  userId: string;
+  isSoloFirm: boolean;
+  teammateNames: Record<string, string | null>;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>(
     VALID_TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "properties"
+  );
+  // Beacon_Team_Multitenancy_Plan.md §7.2/§7.3 — 2-state toggle, only ever
+  // reachable for a multi-member firm; a solo broker's default never changes.
+  const [scope, setScope] = useState<WorkspaceScope>("mine");
+  const ownerName = useCallback(
+    (ownerId: string | undefined) => {
+      if (!ownerId || ownerId === userId) return null;
+      return teammateNames[ownerId] ?? "Teammate";
+    },
+    [userId, teammateNames],
   );
 
   const selectTab = useCallback((next: Tab) => {
@@ -2372,6 +2433,11 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
+    // "My book" narrows below whatever RLS allows; "Entire firm" is the
+    // query exactly as it already was, letting RLS itself be the ceiling
+    // (Beacon_Team_Multitenancy_Plan.md §7.1).
+    if (scope === "mine") q = q.eq("owner_id", userId);
+
     if (activeSearch?.properties) {
       const f = activeSearch.properties;
       q = applyPropertyFilters(q, f);
@@ -2484,7 +2550,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     }
 
     setPropsLoading(false);
-  }, [propPage, propFilters, activeSearch]);
+  }, [propPage, propFilters, activeSearch, scope, userId]);
 
   useEffect(() => { loadProperties(); }, [loadProperties]);
 
@@ -2502,6 +2568,8 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
+
+    if (scope === "mine") q = q.eq("owner_id", userId);
 
     if (activeSearch?.contacts || activeSearch?.target === "both") {
       if (activeSearch?.target === "both" && activeSearch.properties) {
@@ -2565,7 +2633,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setContacts(rows);
     setTotalCons(count ?? 0);
     setContactsLoading(false);
-  }, [conPage, conFilters, activeSearch, cadenceMap]);
+  }, [conPage, conFilters, activeSearch, cadenceMap, scope, userId]);
 
   useEffect(() => { loadContacts(); }, [loadContacts]);
 
@@ -2581,9 +2649,11 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = supabase
       .from("lease_abstracts")
-      .select("id, source_document, execution_date, expiration_date, term, base_rate, created_at, linked_property", { count: "exact" })
+      .select("id, owner_id, source_document, execution_date, expiration_date, term, base_rate, created_at, linked_property", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
+
+    if (scope === "mine") q = q.eq("owner_id", userId);
 
     if (activeSearch?.leases) {
       q = await applyLeaseFilters(q, activeSearch.leases as LeaseSearchFilters, leaseFilterCtx);
@@ -2631,7 +2701,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
     setLeases(leaseRows);
     setTotalLeases(count ?? 0);
     setLeasesLoading(false);
-  }, [leasePage, leaseFilters, activeSearch]);
+  }, [leasePage, leaseFilters, activeSearch, scope, userId]);
 
   useEffect(() => { loadLeases(); }, [loadLeases]);
 
@@ -2660,36 +2730,44 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       }
       return;
     }
+    // RLS is the real gate here (own row, or a firm-shared 'team' row per
+    // Beacon_Team_Multitenancy_Plan.md §7.6) — no client-side owner_id
+    // filter is added on top, since one would incorrectly reject a
+    // legitimate edit to a teammate's shared row.
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
       .from("properties")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .eq("owner_id", user?.id ?? "");
+      .eq("id", id);
     if (error) {
       setSaveError(error.message);
       void loadProperties();
       return;
     }
-    if (field === "owner_name" && user) {
+    // Entity sync is intentionally skipped when editing a teammate's shared
+    // property — entities/entity_properties stay owner-only in v1 (out of
+    // scope per the plan's resolved decision #3), and syncing under the
+    // editor's own id would fragment the true owner's entity dedup instead
+    // of the property owner's.
+    const editedProperty = properties.find((p) => p.id === id);
+    const isOwnRow = user && editedProperty && editedProperty.owner_id === user.id;
+    if (field === "owner_name" && user && isOwnRow) {
       try {
         await syncPropertyEntity(supabase, user.id, id, typeof value === "string" ? value : null);
       } catch {
         // Property saved; entity sync is best-effort.
       }
     }
-  }, [loadProperties]);
+  }, [loadProperties, properties]);
 
   const saveContact = useCallback(async (id: string, field: string, value: unknown) => {
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
       .from("contacts")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .eq("owner_id", user?.id ?? "");
+      .eq("id", id);
     if (error) {
       setSaveError(error.message);
       void loadContacts();
@@ -2707,12 +2785,10 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
       return next;
     });
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
       .from("contacts")
       .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .eq("owner_id", user?.id ?? "");
+      .eq("id", id);
     if (error) {
       setSaveError(error.message);
       void loadContacts();
@@ -2991,6 +3067,31 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
         )}
 
         <div className="flex items-center gap-3 flex-wrap min-h-9">
+          {!isSoloFirm && (
+            <div className="flex shrink-0 rounded-md border p-0.5 bg-muted/30">
+              <button
+                type="button"
+                onClick={() => setScope("mine")}
+                className={cn(
+                  "px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                  scope === "mine" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                My book
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope("firm")}
+                className={cn(
+                  "px-2.5 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1",
+                  scope === "firm" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Users className="size-3" />
+                Entire firm
+              </button>
+            </div>
+          )}
           <BarModeToggle mode={barMode} onChange={setBarMode} />
 
           {barMode === "search" ? (
@@ -3287,6 +3388,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onToggle={togglePropSelection}
                   onToggleAll={toggleAllProps}
                   totalInDb={totalProps ?? undefined}
+                  ownerName={ownerName}
                 />
               </div>
             )
@@ -3304,6 +3406,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onDeleteConfirm={handleDeleteLeaseConfirm}
                   onDeleteCancel={() => setDeletingLeaseId(null)}
                   colVis={leaseColVis}
+                  ownerName={ownerName}
                 />
               </div>
             )
@@ -3330,6 +3433,7 @@ export default function CRMView({ initialTab, userEmail }: { initialTab?: string
                   onToggleAll={toggleAllContacts}
                   totalInDb={totalCons ?? undefined}
                   onClearFilters={clearSearch}
+                  ownerName={ownerName}
                 />
               </div>
             )

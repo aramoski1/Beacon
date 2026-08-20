@@ -13,6 +13,8 @@ import {
   Info,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { isSoloFirmForUser } from "@/lib/firms";
+import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -51,6 +53,8 @@ type BuildingComposition = {
 };
 type Property = {
   id: string;
+  owner_id: string;
+  visibility: "private" | "team";
   address: string | null;
   city: string | null;
   submarket: string | null;
@@ -159,7 +163,7 @@ export default async function PropertyPage({
 
   const linkedContactIds = await loadContactIdsForProperty(supabase, user.id, id);
 
-  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings, propertyDocuments] = await Promise.all([
+  const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings, propertyDocuments, isSoloFirm] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
@@ -188,6 +192,7 @@ export default async function PropertyPage({
       .order("due_date", { ascending: true }),
     getUserSettings(),
     listDocuments(supabase, user.id, "property", id),
+    isSoloFirmForUser(supabase, user.id),
   ]);
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = p.custom_fields ?? {};
@@ -306,6 +311,14 @@ export default async function PropertyPage({
           </p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
+          <ShareWithFirmToggle
+            table="properties"
+            id={p.id}
+            ownerId={p.owner_id}
+            currentUserId={user.id}
+            initialVisibility={p.visibility}
+            isSoloFirm={isSoloFirm}
+          />
           {p.property_type && (
             <Badge variant="secondary" className="capitalize">
               {p.property_type}

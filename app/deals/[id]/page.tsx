@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Briefcase, Building2, CalendarDays, DollarSign, FileText, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { isSoloFirmForUser } from "@/lib/firms";
+import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
@@ -33,11 +35,16 @@ export default async function DealPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // No .eq("owner_id", user.id) on the deal itself — RLS alone governs
+  // visibility so a teammate can open a firm-shared deal (Beacon_Team_
+  // Multitenancy_Plan.md §7). field_definitions is intentionally
+  // unfiltered by owner too: it's firm-wide by default (resolved decision
+  // #5), so a teammate should see the whole firm's custom-field schema,
+  // not just fields they personally authored.
   const { data, error } = await supabase
     .from("deals")
     .select("*, contacts(id, name, company, email, phone), properties(id, address, city)")
     .eq("id", id)
-    .eq("owner_id", user.id)
     .single();
 
   if (error || !data) notFound();
@@ -46,21 +53,20 @@ export default async function DealPage({
     properties: { id: string; address: string | null; city: string | null } | null;
   };
 
-  const [{ data: fdData }, activities, { data: followUps }, dealDocuments] = await Promise.all([
+  const [{ data: fdData }, activities, { data: followUps }, dealDocuments, isSoloFirm] = await Promise.all([
     supabase
       .from("field_definitions")
       .select("*")
-      .eq("owner_id", user.id)
       .eq("entity_type", "deal")
       .order("created_at", { ascending: true }),
     fetchActivitiesByDeal(id),
     supabase
       .from("follow_ups")
       .select("id, description, due_date, done")
-      .eq("owner_id", user.id)
       .eq("deal_id", id)
       .order("due_date", { ascending: true }),
     listDocuments(supabase, user.id, "deal", id),
+    isSoloFirmForUser(supabase, user.id),
   ]);
 
   const customDefs = (fdData ?? []) as FieldDefinition[];
@@ -95,6 +101,14 @@ export default async function DealPage({
           >
             {STAGE_LABELS[deal.stage as DealStage]}
           </span>
+          <ShareWithFirmToggle
+            table="deals"
+            id={deal.id}
+            ownerId={deal.owner_id}
+            currentUserId={user.id}
+            initialVisibility={deal.visibility}
+            isSoloFirm={isSoloFirm}
+          />
           {stale && (
             <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
               Stale — {days}d in stage

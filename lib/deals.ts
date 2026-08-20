@@ -180,6 +180,7 @@ export type Deal = {
   next_action_due: string | null;
   expected_close_date: string | null;
   custom_fields: DealCustomFields | null;
+  visibility: "private" | "team";
   created_at: string;
   updated_at: string;
   contacts?: { name: string | null; company: string | null } | null;

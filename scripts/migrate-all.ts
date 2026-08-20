@@ -229,6 +229,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-documents-bucket-team-visibility.ts",
     description: "Team multi-tenancy Phase 3 — documents storage bucket SELECT/UPDATE/DELETE gain a join-based (storage.objects.name = documents.storage_path) team-visibility OR-clause",
   },
+  {
+    file: "migrate-firm-teammate-names.ts",
+    description: "Team multi-tenancy Phase 4 supporting piece — firm_teammate_names() RPC, a narrow SECURITY DEFINER function exposing only {user_id, display_name} for the caller's active firm's teammates (Workspace ownership indicator)",
+  },
 ];
 
 const hr = "─".repeat(60);

@@ -30,3 +30,63 @@ export async function ensurePersonalFirm(supabase: SupabaseClient, userId: strin
     .from("firm_members")
     .insert({ firm_id: firm.id, user_id: userId, role: "owner", status: "active" });
 }
+
+/** Cheaper than getWorkspaceTeamContext when only the solo/multi-member check is needed (detail pages' share toggle). */
+export async function isSoloFirmForUser(supabase: SupabaseClient, userId: string): Promise<boolean> {
+  const { data: membership } = await supabase
+    .from("firm_members")
+    .select("firm_id")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+  if (!membership) return true;
+
+  const { count } = await supabase
+    .from("firm_members")
+    .select("id", { count: "exact", head: true })
+    .eq("firm_id", membership.firm_id)
+    .eq("status", "active");
+
+  return !count || count <= 1;
+}
+
+export type WorkspaceTeamContext = {
+  isSoloFirm: boolean;
+  /** user_id -> display_name (may be null if the teammate never set one). Empty when solo. */
+  teammateNames: Record<string, string | null>;
+};
+
+/**
+ * Server-side check for Beacon_Team_Multitenancy_Plan.md §7.3: the scope
+ * toggle renders iff the broker's active firm has more than one active
+ * member — computed here, once, and passed down as a prop, never inferred
+ * client-side (no flash, no extra round-trip for the overwhelmingly common
+ * solo case). Also returns the teammate display-name map for §7.4's
+ * ownership indicator, via the narrow firm_teammate_names() RPC.
+ */
+export async function getWorkspaceTeamContext(supabase: SupabaseClient, userId: string): Promise<WorkspaceTeamContext> {
+  const { data: membership } = await supabase
+    .from("firm_members")
+    .select("firm_id")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (!membership) return { isSoloFirm: true, teammateNames: {} };
+
+  const { count } = await supabase
+    .from("firm_members")
+    .select("id", { count: "exact", head: true })
+    .eq("firm_id", membership.firm_id)
+    .eq("status", "active");
+
+  if (!count || count <= 1) return { isSoloFirm: true, teammateNames: {} };
+
+  const { data: rows } = await supabase.rpc("firm_teammate_names");
+  const teammateNames: Record<string, string | null> = {};
+  for (const row of (rows ?? []) as { user_id: string; display_name: string | null }[]) {
+    teammateNames[row.user_id] = row.display_name;
+  }
+
+  return { isSoloFirm: false, teammateNames };
+}

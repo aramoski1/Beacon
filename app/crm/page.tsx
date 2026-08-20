@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getWorkspaceTeamContext } from "@/lib/firms";
 import CRMView from "./view";
 
 export const metadata = { title: "Workspace – Beacon" };
@@ -24,9 +25,16 @@ export default async function CRMPage({
   if (!obSettings?.onboarding_completed_at) redirect("/onboarding");
 
   const { tab } = await searchParams;
+  const teamContext = await getWorkspaceTeamContext(supabase, user.id);
   return (
     <Suspense fallback={null}>
-      <CRMView initialTab={tab} userEmail={user.email ?? null} />
+      <CRMView
+        initialTab={tab}
+        userEmail={user.email ?? null}
+        userId={user.id}
+        isSoloFirm={teamContext.isSoloFirm}
+        teammateNames={teamContext.teammateNames}
+      />
     </Suspense>
   );
 }
