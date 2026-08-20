@@ -201,6 +201,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-documents-team-visibility.ts",
     description: "Team multi-tenancy Phase 2, table 2/7 — documents SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause (table only; bucket RLS is Phase 3)",
   },
+  {
+    file: "migrate-follow-ups-team-visibility.ts",
+    description: "Team multi-tenancy Phase 2, table 3/7 — follow_ups SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause",
+  },
 ];
 
 const hr = "─".repeat(60);

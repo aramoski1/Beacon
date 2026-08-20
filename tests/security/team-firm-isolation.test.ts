@@ -295,4 +295,26 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
       editValueByTeammate: "edited-by-teammate.pdf",
     });
   });
+
+  // ─── follow_ups (Phase 2, table 3 of 7) ────────────────────────────────────
+
+  it("follow_ups: full visibility lifecycle — private, then team-shared, cross-firm never leaks", async () => {
+    const followUp = await userA.client
+      .from("follow_ups")
+      .insert({ owner_id: userA.id, contact_id: seeded.contacts, due_date: "2030-01-01", description: "Team-firm test follow-up" })
+      .select("id")
+      .single();
+    expect(followUp.error, `seed follow_ups failed: ${followUp.error?.message}`).toBeNull();
+    seeded.follow_ups = followUp.data!.id;
+
+    await assertVisibilityLifecycle({
+      table: "follow_ups",
+      id: seeded.follow_ups,
+      owner: userA,
+      teammate: userB,
+      outsider: userC,
+      editColumn: "description",
+      editValueByTeammate: "Edited by teammate B",
+    });
+  });
 });
