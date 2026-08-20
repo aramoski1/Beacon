@@ -56,7 +56,7 @@ Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists
 | **Book map** | Corridor aggregation + OSM links — **not** a stored pin map / GIS product. |
 | **Industrial specs** | No dedicated clear-height / docks / availability model yet (Prompt B deferred). |
 | **CoStar** | File upload/parse only — no live API. |
-| **Teams** | Single-broker. |
+| **Teams** | Team support now exists in code (invite a teammate, share specific records) but is unvalidated with a real broker and was built ahead of pilot — treat every pilot account as single-broker unless you're specifically testing this. Nothing about it changes solo behavior; see `Beacon_Team_Multitenancy_Plan.md`. |
 | **Mobile** | Responsive web only. |
 
 ---
