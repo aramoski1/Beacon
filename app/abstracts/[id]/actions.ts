@@ -6,7 +6,7 @@ import {
   requireLinkedPropertyId,
   LEASE_PROPERTY_UNLINK_BLOCKED_MSG,
 } from "@/lib/lease-property";
-import type { FieldReviews, ReviewStatus } from "./review-utils";
+import { columnPatchForCorrection, type FieldReviews, type ReviewStatus } from "./review-utils";
 
 export async function setLeaseProperty(
   leaseId: string,
@@ -138,9 +138,20 @@ export async function saveFieldReview(
     return { ok: true };
   }
 
+  // A correction to a scalar field (execution_date / expiration_date / term /
+  // base_rate) must also land on the real column, not just field_reviews —
+  // lease radar and lease comps query those columns directly, so a
+  // field_reviews-only correction is invisible to both.
+  let columnPatch: Record<string, string | number | null> = {};
+  if (status === "corrected") {
+    const result = columnPatchForCorrection(fieldKey, correctedValue);
+    if (result && "error" in result) return { error: result.error };
+    if (result && "patch" in result) columnPatch = result.patch;
+  }
+
   const { error } = await supabase
     .from("lease_abstracts")
-    .update({ field_reviews: updated })
+    .update({ field_reviews: updated, ...columnPatch })
     .eq("id", leaseId)
     .eq("owner_id", user.id);
 

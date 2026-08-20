@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveConfidence, confidenceLevel, fieldLabel } from "@/app/abstracts/[id]/review-utils";
+import { deriveConfidence, confidenceLevel, fieldLabel, columnPatchForCorrection } from "@/app/abstracts/[id]/review-utils";
 import type { FieldCitation } from "@/app/abstracts/[id]/review-utils";
 
 // ─── deriveConfidence ─────────────────────────────────────────────────────────
@@ -100,5 +100,88 @@ describe("fieldLabel", () => {
   it("falls back to Title Case for unknown snake_case keys", () => {
     expect(fieldLabel("custom_field_one")).toBe("Custom Field One");
     expect(fieldLabel("tenant_name")).toBe("Tenant Name");
+  });
+});
+
+// ─── columnPatchForCorrection ──────────────────────────────────────────────────
+// The bug this guards against: a broker corrects expiration_date in the review
+// UI, but the fix only ever wrote to field_reviews JSONB — lease radar and
+// lease comps read the expiration_date COLUMN directly, so the correction was
+// invisible to both. This maps a correction back onto the real column.
+
+describe("columnPatchForCorrection", () => {
+  it("maps a valid expiration_date correction onto the column", () => {
+    expect(columnPatchForCorrection("expiration_date", "2027-03-15")).toEqual({
+      patch: { expiration_date: "2027-03-15" },
+    });
+  });
+
+  it("maps a valid execution_date correction onto the column", () => {
+    expect(columnPatchForCorrection("execution_date", "2024-06-01")).toEqual({
+      patch: { execution_date: "2024-06-01" },
+    });
+  });
+
+  it("rejects an unparseable date rather than silently writing garbage into a DATE column", () => {
+    const result = columnPatchForCorrection("expiration_date", "March 15, 2027");
+    expect(result && "error" in result).toBe(true);
+  });
+
+  it("rejects an invalid calendar date (e.g. day 32) even though it matches the YYYY-MM-DD shape", () => {
+    const result = columnPatchForCorrection("expiration_date", "2027-13-45");
+    expect(result && "error" in result).toBe(true);
+  });
+
+  it("clears expiration_date to null on an empty correction", () => {
+    expect(columnPatchForCorrection("expiration_date", "")).toEqual({
+      patch: { expiration_date: null },
+    });
+  });
+
+  it("parses a dollar-and-comma-formatted base_rate into a plain number", () => {
+    expect(columnPatchForCorrection("base_rate", "$32,500")).toEqual({
+      patch: { base_rate: 32500 },
+    });
+  });
+
+  it("parses a plain numeric base_rate string", () => {
+    expect(columnPatchForCorrection("base_rate", "27.5")).toEqual({
+      patch: { base_rate: 27.5 },
+    });
+  });
+
+  it("rejects a base_rate that has no digits at all", () => {
+    const result = columnPatchForCorrection("base_rate", "market rate");
+    expect(result && "error" in result).toBe(true);
+  });
+
+  it("clears base_rate to null on an empty correction", () => {
+    expect(columnPatchForCorrection("base_rate", "")).toEqual({ patch: { base_rate: null } });
+  });
+
+  it("passes term through as plain text", () => {
+    expect(columnPatchForCorrection("term", "5 years")).toEqual({ patch: { term: "5 years" } });
+  });
+
+  it("clears term to null on an empty correction", () => {
+    expect(columnPatchForCorrection("term", "  ")).toEqual({ patch: { term: null } });
+  });
+
+  it("returns null (no column to sync) for array-based fields", () => {
+    expect(columnPatchForCorrection("escalations[0]", "3% annually")).toBeNull();
+    expect(columnPatchForCorrection("options[1]", "renewal option")).toBeNull();
+    expect(columnPatchForCorrection("key_provisions[0]", "co-tenancy clause")).toBeNull();
+  });
+
+  it("returns null for an unrelated/custom field key", () => {
+    expect(columnPatchForCorrection("tenant_name", "Acme Corp")).toBeNull();
+  });
+
+  it("returns null when correctedValue is undefined (accept/reject, not a correction)", () => {
+    expect(columnPatchForCorrection("expiration_date", undefined)).toBeNull();
+  });
+
+  it("accepts a numeric base_rate value directly, not just a string", () => {
+    expect(columnPatchForCorrection("base_rate", 42)).toEqual({ patch: { base_rate: 42 } });
   });
 });

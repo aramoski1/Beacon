@@ -132,6 +132,8 @@ interface FieldRowProps {
   saving: boolean;
   editing: boolean;
   editValue: string;
+  /** "date" renders a native date picker (always YYYY-MM-DD) instead of free text — used for execution_date/expiration_date to avoid ambiguous manual date parsing. */
+  inputType?: "text" | "date";
   onAccept: () => void;
   onReject: () => void;
   onStartCorrect: () => void;
@@ -144,7 +146,7 @@ interface FieldRowProps {
 
 function FieldRow({
   fieldKey, label, displayValue, citation, review, saving, editing,
-  editValue, onAccept, onReject, onStartCorrect, onUndo, onSaveCorrection,
+  editValue, inputType = "text", onAccept, onReject, onStartCorrect, onUndo, onSaveCorrection,
   onCancelCorrection, onEditValueChange, onCitationClick,
 }: FieldRowProps) {
   const confidence = deriveConfidence(displayValue, citation);
@@ -184,6 +186,7 @@ function FieldRow({
       {editing ? (
         <div className="flex items-center gap-2 mb-2">
           <input
+            type={inputType}
             autoFocus
             className="flex-1 text-sm px-2 py-1 rounded border bg-background focus:outline-none focus:ring-1 ring-ring"
             value={editValue}
@@ -405,14 +408,31 @@ export function LeaseReviewView({
 
   // ─── Scalar fields ─────────────────────────────────────────────────────────
 
-  const scalarFields = [
-    { key: "execution_date", label: "Execution date", value: formatDate(abstract.execution_date) },
-    { key: "expiration_date", label: "Expiration date", value: formatDate(abstract.expiration_date) },
-    { key: "term", label: "Term", value: abstract.term ?? "—" },
+  const scalarFields: {
+    key: string;
+    label: string;
+    value: string;
+    /** Seed value for the correction input — raw (ISO date / plain number), not the display-formatted string, so there's nothing to re-parse on save. */
+    rawValue: string;
+    inputType: "text" | "date";
+  }[] = [
     {
-      key: "base_rate",
-      label: "Base rate",
+      key: "execution_date", label: "Execution date",
+      value: formatDate(abstract.execution_date), rawValue: abstract.execution_date ?? "", inputType: "date",
+    },
+    {
+      key: "expiration_date", label: "Expiration date",
+      value: formatDate(abstract.expiration_date), rawValue: abstract.expiration_date ?? "", inputType: "date",
+    },
+    {
+      key: "term", label: "Term",
+      value: abstract.term ?? "—", rawValue: abstract.term ?? "", inputType: "text",
+    },
+    {
+      key: "base_rate", label: "Base rate",
       value: abstract.base_rate != null ? `$${abstract.base_rate.toLocaleString()}` : "—",
+      rawValue: abstract.base_rate != null ? String(abstract.base_rate) : "",
+      inputType: "text",
     },
   ];
 
@@ -484,12 +504,13 @@ export function LeaseReviewView({
 
             {/* Core terms */}
             <FieldSection title="Core terms">
-              {scalarFields.map(({ key, label, value }) => (
+              {scalarFields.map(({ key, label, value, rawValue, inputType }) => (
                 <FieldRow
                   key={key}
                   fieldKey={key}
                   label={label}
                   displayValue={value}
+                  inputType={inputType}
                   citation={citationMap.get(key)}
                   review={getReview(key)}
                   saving={savingFields.has(key)}
@@ -497,7 +518,7 @@ export function LeaseReviewView({
                   editValue={editValue}
                   onAccept={() => doSaveReview(key, "accepted")}
                   onReject={() => doSaveReview(key, "rejected")}
-                  onStartCorrect={() => { setEditingField(key); setEditValue(value === "—" ? "" : value); }}
+                  onStartCorrect={() => { setEditingField(key); setEditValue(rawValue); }}
                   onUndo={() => doSaveReview(key, "pending")}
                   onSaveCorrection={v => { doSaveReview(key, "corrected", v); setEditingField(null); }}
                   onCancelCorrection={() => setEditingField(null)}
