@@ -392,4 +392,102 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
     const teammateCheck = await userB.client.from("contacts").select("id").eq("id", seeded.contacts);
     expect(teammateCheck.data, "teammate could see a contact that was never marked team-visible").toEqual([]);
   });
+
+  // ─── properties (Phase 2, table 7 of 7 — last, extra scrutiny per plan §8) ─
+
+  it("properties: full visibility lifecycle — private, then team-shared, cross-firm never leaks", async () => {
+    const property = await userA.client
+      .from("properties")
+      .insert({ owner_id: userA.id, address: "1 Team-Firm Test Way" })
+      .select("id")
+      .single();
+    expect(property.error, `seed properties failed: ${property.error?.message}`).toBeNull();
+    seeded.properties = property.data!.id;
+
+    await assertVisibilityLifecycle({
+      table: "properties",
+      id: seeded.properties,
+      owner: userA,
+      teammate: userB,
+      outsider: userC,
+      editColumn: "address",
+      editValueByTeammate: "Edited by teammate B",
+    });
+  });
+
+  it("properties: a second, never-shared property stays owner-only private throughout", async () => {
+    const property2 = await userA.client
+      .from("properties")
+      .insert({ owner_id: userA.id, address: "2 Never Shared Ave" })
+      .select("id")
+      .single();
+    expect(property2.error).toBeNull();
+    const id2 = property2.data!.id;
+
+    const outsiderCheck = await userC.client.from("properties").select("id").eq("id", id2);
+    expect(outsiderCheck.data).toEqual([]);
+    const teammateCheck = await userB.client.from("properties").select("id").eq("id", id2);
+    expect(teammateCheck.data, "teammate could see a property that was never marked team-visible").toEqual([]);
+
+    const teammateUpdateAttempt = await userB.client
+      .from("properties")
+      .update({ address: "Hijacked" })
+      .eq("id", id2)
+      .select();
+    expect(teammateUpdateAttempt.data, "teammate updated a private property they were never granted access to").toEqual([]);
+  });
+
+  it("all seven Phase 2 tables now have team-visibility RLS — final cross-check across the whole set", async () => {
+    const tables = ["activities", "documents", "follow_ups", "lease_abstracts", "deals", "contacts", "properties"] as const;
+    for (const table of tables) {
+      const { rows } = await pg.query(
+        `SELECT policyname FROM pg_policies WHERE tablename = $1 AND qual LIKE '%is_firm_teammate%'`,
+        [table],
+      );
+      expect(rows.length, `${table}: no policy references is_firm_teammate()`).toBeGreaterThan(0);
+    }
+  });
+
+  // ─── field_definitions (firm-wide by default, resolved decision #5) ───────
+
+  it("field_definitions: unconditionally firm-wide — visible and editable by a teammate with no visibility flag involved", async () => {
+    const field = await userA.client
+      .from("field_definitions")
+      .insert({ owner_id: userA.id, entity_type: "property", field_name: "Team-Firm Test Field", field_type: "text" })
+      .select("id")
+      .single();
+    expect(field.error, `seed field_definitions failed: ${field.error?.message}`).toBeNull();
+    const fieldId = field.data!.id;
+
+    // Visible to a teammate immediately — no sharing step, unlike every other table.
+    const teammateSelect = await userB.client.from("field_definitions").select("id").eq("id", fieldId);
+    expect(teammateSelect.data?.length, "teammate couldn't see a firm-wide custom field").toBe(1);
+
+    // Teammate can rename it (co-manage the shared schema).
+    const teammateEdit = await userB.client
+      .from("field_definitions")
+      .update({ field_name: "Renamed By Teammate B" })
+      .eq("id", fieldId)
+      .select();
+    expect(teammateEdit.data?.length, "teammate couldn't edit a firm-wide custom field").toBe(1);
+
+    // Still never visible cross-firm.
+    const outsiderSelect = await userC.client.from("field_definitions").select("id").eq("id", fieldId);
+    expect(outsiderSelect.data, "CRITICAL — firm-wide field_definitions leaked across firms").toEqual([]);
+  });
+
+  it("field_definitions: the original tenant-isolation seed (owned by a non-teammate) is still invisible — no accidental universal grant", async () => {
+    // Belt-and-suspenders: confirms is_firm_teammate() truly requires a real
+    // shared active firm, not just "any two users" — regresses against the
+    // exact scenario tenant-isolation.test.ts's own field_definitions case covers.
+    const strangerField = await userC.client
+      .from("field_definitions")
+      .insert({ owner_id: userC.id, entity_type: "contact", field_name: "Firm Two Only Field", field_type: "text" })
+      .select("id")
+      .single();
+    expect(strangerField.error).toBeNull();
+
+    const teammateSelect = await userB.client.from("field_definitions").select("id").eq("id", strangerField.data!.id);
+    expect(teammateSelect.data, "a user in a different firm could see another firm's custom field").toEqual([]);
+  });
 });

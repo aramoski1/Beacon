@@ -217,6 +217,14 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-contacts-team-visibility.ts",
     description: "Team multi-tenancy Phase 2, table 6/7 — contacts SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause",
   },
+  {
+    file: "migrate-properties-team-visibility.ts",
+    description: "Team multi-tenancy Phase 2, table 7/7 (last) — properties SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause",
+  },
+  {
+    file: "migrate-field-definitions-team-visibility.ts",
+    description: "Team multi-tenancy — field_definitions goes firm-wide by default (resolved decision #5): SELECT/UPDATE/DELETE gain an unconditional is_firm_teammate() OR-clause, no visibility column",
+  },
 ];
 
 const hr = "─".repeat(60);
