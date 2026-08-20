@@ -24,6 +24,9 @@ const MIGRATION = `
 DROP POLICY IF EXISTS "owner select" ON field_definitions;
 DROP POLICY IF EXISTS field_definitions_owner_update ON field_definitions;
 DROP POLICY IF EXISTS "owner delete" ON field_definitions;
+DROP POLICY IF EXISTS field_definitions_owner_or_teammate_select ON field_definitions;
+DROP POLICY IF EXISTS field_definitions_owner_or_teammate_update ON field_definitions;
+DROP POLICY IF EXISTS field_definitions_owner_or_teammate_delete ON field_definitions;
 
 CREATE POLICY field_definitions_owner_or_teammate_select ON field_definitions
   FOR SELECT USING (

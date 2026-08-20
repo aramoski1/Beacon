@@ -13,6 +13,10 @@ if (!DATABASE_URL) {
  */
 const MIGRATION = `
 DROP POLICY IF EXISTS follow_ups_owner ON follow_ups;
+DROP POLICY IF EXISTS follow_ups_owner_insert ON follow_ups;
+DROP POLICY IF EXISTS follow_ups_owner_or_teammate_select ON follow_ups;
+DROP POLICY IF EXISTS follow_ups_owner_or_teammate_update ON follow_ups;
+DROP POLICY IF EXISTS follow_ups_owner_or_teammate_delete ON follow_ups;
 
 CREATE POLICY follow_ups_owner_insert ON follow_ups
   FOR INSERT WITH CHECK (owner_id = auth.uid());

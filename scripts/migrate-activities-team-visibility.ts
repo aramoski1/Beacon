@@ -19,6 +19,9 @@ const MIGRATION = `
 DROP POLICY IF EXISTS activities_owner_select ON activities;
 DROP POLICY IF EXISTS activities_owner_update ON activities;
 DROP POLICY IF EXISTS activities_owner_delete ON activities;
+DROP POLICY IF EXISTS activities_owner_or_teammate_select ON activities;
+DROP POLICY IF EXISTS activities_owner_or_teammate_update ON activities;
+DROP POLICY IF EXISTS activities_owner_or_teammate_delete ON activities;
 
 CREATE POLICY activities_owner_or_teammate_select ON activities
   FOR SELECT USING (

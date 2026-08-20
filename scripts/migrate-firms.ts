@@ -251,13 +251,18 @@ async function main() {
   console.log(`  firms inserted (new): ${firmCount ?? 0}`);
 
   console.log("\nBackfilling firm_members (each new firm's creator as owner)...");
+  // f.created_by IS NOT NULL guards re-runs after migrate-firms-created-by-set-null.ts
+  // exists: a firm whose creator later deleted their account has created_by=null
+  // (the firm itself correctly survives that — see that migration's comment),
+  // and such a firm has no natural "owner" left to backfill here.
   const { rowCount: memberCount } = await client.query(`
     INSERT INTO firm_members (firm_id, user_id, role, status)
     SELECT f.id, f.created_by, 'owner', 'active'
     FROM firms f
-    WHERE NOT EXISTS (
-      SELECT 1 FROM firm_members fm WHERE fm.firm_id = f.id AND fm.user_id = f.created_by
-    )
+    WHERE f.created_by IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM firm_members fm WHERE fm.firm_id = f.id AND fm.user_id = f.created_by
+      )
   `);
   console.log(`  firm_members inserted (new): ${memberCount ?? 0}`);
 

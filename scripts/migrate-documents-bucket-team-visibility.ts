@@ -25,6 +25,9 @@ const MIGRATION = `
 DROP POLICY IF EXISTS "document owner select" ON storage.objects;
 DROP POLICY IF EXISTS "document owner update" ON storage.objects;
 DROP POLICY IF EXISTS "document owner delete" ON storage.objects;
+DROP POLICY IF EXISTS "document owner or teammate select" ON storage.objects;
+DROP POLICY IF EXISTS "document owner or teammate update" ON storage.objects;
+DROP POLICY IF EXISTS "document owner or teammate delete" ON storage.objects;
 
 CREATE POLICY "document owner or teammate select" ON storage.objects
   FOR SELECT USING (

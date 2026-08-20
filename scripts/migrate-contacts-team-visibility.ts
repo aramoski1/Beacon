@@ -19,6 +19,9 @@ const MIGRATION = `
 DROP POLICY IF EXISTS "owner select" ON contacts;
 DROP POLICY IF EXISTS "owner update" ON contacts;
 DROP POLICY IF EXISTS "owner delete" ON contacts;
+DROP POLICY IF EXISTS contacts_owner_or_teammate_select ON contacts;
+DROP POLICY IF EXISTS contacts_owner_or_teammate_update ON contacts;
+DROP POLICY IF EXISTS contacts_owner_or_teammate_delete ON contacts;
 
 CREATE POLICY contacts_owner_or_teammate_select ON contacts
   FOR SELECT USING (

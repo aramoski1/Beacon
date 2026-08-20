@@ -17,6 +17,10 @@ if (!DATABASE_URL) {
  */
 const MIGRATION = `
 DROP POLICY IF EXISTS documents_owner ON documents;
+DROP POLICY IF EXISTS documents_owner_insert ON documents;
+DROP POLICY IF EXISTS documents_owner_or_teammate_select ON documents;
+DROP POLICY IF EXISTS documents_owner_or_teammate_update ON documents;
+DROP POLICY IF EXISTS documents_owner_or_teammate_delete ON documents;
 
 CREATE POLICY documents_owner_insert ON documents
   FOR INSERT WITH CHECK (owner_id = auth.uid());

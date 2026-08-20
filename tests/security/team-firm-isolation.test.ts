@@ -128,6 +128,18 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
     if (pg && userA?.id) await pg.query(`DELETE FROM auth.users WHERE id = $1`, [userA.id]);
     if (pg && userB?.id) await pg.query(`DELETE FROM auth.users WHERE id = $1`, [userB.id]);
     if (pg && userC?.id) await pg.query(`DELETE FROM auth.users WHERE id = $1`, [userC.id]);
+    // firms.created_by is ON DELETE SET NULL (migrate-firms-created-by-set-null.ts —
+    // a firm must survive its creator's account being deleted, in case other
+    // members remain), so deleting the users above does NOT clean up firmOne/
+    // firmTwo (or any other firm this file's tests created, e.g. firmF and
+    // userE's ensurePersonalFirm-created firm) — they're left memberless
+    // instead. Sweep up anything left with zero members rather than tracking
+    // every dynamically-created firm id individually.
+    if (pg) {
+      await pg
+        .query(`DELETE FROM firms WHERE NOT EXISTS (SELECT 1 FROM firm_members WHERE firm_id = firms.id)`)
+        .catch(() => {});
+    }
     await pg?.end();
   }, 30_000);
 

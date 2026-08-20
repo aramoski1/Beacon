@@ -16,6 +16,9 @@ const MIGRATION = `
 DROP POLICY IF EXISTS "owner select" ON lease_abstracts;
 DROP POLICY IF EXISTS "owner update" ON lease_abstracts;
 DROP POLICY IF EXISTS "owner delete" ON lease_abstracts;
+DROP POLICY IF EXISTS lease_abstracts_owner_or_teammate_select ON lease_abstracts;
+DROP POLICY IF EXISTS lease_abstracts_owner_or_teammate_update ON lease_abstracts;
+DROP POLICY IF EXISTS lease_abstracts_owner_or_teammate_delete ON lease_abstracts;
 
 CREATE POLICY lease_abstracts_owner_or_teammate_select ON lease_abstracts
   FOR SELECT USING (

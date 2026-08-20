@@ -18,6 +18,9 @@ const MIGRATION = `
 DROP POLICY IF EXISTS "owner select" ON properties;
 DROP POLICY IF EXISTS "owner update" ON properties;
 DROP POLICY IF EXISTS "owner delete" ON properties;
+DROP POLICY IF EXISTS properties_owner_or_teammate_select ON properties;
+DROP POLICY IF EXISTS properties_owner_or_teammate_update ON properties;
+DROP POLICY IF EXISTS properties_owner_or_teammate_delete ON properties;
 
 CREATE POLICY properties_owner_or_teammate_select ON properties
   FOR SELECT USING (
