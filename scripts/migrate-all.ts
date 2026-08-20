@@ -213,6 +213,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-deals-team-visibility.ts",
     description: "Team multi-tenancy Phase 2, table 5/7 — deals SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause",
   },
+  {
+    file: "migrate-contacts-team-visibility.ts",
+    description: "Team multi-tenancy Phase 2, table 6/7 — contacts SELECT/UPDATE/DELETE gain the is_firm_teammate() OR-clause",
+  },
 ];
 
 const hr = "─".repeat(60);

@@ -361,4 +361,35 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
       editValueByTeammate: "Edited by teammate B",
     });
   });
+
+  // ─── contacts (Phase 2, table 6 of 7 — extra scrutiny per plan §8) ─────────
+
+  it("contacts: full visibility lifecycle — private, then team-shared, cross-firm never leaks", async () => {
+    const contact = await userA.client
+      .from("contacts")
+      .insert({ owner_id: userA.id, name: "Team-firm test contact 2" })
+      .select("id")
+      .single();
+    expect(contact.error, `seed contacts failed: ${contact.error?.message}`).toBeNull();
+    const contactId = contact.data!.id;
+
+    await assertVisibilityLifecycle({
+      table: "contacts",
+      id: contactId,
+      owner: userA,
+      teammate: userB,
+      outsider: userC,
+      editColumn: "name",
+      editValueByTeammate: "Edited by teammate B",
+    });
+  });
+
+  it("contacts: the original seeded contact (referenced by activities/documents/follow_ups above) is still owner-only private", async () => {
+    // Sanity check that granting team access elsewhere never implicitly
+    // touched this specific row's own visibility.
+    const outsiderCheck = await userC.client.from("contacts").select("id").eq("id", seeded.contacts);
+    expect(outsiderCheck.data).toEqual([]);
+    const teammateCheck = await userB.client.from("contacts").select("id").eq("id", seeded.contacts);
+    expect(teammateCheck.data, "teammate could see a contact that was never marked team-visible").toEqual([]);
+  });
 });
