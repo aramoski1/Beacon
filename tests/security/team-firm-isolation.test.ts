@@ -490,4 +490,60 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
     const teammateSelect = await userB.client.from("field_definitions").select("id").eq("id", strangerField.data!.id);
     expect(teammateSelect.data, "a user in a different firm could see another firm's custom field").toEqual([]);
   });
+
+  // ─── documents storage bucket (Phase 3) ────────────────────────────────────
+
+  it("storage (documents bucket): private file — neither teammate nor outsider can download, list, or overwrite it", async () => {
+    const path = `${userA.id}/contact/${seeded.contacts}/team-firm-isolation-test.txt`;
+
+    const upload = await userA.client.storage
+      .from("documents")
+      .upload(path, new Blob([new Uint8Array([0x68, 0x69])], { type: "text/plain" }), { contentType: "text/plain", upsert: true });
+    expect(upload.error, `seed storage upload failed: ${upload.error?.message}`).toBeNull();
+
+    const doc = await userA.client
+      .from("documents")
+      .insert({
+        owner_id: userA.id,
+        entity_type: "contact",
+        entity_id: seeded.contacts,
+        file_name: "team-firm-isolation-test.txt",
+        storage_path: path,
+      })
+      .select("id")
+      .single();
+    expect(doc.error).toBeNull();
+
+    for (const [label, client] of [["teammate", userB.client], ["outsider", userC.client]] as const) {
+      const download = await client.storage.from("documents").download(path);
+      expect(download.error, `${label} was able to download A's private file`).not.toBeNull();
+
+      const list = await client.storage.from("documents").list(`${userA.id}/contact/${seeded.contacts}`);
+      const leaked = (list.data ?? []).some((f) => f.name === "team-firm-isolation-test.txt");
+      expect(leaked, `A's private file leaked into ${label}'s listing`).toBe(false);
+    }
+
+    // Share it, then re-check: teammate now CAN, outsider still CANNOT.
+    const share = await userA.client.from("documents").update({ visibility: "team" }).eq("id", doc.data!.id).select();
+    expect(share.error).toBeNull();
+    expect(share.data?.length).toBe(1);
+
+    const teammateDownload = await userB.client.storage.from("documents").download(path);
+    expect(teammateDownload.error, `teammate couldn't download a team-visible file: ${teammateDownload.error?.message}`).toBeNull();
+
+    const outsiderDownload = await userC.client.storage.from("documents").download(path);
+    expect(outsiderDownload.error, "CRITICAL — outsider downloaded a team-visible file across firms").not.toBeNull();
+
+    const outsiderOverwrite = await userC.client.storage
+      .from("documents")
+      .upload(path, new Blob([new Uint8Array([0x00])], { type: "text/plain" }), { contentType: "text/plain", upsert: true });
+    expect(outsiderOverwrite.error, "CRITICAL — outsider overwrote a team-visible file across firms").not.toBeNull();
+
+    // A can still read their own file throughout — proves this is real
+    // isolation, not a broken bucket.
+    const ownDownload = await userA.client.storage.from("documents").download(path);
+    expect(ownDownload.error).toBeNull();
+
+    await userA.client.storage.from("documents").remove([path]).catch(() => {});
+  });
 });

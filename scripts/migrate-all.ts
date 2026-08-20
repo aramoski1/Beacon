@@ -225,6 +225,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-field-definitions-team-visibility.ts",
     description: "Team multi-tenancy — field_definitions goes firm-wide by default (resolved decision #5): SELECT/UPDATE/DELETE gain an unconditional is_firm_teammate() OR-clause, no visibility column",
   },
+  {
+    file: "migrate-documents-bucket-team-visibility.ts",
+    description: "Team multi-tenancy Phase 3 — documents storage bucket SELECT/UPDATE/DELETE gain a join-based (storage.objects.name = documents.storage_path) team-visibility OR-clause",
+  },
 ];
 
 const hr = "─".repeat(60);

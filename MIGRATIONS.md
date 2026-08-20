@@ -48,7 +48,8 @@ Scripts run in this order:
 | ... | `scripts/migrate-deals-team-visibility.ts` | Team multi-tenancy Phase 2, table 5/7 — `deals` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 | ... | `scripts/migrate-contacts-team-visibility.ts` | Team multi-tenancy Phase 2, table 6/7 — `contacts` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 | ... | `scripts/migrate-properties-team-visibility.ts` | Team multi-tenancy Phase 2, table 7/7 (last) — `properties` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
-| latest | `scripts/migrate-field-definitions-team-visibility.ts` | Team multi-tenancy — `field_definitions` goes firm-wide by default: SELECT/UPDATE/DELETE gain an unconditional `is_firm_teammate()` OR-clause, no `visibility` column |
+| ... | `scripts/migrate-field-definitions-team-visibility.ts` | Team multi-tenancy — `field_definitions` goes firm-wide by default: SELECT/UPDATE/DELETE gain an unconditional `is_firm_teammate()` OR-clause, no `visibility` column |
+| latest | `scripts/migrate-documents-bucket-team-visibility.ts` | Team multi-tenancy Phase 3 — `documents` storage bucket SELECT/UPDATE/DELETE gain a join-based (`storage.objects.name = documents.storage_path`) team-visibility OR-clause |
 
 ## Adding a new migration
 
