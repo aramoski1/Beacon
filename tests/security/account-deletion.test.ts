@@ -25,6 +25,8 @@ import {
   HAS_SUPABASE_TEST_CREDS,
   createSignedInTestUser,
   deleteTestUserIfExists,
+  createFirm,
+  addFirmMember,
   type TestUser,
 } from "./_test-helpers";
 import { ACCOUNT_DATA_TABLES, deleteAllUserRows } from "../../lib/account-deletion";
@@ -203,6 +205,7 @@ d("Account deletion leaves nothing behind", () => {
   let deletedDocPath: string;
   let survivorDocPath: string;
   let deletionSucceeded = false;
+  let sharedFirmId: string;
 
   beforeAll(async () => {
     pg = new Client({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -213,6 +216,19 @@ d("Account deletion leaves nothing behind", () => {
 
     ({ documentPath: deletedDocPath } = await seedOneRowPerTable(deletedUser));
     ({ documentPath: survivorDocPath } = await seedOneRowPerTable(survivorUser));
+
+    // Beacon_Team_Multitenancy_Plan.md §9 item 8 — make the two teammates
+    // in one firm, with deletedUser also having invited a (throwaway,
+    // never-accepted) third email, to exercise both the firms/firm_members
+    // cascade AND the invited_by ON DELETE SET NULL fix.
+    sharedFirmId = await createFirm(pg, "Account Deletion Test Firm", deletedUser.id);
+    await addFirmMember(pg, sharedFirmId, deletedUser.id, "owner");
+    await addFirmMember(pg, sharedFirmId, survivorUser.id, "member");
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at)
+       VALUES ($1, 'never-accepted@example.com', 'member', $2, $3, now() + interval '7 days')`,
+      [sharedFirmId, `account-deletion-test-token-${Date.now()}`, deletedUser.id],
+    );
   }, 90_000);
 
   afterAll(async () => {
@@ -245,6 +261,7 @@ d("Account deletion leaves nothing behind", () => {
     // assertion threw before the deletion ran.
     if (!deletionSucceeded) await deleteTestUserIfExists(pg, deletedUser?.id);
     await deleteTestUserIfExists(pg, survivorUser?.id);
+    if (sharedFirmId) await pg?.query(`DELETE FROM firms WHERE id = $1`, [sharedFirmId]).catch(() => {});
     await pg?.end();
   }, 30_000);
 
@@ -295,6 +312,33 @@ d("Account deletion leaves nothing behind", () => {
       [deletedUser.id],
     );
     expect(docStorageAfter, "document storage objects still exist for the deleted user").toEqual([]);
+
+    // Beacon_Team_Multitenancy_Plan.md §9 item 8 — deletedUser was this
+    // firm's owner; deleting them must NOT take the firm (or the
+    // survivor's own membership in it) down too.
+    const { rows: deletedMembership } = await pg.query(
+      `SELECT id FROM firm_members WHERE user_id = $1`,
+      [deletedUser.id],
+    );
+    expect(deletedMembership, "deleted user's firm_members row still exists").toEqual([]);
+
+    const { rows: firmRow } = await pg.query(`SELECT created_by FROM firms WHERE id = $1`, [sharedFirmId]);
+    expect(firmRow, "the firm itself was deleted when its owner's account was — should have survived").toHaveLength(1);
+    expect(firmRow[0].created_by, "firms.created_by should be nulled, not left dangling").toBeNull();
+
+    const { rows: survivorMembership } = await pg.query(
+      `SELECT status FROM firm_members WHERE user_id = $1 AND firm_id = $2`,
+      [survivorUser.id, sharedFirmId],
+    );
+    expect(survivorMembership, "survivor's own firm_members row was collaterally deleted").toHaveLength(1);
+    expect(survivorMembership[0].status, "survivor's membership status changed as a side effect").toBe("active");
+
+    const { rows: invitationRow } = await pg.query(
+      `SELECT invited_by FROM firm_invitations WHERE firm_id = $1`,
+      [sharedFirmId],
+    );
+    expect(invitationRow, "the pending invitation was deleted instead of just losing attribution").toHaveLength(1);
+    expect(invitationRow[0].invited_by, "firm_invitations.invited_by should be nulled, not left dangling").toBeNull();
   }, 60_000);
 
   it("did not touch the other broker's data (deletion is scoped, not global)", async () => {

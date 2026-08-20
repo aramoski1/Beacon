@@ -568,4 +568,131 @@ d("Team/firm visibility isolation (real RLS-enforced Supabase clients)", () => {
     const row = (namesForB.data ?? [])[0] as Record<string, unknown>;
     expect(Object.keys(row).sort()).toEqual(["display_name", "user_id"]);
   });
+
+  // ─── Invitation redemption (Phase 5) — second-most safety-critical RLS ────
+
+  it("firm_members_join_via_invitation: cannot self-insert into a firm without ANY matching invitation", async () => {
+    const attempt = await userC.client
+      .from("firm_members")
+      .insert({ firm_id: firmOne, user_id: userC.id, role: "member", status: "active" })
+      .select();
+    // A blocked INSERT (unlike SELECT/UPDATE/DELETE) raises a real RLS
+    // violation error rather than silently affecting 0 rows.
+    expect(attempt.error, "user self-inserted into a firm with no invitation at all").not.toBeNull();
+    expect(attempt.data).toBeNull();
+  });
+
+  it("redeem_firm_invitation(): rejects a token whose invitation email doesn't match the caller", async () => {
+    const wrongEmailToken = `test-token-wrong-email-${Date.now()}`;
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at)
+       VALUES ($1, 'someone-else@example.com', 'member', $2, $3, now() + interval '7 days')`,
+      [firmOne, wrongEmailToken, userA.id],
+    );
+    const attempt = await userC.client.rpc("redeem_firm_invitation", { p_token: wrongEmailToken });
+    expect(attempt.error, "redeemed an invitation addressed to a different email").not.toBeNull();
+    expect(attempt.error?.message, `wrong rejection reason: ${attempt.error?.message}`).toContain("Invalid, expired, or already-used");
+  });
+
+  it("redeem_firm_invitation(): rejects an expired token", async () => {
+    const expiredToken = `test-token-expired-${Date.now()}`;
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at)
+       VALUES ($1, $2, 'member', $3, $4, now() - interval '1 day')`,
+      [firmOne, userC.email, expiredToken, userA.id],
+    );
+    const attempt = await userC.client.rpc("redeem_firm_invitation", { p_token: expiredToken });
+    expect(attempt.error, "redeemed an expired invitation").not.toBeNull();
+    expect(attempt.error?.message, `wrong rejection reason: ${attempt.error?.message}`).toContain("Invalid, expired, or already-used");
+  });
+
+  it("redeem_firm_invitation(): rejects a revoked token", async () => {
+    const revokedToken = `test-token-revoked-${Date.now()}`;
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at, revoked_at)
+       VALUES ($1, $2, 'member', $3, $4, now() + interval '7 days', now())`,
+      [firmOne, userC.email, revokedToken, userA.id],
+    );
+    const attempt = await userC.client.rpc("redeem_firm_invitation", { p_token: revokedToken });
+    expect(attempt.error, "redeemed a revoked invitation").not.toBeNull();
+    expect(attempt.error?.message, `wrong rejection reason: ${attempt.error?.message}`).toContain("Invalid, expired, or already-used");
+  });
+
+  it("redeem_firm_invitation(): rejects an already-accepted token (cannot replay)", async () => {
+    const usedToken = `test-token-used-${Date.now()}`;
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at, accepted_at)
+       VALUES ($1, $2, 'member', $3, $4, now() + interval '7 days', now())`,
+      [firmOne, userC.email, usedToken, userA.id],
+    );
+    const attempt = await userC.client.rpc("redeem_firm_invitation", { p_token: usedToken });
+    expect(attempt.error, "replayed an already-accepted invitation").not.toBeNull();
+    expect(attempt.error?.message, `wrong rejection reason: ${attempt.error?.message}`).toContain("Invalid, expired, or already-used");
+  });
+
+  it("redeem_firm_invitation(): a real, valid invitation succeeds end to end and moves the user between firms", async () => {
+    const userF = await createSignedInTestUser(pg, "firm-f");
+    // F starts in Firm Two (their own personal firm, for realism).
+    const firmF = await createFirm(pg, "Firm F Personal", userF.id);
+    await addFirmMember(pg, firmF, userF.id, "owner");
+
+    const validToken = `test-token-valid-${Date.now()}`;
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at)
+       VALUES ($1, $2, 'member', $3, $4, now() + interval '7 days')`,
+      [firmOne, userF.email, validToken, userA.id],
+    );
+
+    const redeem = await userF.client.rpc("redeem_firm_invitation", { p_token: validToken });
+    expect(redeem.error, `valid redemption failed: ${redeem.error?.message}`).toBeNull();
+    expect(redeem.data).toBe(firmOne);
+
+    const membership = await pg.query(
+      `SELECT firm_id, status FROM firm_members WHERE user_id = $1 AND status = 'active'`,
+      [userF.id],
+    );
+    expect(membership.rows.length).toBe(1);
+    expect(membership.rows[0].firm_id).toBe(firmOne);
+
+    const oldMembership = await pg.query(
+      `SELECT status FROM firm_members WHERE user_id = $1 AND firm_id = $2`,
+      [userF.id, firmF],
+    );
+    expect(oldMembership.rows[0].status, "old personal firm membership wasn't marked removed").toBe("removed");
+
+    const invitationRow = await pg.query(`SELECT accepted_at FROM firm_invitations WHERE token = $1`, [validToken]);
+    expect(invitationRow.rows[0].accepted_at, "invitation wasn't marked accepted").not.toBeNull();
+
+    // Redeeming the same token again must now fail (already accepted).
+    const replay = await userF.client.rpc("redeem_firm_invitation", { p_token: validToken });
+    expect(replay.error, "the same valid token was redeemable twice").not.toBeNull();
+
+    await pg.query(`DELETE FROM auth.users WHERE id = $1`, [userF.id]);
+  });
+
+  it("firm_invitations: only the firm's admin/owner can list its pending invites — a plain member cannot", async () => {
+    const list = await userB.client.from("firm_invitations").select("id").eq("firm_id", firmOne);
+    // B is a plain 'member' of Firm One, not owner/admin — firm_invitations_admin_all requires owner/admin.
+    expect(list.data, "a plain member could list the firm's pending invitations").toEqual([]);
+  });
+
+  it("firm_invitations: an outsider cannot see an invitation addressed to someone else, even for a firm they're an invitee of", async () => {
+    // userC legitimately IS an invitee on some Firm One invitations from
+    // earlier tests in this file (firm_invitations_invitee_select correctly
+    // lets them see invites addressed to their own email) — this test
+    // proves that policy doesn't overreach into invites addressed to a
+    // completely different, unrelated email.
+    const strangerToken = `test-token-stranger-${Date.now()}`;
+    const strangerEmail = `nobody-in-particular-${Date.now()}@example.com`;
+    await pg.query(
+      `INSERT INTO firm_invitations (firm_id, email, role, token, invited_by, expires_at)
+       VALUES ($1, $2, 'member', $3, $4, now() + interval '7 days')`,
+      [firmOne, strangerEmail, strangerToken, userA.id],
+    );
+    const strangerRow = await pg.query(`SELECT id FROM firm_invitations WHERE token = $1`, [strangerToken]);
+
+    const list = await userC.client.from("firm_invitations").select("id").eq("firm_id", firmOne);
+    const visibleIds = (list.data ?? []).map((r: { id: string }) => r.id);
+    expect(visibleIds, "outsider saw an invitation addressed to a different email").not.toContain(strangerRow.rows[0].id);
+  });
 });

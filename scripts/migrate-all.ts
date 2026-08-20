@@ -233,6 +233,22 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-firm-teammate-names.ts",
     description: "Team multi-tenancy Phase 4 supporting piece — firm_teammate_names() RPC, a narrow SECURITY DEFINER function exposing only {user_id, display_name} for the caller's active firm's teammates (Workspace ownership indicator)",
   },
+  {
+    file: "migrate-firm-invitation-redemption.ts",
+    description: "Team multi-tenancy Phase 5 — firm_members_join_via_invitation INSERT policy + redeem_firm_invitation() RPC (superseded in part by the next two migrations, kept for history)",
+  },
+  {
+    file: "migrate-firm-email-lookup-fix.ts",
+    description: "Fixes 'permission denied for table users' in firm_invitations_invitee_select and redeem_firm_invitation() via a narrow my_email() SECURITY DEFINER helper; adds mark_invitation_accepted() so an invitee (not yet admin/owner) can mark their own invite accepted without a general UPDATE grant that could let them tamper with role/firm_id",
+  },
+  {
+    file: "migrate-firm-invited-by-cascade.ts",
+    description: "Fixes firm_members.invited_by / firm_invitations.invited_by to ON DELETE SET NULL — deleting a user who had ever invited a teammate previously failed with a foreign-key violation, which would have hit the real account-deletion flow",
+  },
+  {
+    file: "migrate-firms-created-by-set-null.ts",
+    description: "Fixes firms.created_by from ON DELETE CASCADE to ON DELETE SET NULL — CASCADE meant deleting a firm's owner deleted the whole firm, kicking out every other member; the firms row now survives its creator's account being deleted",
+  },
 ];
 
 const hr = "─".repeat(60);

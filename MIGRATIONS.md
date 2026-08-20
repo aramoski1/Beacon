@@ -50,7 +50,11 @@ Scripts run in this order:
 | ... | `scripts/migrate-properties-team-visibility.ts` | Team multi-tenancy Phase 2, table 7/7 (last) — `properties` SELECT/UPDATE/DELETE gain the `is_firm_teammate()` OR-clause |
 | ... | `scripts/migrate-field-definitions-team-visibility.ts` | Team multi-tenancy — `field_definitions` goes firm-wide by default: SELECT/UPDATE/DELETE gain an unconditional `is_firm_teammate()` OR-clause, no `visibility` column |
 | ... | `scripts/migrate-documents-bucket-team-visibility.ts` | Team multi-tenancy Phase 3 — `documents` storage bucket SELECT/UPDATE/DELETE gain a join-based (`storage.objects.name = documents.storage_path`) team-visibility OR-clause |
-| latest | `scripts/migrate-firm-teammate-names.ts` | Team multi-tenancy Phase 4 supporting piece — `firm_teammate_names()` RPC, a narrow SECURITY DEFINER function exposing only `{user_id, display_name}` for the caller's active firm's teammates |
+| ... | `scripts/migrate-firm-teammate-names.ts` | Team multi-tenancy Phase 4 supporting piece — `firm_teammate_names()` RPC, a narrow SECURITY DEFINER function exposing only `{user_id, display_name}` for the caller's active firm's teammates |
+| ... | `scripts/migrate-firm-invitation-redemption.ts` | Team multi-tenancy Phase 5 — invitation-redemption RLS + `redeem_firm_invitation()` (superseded in part by the next migration, kept for history) |
+| ... | `scripts/migrate-firm-email-lookup-fix.ts` | Fixes `auth.users` permission errors via a narrow `my_email()` helper; adds `mark_invitation_accepted()` |
+| ... | `scripts/migrate-firm-invited-by-cascade.ts` | Fixes `invited_by` FKs to `ON DELETE SET NULL` — was blocking deletion of any user who'd ever invited a teammate |
+| latest | `scripts/migrate-firms-created-by-set-null.ts` | Fixes `firms.created_by` from `ON DELETE CASCADE` to `ON DELETE SET NULL` — CASCADE meant deleting a firm's owner deleted the whole firm |
 
 ## Adding a new migration
 
