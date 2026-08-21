@@ -54,7 +54,8 @@ Scripts run in this order:
 | ... | `scripts/migrate-firm-invitation-redemption.ts` | Team multi-tenancy Phase 5 — invitation-redemption RLS + `redeem_firm_invitation()` (superseded in part by the next migration, kept for history) |
 | ... | `scripts/migrate-firm-email-lookup-fix.ts` | Fixes `auth.users` permission errors via a narrow `my_email()` helper; adds `mark_invitation_accepted()` |
 | ... | `scripts/migrate-firm-invited-by-cascade.ts` | Fixes `invited_by` FKs to `ON DELETE SET NULL` — was blocking deletion of any user who'd ever invited a teammate |
-| latest | `scripts/migrate-firms-created-by-set-null.ts` | Fixes `firms.created_by` from `ON DELETE CASCADE` to `ON DELETE SET NULL` — CASCADE meant deleting a firm's owner deleted the whole firm |
+| ... | `scripts/migrate-firms-created-by-set-null.ts` | Fixes `firms.created_by` from `ON DELETE CASCADE` to `ON DELETE SET NULL` — CASCADE meant deleting a firm's owner deleted the whole firm |
+| latest | `scripts/migrate-record-shares.ts` | Per-teammate sharing Phase 1 (see `Beacon_Per_User_Sharing_Plan.md`): `record_shares` table + RLS, `is_record_shared_with_me()`/`owns_shared_record()`; adds a SELECT-only shared-with-me OR-clause to `properties`/`contacts`/`deals` (read-only, not co-editable) |
 
 ## Adding a new migration
 

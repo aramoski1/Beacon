@@ -249,6 +249,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-firms-created-by-set-null.ts",
     description: "Fixes firms.created_by from ON DELETE CASCADE to ON DELETE SET NULL — CASCADE meant deleting a firm's owner deleted the whole firm, kicking out every other member; the firms row now survives its creator's account being deleted",
   },
+  {
+    file: "migrate-record-shares.ts",
+    description: "Per-teammate sharing Phase 1 (Beacon_Per_User_Sharing_Plan.md) — record_shares table + RLS, is_record_shared_with_me()/owns_shared_record(); adds a SELECT-only shared-with-me OR-clause to properties/contacts/deals (read-only, not co-editable — UPDATE/DELETE untouched)",
+  },
 ];
 
 const hr = "─".repeat(60);

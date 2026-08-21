@@ -311,6 +311,17 @@ const EXPECTED: TableSpec[] = [
       { col: "created_at",  from: "migrate-firms.ts" },
     ],
   },
+  {
+    table: "record_shares",
+    cols: [
+      { col: "id",                  from: "migrate-record-shares.ts" },
+      { col: "entity_type",         from: "migrate-record-shares.ts" },
+      { col: "entity_id",           from: "migrate-record-shares.ts" },
+      { col: "shared_with_user_id", from: "migrate-record-shares.ts" },
+      { col: "shared_by_user_id",   from: "migrate-record-shares.ts" },
+      { col: "created_at",          from: "migrate-record-shares.ts" },
+    ],
+  },
 ];
 
 const EXPECTED_BUCKETS = ["leases", "documents"];
