@@ -56,6 +56,7 @@ export async function createOwnerContact(
       action_tags: ["mdpa_mailing", "unverified"],
       outreach_history: [],
       custom_fields: {},
+      contact_type: "owner",
     })
     .select("id")
     .single();
@@ -182,6 +183,7 @@ export async function createContactFromSunbizOwner(
       action_tags: ["sunbiz", "unverified"],
       outreach_history: [],
       custom_fields: {},
+      contact_type: "owner",
     })
     .select("id")
     .single();

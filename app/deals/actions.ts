@@ -321,8 +321,36 @@ export async function updateDeal(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
+  // When the deal type is changing, the resulting stage (the one in this same
+  // update if provided, else the deal's current stage) must still belong to
+  // the new type's stage set — otherwise the deal ends up on a stage its
+  // kanban/board no longer recognizes for that type.
+  if (input.deal_type != null) {
+    let effectiveStage = input.stage;
+    if (effectiveStage == null) {
+      const { data: existing, error: fetchErr } = await supabase
+        .from("deals")
+        .select("stage")
+        .eq("id", dealId)
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      if (fetchErr) return { error: fetchErr.message };
+      if (!existing) return { error: "Deal not found." };
+      effectiveStage = existing.stage as DealStage;
+    }
+    if (!isStageAllowedForType(effectiveStage, input.deal_type)) {
+      return {
+        fieldErrors: [{
+          field: "stage",
+          message: `Stage "${STAGE_LABELS[effectiveStage]}" isn't used for ${DEAL_TYPE_LABELS[input.deal_type]} pursuits.`,
+        }],
+      };
+    }
+  }
+
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.name != null) patch.name = input.name.trim();
+  if (input.deal_type != null) patch.deal_type = input.deal_type;
   if (input.stage != null) patch.stage = input.stage;
   if ("estimated_commission" in input) patch.estimated_commission = input.estimated_commission ?? null;
   if ("notes" in input) patch.notes = input.notes?.trim() ?? null;

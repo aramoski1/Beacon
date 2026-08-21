@@ -171,7 +171,7 @@ export function EnrichPanel({
   ownerName,
   isEntityOwner,
   needsCountyEnhancement,
-  isMdpa,
+  hasCountyFolio,
   existingFolio,
   countyEnrichedAt,
   initialOwnerContacts,
@@ -182,7 +182,7 @@ export function EnrichPanel({
   ownerName: string | null;
   isEntityOwner: boolean;
   needsCountyEnhancement: boolean;
-  isMdpa: boolean;
+  hasCountyFolio: boolean;
   existingFolio: string | null;
   countyEnrichedAt: string | null;
   initialOwnerContacts: StoredOwnerContact[];
@@ -459,7 +459,7 @@ export function EnrichPanel({
     ].filter(Boolean) as string[];
 
     const done: string[] = [];
-    if (!needsCountyEnhancement && isMdpa) done.push("County records ✓");
+    if (!needsCountyEnhancement && hasCountyFolio) done.push("County records ✓");
     if (ownerContacts.length > 0) done.push(`${ownerContacts.length} owner${ownerContacts.length !== 1 ? "s" : ""} saved`);
 
     return (
@@ -901,11 +901,11 @@ export function EnrichPanel({
         <section className="space-y-3">
           <SubHeader icon={UserPlus} title="Owner contacts" />
 
-          {/* Individual (non-entity) MDPA owner */}
-          {isMdpa && ownerName && !isEntityOwner && !ownerCreated && (
+          {/* Individual (non-entity) county owner */}
+          {hasCountyFolio && ownerName && !isEntityOwner && !ownerCreated && (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
               <div className="min-w-0">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Owner from MDPA</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Owner from county records</p>
                 <p className="text-sm font-medium mt-0.5 truncate">{ownerName}</p>
               </div>
               <button
@@ -916,7 +916,7 @@ export function EnrichPanel({
               </button>
             </div>
           )}
-          {isMdpa && ownerName && !isEntityOwner && ownerCreated && (
+          {hasCountyFolio && ownerName && !isEntityOwner && ownerCreated && (
             <p className="text-xs text-muted-foreground italic">
               Owner contact created — tagged <span className="font-mono">mdpa_mailing</span> and <span className="font-mono">unverified</span>.
             </p>
@@ -975,7 +975,7 @@ export function EnrichPanel({
             </p>
           )}
 
-          {!isMdpa && !isEntityOwner && ownerContacts.length === 0 && (
+          {!hasCountyFolio && !isEntityOwner && ownerContacts.length === 0 && (
             <p className="text-sm text-muted-foreground">
               {needsCountyEnhancement
                 ? "Run county data above to discover the owner."

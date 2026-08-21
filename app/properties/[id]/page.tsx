@@ -432,8 +432,8 @@ export default async function PropertyPage({
         </Alert>
       )}
 
-      {/* Re-check ownership against MDPA (only for county-enhanced properties with a folio) */}
-      {folioNumber && (
+      {/* Re-check ownership against the county (only for county-enhanced properties with a folio/strap) */}
+      {existingFolio && (
         <OwnershipCheckPanel
           propertyId={id}
           watchEnrolled={!!(p as { ownership_watch_enrolled_at?: string | null }).ownership_watch_enrolled_at}
@@ -466,8 +466,8 @@ export default async function PropertyPage({
         address={p.address}
         ownerName={p.owner_name}
         isEntityOwner={ownerIsEntity}
-        needsCountyEnhancement={p.source !== "tax_roll" && !folioNumber}
-        isMdpa={!!folioNumber}
+        needsCountyEnhancement={p.source !== "tax_roll" && !existingFolio}
+        hasCountyFolio={!!existingFolio}
         existingFolio={existingFolio}
         countyEnrichedAt={isMdpaSource ? p.ingested_at : null}
         initialOwnerContacts={storedOwnerContacts}
