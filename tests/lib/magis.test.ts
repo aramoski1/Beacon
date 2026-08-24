@@ -4,14 +4,14 @@ import {
   getPropertyDetail,
   extractOwnerMailing,
   primaryOwnerName,
-  useDescToType,
+  propertyTypeFromUseDesc,
   maSaleDate,
   type MAParcel,
   type MARecord,
   type GISSearchResult,
 } from "../../lib/magis";
 import { parseAddressForGIS } from "../../lib/mdpa";
-import { detectCounty } from "../../lib/county-router";
+import { detectCounty, resolveMassachusettsCity } from "../../lib/county-router";
 import { normalizeOwnerName } from "../../lib/owner-contacts";
 
 function okParcels(result: GISSearchResult): MAParcel[] {
@@ -40,6 +40,20 @@ describe("parseAddressForGIS applied to Massachusetts addresses", () => {
       streetKeyword: "BEACON",
       directional: "N",
       streetType: "ST",
+    });
+  });
+
+  it("parses a spelled-out house number: One Westinghouse Plaza (real Hyde Park/Boston address)", () => {
+    // Confirmed live: MassGIS stores this parcel numerically ("1
+    // WESTINGHOUSE PZ..."), even though the building's real-world address
+    // spells out "One" — not a Massachusetts-specific convention (Miami has
+    // the same pattern, e.g. "One Biscayne Tower"), so this is handled in
+    // the shared parser, not per-state.
+    expect(parseAddressForGIS("One Westinghouse Plaza")).toEqual({
+      houseNum: 1,
+      streetKeyword: "WESTINGHOUSE",
+      directional: null,
+      streetType: null,
     });
   });
 
@@ -370,61 +384,61 @@ describe("normalizeOwnerName applied to a real MassGIS owner name", () => {
   });
 });
 
-// ─── useDescToType ────────────────────────────────────────────────────────────
+// ─── propertyTypeFromUseDesc ────────────────────────────────────────────────────────────
 // Domain confirmed live via a groupByFieldsForStatistics(USE_CODE, USE_DESC)
 // query against the whole Massachusetts_Property_Tax_Parcels table;
 // representative real values from each bucket below.
 
-describe("useDescToType (Massachusetts)", () => {
+describe("propertyTypeFromUseDesc (Massachusetts)", () => {
   it("classifies residential uses", () => {
-    expect(useDescToType("Single Family Residential")).toBe("residential");
-    expect(useDescToType("Two-Family Residential")).toBe("residential");
-    expect(useDescToType("Three-Family Residential")).toBe("residential");
-    expect(useDescToType("Bungalow")).toBe("residential");
+    expect(propertyTypeFromUseDesc("Single Family Residential")).toBe("residential");
+    expect(propertyTypeFromUseDesc("Two-Family Residential")).toBe("residential");
+    expect(propertyTypeFromUseDesc("Three-Family Residential")).toBe("residential");
+    expect(propertyTypeFromUseDesc("Bungalow")).toBe("residential");
   });
 
   it("classifies multifamily uses", () => {
-    expect(useDescToType("Apartments with Four to Eight Units")).toBe("multifamily");
-    expect(useDescToType("Apartments with More than Eight Units")).toBe("multifamily");
-    expect(useDescToType("Condo")).toBe("multifamily");
-    expect(useDescToType("Residential Condominium")).toBe("multifamily");
-    expect(useDescToType("Affordable Housing Units (Greater than 50% of the units qualify)")).toBe("multifamily");
+    expect(propertyTypeFromUseDesc("Apartments with Four to Eight Units")).toBe("multifamily");
+    expect(propertyTypeFromUseDesc("Apartments with More than Eight Units")).toBe("multifamily");
+    expect(propertyTypeFromUseDesc("Condo")).toBe("multifamily");
+    expect(propertyTypeFromUseDesc("Residential Condominium")).toBe("multifamily");
+    expect(propertyTypeFromUseDesc("Affordable Housing Units (Greater than 50% of the units qualify)")).toBe("multifamily");
   });
 
   it("classifies office uses, including commercial condos, before the generic condo rule", () => {
-    expect(useDescToType("General Office Buildings")).toBe("office");
-    expect(useDescToType("Bank Buildings")).toBe("office");
-    expect(useDescToType("Condo-Office")).toBe("office");
-    expect(useDescToType("Condo Office")).toBe("office");
+    expect(propertyTypeFromUseDesc("General Office Buildings")).toBe("office");
+    expect(propertyTypeFromUseDesc("Bank Buildings")).toBe("office");
+    expect(propertyTypeFromUseDesc("Condo-Office")).toBe("office");
+    expect(propertyTypeFromUseDesc("Condo Office")).toBe("office");
   });
 
   it("classifies retail uses", () => {
-    expect(useDescToType("Discount Stores, Junior Department Stores, Department Stores")).toBe("retail");
-    expect(useDescToType("Eating and Drinking Establishments - restaurants, diners, fast food establishments, bars, nightclubs")).toBe("retail");
-    expect(useDescToType("Automotive Vehicles Sales and Service")).toBe("retail");
-    expect(useDescToType("Gasoline Service Stations - providing engine repair or maintenance services, and fuel products")).toBe("retail");
-    expect(useDescToType("Car Wash Facilities")).toBe("retail");
+    expect(propertyTypeFromUseDesc("Discount Stores, Junior Department Stores, Department Stores")).toBe("retail");
+    expect(propertyTypeFromUseDesc("Eating and Drinking Establishments - restaurants, diners, fast food establishments, bars, nightclubs")).toBe("retail");
+    expect(propertyTypeFromUseDesc("Automotive Vehicles Sales and Service")).toBe("retail");
+    expect(propertyTypeFromUseDesc("Gasoline Service Stations - providing engine repair or maintenance services, and fuel products")).toBe("retail");
+    expect(propertyTypeFromUseDesc("Car Wash Facilities")).toBe("retail");
   });
 
   it("classifies industrial uses, including developable industrial land before the generic land rule", () => {
-    expect(useDescToType("Buildings for manufacturing operations")).toBe("industrial");
-    expect(useDescToType("Developable Industrial Land")).toBe("industrial");
+    expect(propertyTypeFromUseDesc("Buildings for manufacturing operations")).toBe("industrial");
+    expect(propertyTypeFromUseDesc("Developable Industrial Land")).toBe("industrial");
   });
 
   it("classifies land uses", () => {
-    expect(useDescToType("Developable Residential Land")).toBe("land");
-    expect(useDescToType("Developable Commercial Land")).toBe("land");
-    expect(useDescToType("Agricultural/Horticultural Land not included in Chapter 61A")).toBe("land");
-    expect(useDescToType("All land designated under Chapter 61 (not classified as Open Space)")).toBe("land");
+    expect(propertyTypeFromUseDesc("Developable Residential Land")).toBe("land");
+    expect(propertyTypeFromUseDesc("Developable Commercial Land")).toBe("land");
+    expect(propertyTypeFromUseDesc("Agricultural/Horticultural Land not included in Chapter 61A")).toBe("land");
+    expect(propertyTypeFromUseDesc("All land designated under Chapter 61 (not classified as Open Space)")).toBe("land");
   });
 
   it("falls back to 'other' for government/charitable/religious/educational uses, rather than guessing", () => {
-    expect(useDescToType("Church, Mosque, Synagogue, Temple, etc...")).toBe("other");
-    expect(useDescToType("College or University (Educational Private)")).toBe("other");
-    expect(useDescToType("Cemeteries (Charitable Org.)")).toBe("other");
-    expect(useDescToType("Dept. of Conservation and Recreation (DCR), Division of State Parks and Recreation")).toBe("other");
-    expect(useDescToType(null)).toBe("other");
-    expect(useDescToType("")).toBe("other");
+    expect(propertyTypeFromUseDesc("Church, Mosque, Synagogue, Temple, etc...")).toBe("other");
+    expect(propertyTypeFromUseDesc("College or University (Educational Private)")).toBe("other");
+    expect(propertyTypeFromUseDesc("Cemeteries (Charitable Org.)")).toBe("other");
+    expect(propertyTypeFromUseDesc("Dept. of Conservation and Recreation (DCR), Division of State Parks and Recreation")).toBe("other");
+    expect(propertyTypeFromUseDesc(null)).toBe("other");
+    expect(propertyTypeFromUseDesc("")).toBe("other");
   });
 });
 
@@ -480,6 +494,35 @@ describe("detectCounty — Massachusetts cities/towns", () => {
   });
 });
 
+// ─── Boston neighborhoods — routed like a city, resolved back to "Boston" ────
+// Real-world reported bug: "One Westinghouse Plaza, Hyde Park, MA 02136"
+// failed because "Hyde Park" (a Boston neighborhood, not a municipality)
+// wasn't recognized at all, AND — even once recognized — MassGIS's own CITY
+// field only ever says "BOSTON", never the neighborhood name.
+
+describe("detectCounty / resolveMassachusettsCity — Boston neighborhoods", () => {
+  it("routes real Boston neighborhoods to massachusetts, same as the municipality itself", () => {
+    for (const neighborhood of ["Hyde Park", "Dorchester", "Roxbury", "East Boston", "Jamaica Plain"]) {
+      expect(detectCounty(neighborhood), neighborhood).toBe("massachusetts");
+    }
+  });
+
+  it("resolves a Boston neighborhood to 'Boston' for the actual MassGIS query filter", () => {
+    expect(resolveMassachusettsCity("Hyde Park")).toBe("Boston");
+    expect(resolveMassachusettsCity("East Boston")).toBe("Boston");
+    expect(resolveMassachusettsCity("DORCHESTER")).toBe("Boston");
+  });
+
+  it("leaves a real municipality (not a Boston neighborhood) unchanged", () => {
+    expect(resolveMassachusettsCity("Cambridge")).toBe("Cambridge");
+    expect(resolveMassachusettsCity("Boston")).toBe("Boston");
+  });
+
+  it("passes through undefined unchanged", () => {
+    expect(resolveMassachusettsCity(undefined)).toBeUndefined();
+  });
+});
+
 // ─── Live Massachusetts parcel service ────────────────────────────────────────
 // The Massachusetts State House — a government-owned parcel, chosen
 // deliberately as a stable long-term fixture (unlike an individually-owned
@@ -506,5 +549,18 @@ describe("live Massachusetts parcel service", () => {
     const parcels = okParcels(result);
     expect(parcels.length).toBeGreaterThanOrEqual(1);
     expect(parcels[0].folio).toBe("F_790618_2965662");
+  }, 30_000);
+
+  // Reproduces the exact reported bug end to end: a spelled-out house number
+  // ("One") at a real Hyde Park/Boston address (city passed here as
+  // "Boston" — what lib/county-router.ts's resolveMassachusettsCity resolves
+  // "Hyde Park" to before calling this function).
+  it("One Westinghouse Plaza, Boston (Hyde Park) resolves to LOC_ID F_755909_2914790", async () => {
+    const result = await searchByAddressGIS("One Westinghouse Plaza", "Boston");
+    const parcels = okParcels(result);
+    expect(parcels.length).toBeGreaterThanOrEqual(1);
+    // The whole complex's ~199 unit/parking-space rows all share one LOC_ID
+    // (confirmed live) — every returned candidate should resolve to it.
+    expect(parcels.every((p) => p.folio === "F_755909_2914790")).toBe(true);
   }, 30_000);
 });

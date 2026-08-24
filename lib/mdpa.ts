@@ -45,6 +45,21 @@ const TYPES = new Set([
   "PKWY","HWY","EXPY","PTE","PT","CV","GLN","RUN","VIS","LOOP","PASS",
 ]);
 
+// Some real addresses spell out a small building number instead of using a
+// digit — "One Westinghouse Plaza", "Two International Place", "One
+// Biscayne Tower". Confirmed live against MassGIS: the parcel itself is
+// stored numerically ("1 WESTINGHOUSE PZ..."), so the broker-typed spelled
+// form just needs converting before the GIS query is built. Not a
+// Massachusetts-specific convention (Miami has the same pattern), so this
+// lives in the shared parser, not a per-state workaround. Only single/low
+// double-digit spellings are real-world office-address conventions — this
+// never needs to go higher.
+const SPELLED_OUT_NUMBERS: Record<string, number> = {
+  ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5, SIX: 6, SEVEN: 7, EIGHT: 8, NINE: 9, TEN: 10,
+  ELEVEN: 11, TWELVE: 12, THIRTEEN: 13, FOURTEEN: 14, FIFTEEN: 15, SIXTEEN: 16, SEVENTEEN: 17,
+  EIGHTEEN: 18, NINETEEN: 19, TWENTY: 20,
+};
+
 // Parses a broker-typed address into the components used for GIS search.
 // Returns null if a house number cannot be extracted.
 export function parseAddressForGIS(
@@ -64,11 +79,23 @@ export function parseAddressForGIS(
   const street = raw.replace(/,.*$/, "").trim();
 
   const numMatch = street.match(/^(\d+)(?:-(\d+))?/);
-  if (!numMatch) return null;
-  const houseNum = parseInt(numMatch[1], 10);
-  const houseNumAlt = numMatch[2] ? parseInt(numMatch[2], 10) : undefined;
+  let houseNum: number;
+  let houseNumAlt: number | undefined;
+  let restStart: number;
 
-  const rest = street.slice(numMatch[0].length).trim().toUpperCase();
+  if (numMatch) {
+    houseNum = parseInt(numMatch[1], 10);
+    houseNumAlt = numMatch[2] ? parseInt(numMatch[2], 10) : undefined;
+    restStart = numMatch[0].length;
+  } else {
+    const wordMatch = street.match(/^([A-Za-z]+)\b/);
+    const spelledOut = wordMatch ? SPELLED_OUT_NUMBERS[wordMatch[1].toUpperCase()] : undefined;
+    if (spelledOut === undefined) return null;
+    houseNum = spelledOut;
+    restStart = wordMatch![0].length;
+  }
+
+  const rest = street.slice(restStart).trim().toUpperCase();
   const allWords = rest.split(/\s+/).filter((w) => w.length > 0);
 
   // Peel off a leading directional prefix, if present

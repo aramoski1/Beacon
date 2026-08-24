@@ -12,6 +12,7 @@ export type IngestionStage =
   | "mdpa_fetch"     // MDPA folio detail lookup
   | "bcpa_fetch"     // BCPA folio detail lookup (Florida DOR statewide service)
   | "pbcpa_fetch"    // PBCPA folio detail lookup (PAO.PROPINFO_PUB table)
+  | "magis_fetch"    // MassGIS parcel detail lookup (Massachusetts_Property_Tax_Parcels)
   | "jina_fetch"     // Jina Reader web page fetch
   | "ai_extract"     // Claude field extraction
   | "db_save"        // Supabase upsert

@@ -13,6 +13,14 @@ import {
   pbSaleDate,
   type PBRecord,
 } from "@/lib/pbcpa";
+import {
+  getPropertyDetail as magisDetail,
+  extractOwnerMailing as magisExtractMailing,
+  primaryOwnerName as magisOwnerName,
+  propertyTypeFromUseDesc,
+  maSaleDate,
+  type MARecord,
+} from "@/lib/magis";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { fetchFieldDefs } from "@/lib/custom-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -120,6 +128,46 @@ function pbcpaToFields(rec: PBRecord, customFields: Record<string, null> = {}): 
   };
 }
 
+// MassGIS splits building area across BLD_AREA (commercial) and RES_AREA
+// (residential) rather than one field like Broward's TOT_LVG_AREA — prefer
+// BLD_AREA, fall back to RES_AREA, since exactly one of the two is
+// populated per parcel in every live record seen. LOT_SIZE is already in
+// acres (LOT_UNITS), same unit-conversion convention as Palm Beach's ACRES.
+// USE_CODE is passed through as-is for dor_code (same "whatever the source
+// gives us" convention as Broward's raw DOR_UC/PA_UC) even though it isn't
+// state-standardized (see lib/magis.ts file header) — property_type itself
+// comes from the free-text USE_DESC classifier instead, not this code.
+function magisToFields(rec: MARecord, customFields: Record<string, null> = {}): ExtractedProperty {
+  const ownerName = magisOwnerName(rec);
+  const ownerNorm = (ownerName ?? "").replace(/\./g, "");
+  const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
+  const sizeSqft = rec.BLD_AREA || rec.RES_AREA || null;
+  const stories = rec.STORIES != null ? Number(rec.STORIES) : NaN;
+  const lotSize = rec.LOT_SIZE;
+  return {
+    address: rec.SITE_ADDR ?? null,
+    city: rec.CITY ? titleCase(rec.CITY) : null,
+    submarket: null,
+    owner_name: ownerName,
+    ownership_type: isEntity ? "institutional" : (ownerName ? "private" : "unknown"),
+    size_sqft: sizeSqft,
+    property_type: propertyTypeFromUseDesc(rec.USE_DESC),
+    last_sale_date: maSaleDate(rec.LS_DATE),
+    last_sale_price: rec.LS_PRICE,
+    building_composition: {
+      year_built: rec.YEAR_BUILT ?? null,
+      lot_size_sqft: typeof lotSize === "number" && lotSize > 0 && rec.LOT_UNITS === "Acres" ? Math.round(lotSize * 43_560) : null,
+      stories: Number.isNaN(stories) ? null : stories,
+      units: rec.UNITS ?? null,
+      assessed_value: rec.TOTAL_VAL ?? null,
+      dor_code: rec.USE_CODE ?? null,
+      dor_description: rec.USE_DESC ?? null,
+    },
+    confidence_flags: [],
+    custom_fields: customFields,
+  };
+}
+
 // ─── Step 1: Identify ─────────────────────────────────────────────────────────
 // Always returns the full candidate list — the broker must confirm before we fetch anything.
 
@@ -163,25 +211,35 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
       };
     }
   } else {
-    // City missing or unrecognised — search all supported counties in parallel.
-    const [mdpaSettled, bcpaSettled, pbcpaSettled] = await Promise.allSettled([
+    // City missing or unrecognised — search all supported regions in parallel.
+    // Massachusetts is included here too (not just via the knownCounty
+    // branch above) because MassGIS's own CITY field uses the official
+    // municipality (e.g. "BOSTON"), while brokers often type a Boston
+    // neighborhood instead ("Hyde Park", "Dorchester", "Roxbury" — none of
+    // which are in the MASSACHUSETTS city/town set, since they aren't
+    // municipalities) — magisSearch still finds the parcel via a
+    // city-less statewide search in that case.
+    const [mdpaSettled, bcpaSettled, pbcpaSettled, magisSettled] = await Promise.allSettled([
       searchParcelsByAddress(address, "miami-dade"),
       searchParcelsByAddress(address, "broward"),
       searchParcelsByAddress(address, "palm-beach"),
+      searchParcelsByAddress(address, "massachusetts"),
     ]);
 
     const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : { kind: "error" as const, message: String(mdpaSettled.reason) };
     const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : { kind: "error" as const, message: String(bcpaSettled.reason) };
     const pbcpaResult = pbcpaSettled.status === "fulfilled" ? pbcpaSettled.value : { kind: "error" as const, message: String(pbcpaSettled.reason) };
+    const magisResult = magisSettled.status === "fulfilled" ? magisSettled.value : { kind: "error" as const, message: String(magisSettled.reason) };
 
     matches = [
       ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
       ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
       ...(pbcpaResult.kind === "ok" ? pbcpaResult.parcels : []),
+      ...(magisResult.kind === "ok" ? magisResult.parcels : []),
     ];
 
     if (matches.length === 0) {
-      if (bcpaResult.kind === "too_many_candidates" || pbcpaResult.kind === "too_many_candidates") {
+      if (bcpaResult.kind === "too_many_candidates" || pbcpaResult.kind === "too_many_candidates" || magisResult.kind === "too_many_candidates") {
         return {
           error: "Too many candidates for that address — include the city to narrow the search (e.g. '2116 Sherman St, Hollywood').",
         };
@@ -189,6 +247,7 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
       const firstError = mdpaResult.kind === "error" ? mdpaResult.message
         : bcpaResult.kind === "error" ? bcpaResult.message
         : pbcpaResult.kind === "error" ? pbcpaResult.message
+        : magisResult.kind === "error" ? magisResult.message
         : null;
       if (firstError) {
         await logIngestionError(supabase, user.id, {
@@ -200,14 +259,14 @@ export async function ingestAddress(formData: FormData): Promise<IngestResult> {
         return { error: `Property search failed: ${firstError}` };
       }
 
-      // We couldn't route the city to a supported county, and every county
+      // We couldn't route the city to a supported region, and every region's
       // search came back with a genuine (not erroring) empty result — this
       // address is most likely outside our coverage area entirely (e.g.
       // Orlando/Orange County), not a property that doesn't exist. Say so
       // instead of "no parcel found", which wrongly implies the property
       // itself is missing.
       return {
-        error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach only).",
+        error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach counties; Boston-metro Massachusetts).",
       };
     }
   }
@@ -343,6 +402,49 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     };
   }
 
+  // ── Massachusetts: MARecord maps directly — no Claude needed ─────────────────
+  if (county === "massachusetts") {
+    let rec: MARecord | null;
+    try {
+      rec = await magisDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await logIngestionError(supabase, user.id, {
+        stage: "magis_fetch",
+        source_type: "address",
+        source_ref: `${strap} (${siteAddress})`,
+        error_message: msg,
+      });
+      return { error: `MassGIS detail fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: `No Massachusetts parcel record found for LOC_ID ${strap}.` };
+
+    const customExtractDefs = (await fetchFieldDefs(supabase, user.id, "property")).filter(f => f.fill_mode === "extract");
+    const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
+    const fields = magisToFields(rec, nullCustom);
+
+    // Sunbiz is Florida's Division of Corporations registry — not applicable
+    // to a Massachusetts entity owner, so deliberately skipped here rather
+    // than run a lookup guaranteed to miss. A Massachusetts equivalent
+    // (Secretary of the Commonwealth corporate search) is out of scope for
+    // this integration.
+    const sunbiz_result: SunbizResult | null = null;
+    const sunbiz_error: string | null = null;
+
+    return {
+      preview: {
+        ...fields,
+        address: siteAddress,
+        city: rec.CITY ? titleCase(rec.CITY) : "Massachusetts",
+        strap,
+        county: "massachusetts",
+        owner_mailing_address: magisExtractMailing(rec),
+        sunbiz_result,
+        sunbiz_error,
+      },
+    };
+  }
+
   // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────────
   let detail: unknown;
   try {
@@ -463,6 +565,8 @@ export async function saveIngestedProperty(
     ? `bcpa:${preview.strap}`
     : preview.county === "palm-beach"
     ? `pbcpa:${preview.strap}`
+    : preview.county === "massachusetts"
+    ? `magis:${preview.strap}`
     : `mdpa:${preview.strap}`;
 
   let id: string;

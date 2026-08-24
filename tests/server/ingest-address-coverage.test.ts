@@ -42,7 +42,15 @@ function fakeSupabase() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks (not clearAllMocks) — clearAllMocks only wipes call
+  // history, not configured implementations, so a persistent
+  // mockResolvedValue from an earlier test silently answers calls in a
+  // later one that didn't set up enough mockResolvedValueOnce values of its
+  // own. This was already a latent gap; it went unnoticed while
+  // searchParcelsByAddress was only ever called up to 3 times per test —
+  // adding the 4th (Massachusetts) parallel search made a leftover
+  // implementation from an earlier test start answering call #4 here.
+  vi.resetAllMocks();
   (createClient as Mock).mockResolvedValue(fakeSupabase());
 });
 
@@ -59,12 +67,13 @@ describe("ingestAddress — coverage vs. genuine-miss error messages", () => {
     expect("error" in result).toBe(true);
     if ("error" in result) {
       expect(result.error).toContain("outside our current coverage");
-      expect(result.error).toContain("Miami-Dade, Broward, and Palm Beach only");
+      expect(result.error).toContain("Miami-Dade, Broward, and Palm Beach counties; Boston-metro Massachusetts");
       expect(result.error).not.toContain("No parcel found");
     }
     expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "miami-dade");
     expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "broward");
     expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "palm-beach");
+    expect(searchParcelsByAddress).toHaveBeenCalledWith("500 N Orange Ave", "massachusetts");
   });
 
   it("says 'No parcel found' (not a coverage message) for a genuine miss in a known, supported Palm Beach city", async () => {
@@ -122,7 +131,8 @@ describe("ingestAddress — coverage vs. genuine-miss error messages", () => {
     (searchParcelsByAddress as Mock)
       .mockResolvedValueOnce({ kind: "error", message: "HTTP 503" }) // miami-dade
       .mockResolvedValueOnce({ kind: "ok", parcels: [] }) // broward
-      .mockResolvedValueOnce({ kind: "ok", parcels: [] }); // palm-beach
+      .mockResolvedValueOnce({ kind: "ok", parcels: [] }) // palm-beach
+      .mockResolvedValueOnce({ kind: "ok", parcels: [] }); // massachusetts
 
     const result = await ingestAddress(formDataWithAddress("123 Some Rd"));
 

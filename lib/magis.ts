@@ -26,7 +26,7 @@
 // "Condominium-Association" all under "1021"), because each town's local
 // assessor system supplies its own code. Classification here goes off the
 // free-text USE_DESC instead, the same approach lib/pbcpa.ts uses for
-// Palm Beach's free-text PROPERTY_USE — see useDescToType.
+// Palm Beach's free-text PROPERTY_USE — see propertyTypeFromUseDesc.
 //
 // LS_DATE is a YYYYMMDD STRING field (esriFieldTypeString), NOT the
 // standard esriFieldTypeDate epoch-ms encoding Palm Beach's SALE_DATE uses
@@ -407,7 +407,7 @@ export function maSaleDate(raw: string | null | undefined): string | null {
 // religious, educational, conservation, cemetery — all real, common
 // USE_DESC categories in this data) fall back to "other" rather than guess,
 // the same policy lib/pbcpa.ts/lib/bcpa.ts use.
-export function useDescToType(desc: string | null | undefined): string {
+export function propertyTypeFromUseDesc(desc: string | null | undefined): string {
   if (!desc?.trim()) return "other";
   const u = desc.trim().toUpperCase();
 

@@ -216,6 +216,8 @@ function AddressPreviewCard({
             ? "Structured from Broward County Property Appraiser record."
             : preview.county === "palm-beach"
             ? "Structured from Palm Beach County Property Appraiser record."
+            : preview.county === "massachusetts"
+            ? "Structured from MassGIS parcel record."
             : "Structured from Miami-Dade Property Appraiser record."}
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground pl-6 flex-wrap">
@@ -810,7 +812,7 @@ function AddPropertyInner() {
                   <Input id="address" name="address" type="text" placeholder="3401 N Miami Ave"
                     autoComplete="off" required disabled={isPending} className="pl-9" />
                 </div>
-                <p className="text-xs text-muted-foreground">Street number + name only. Supports Miami-Dade, Broward, and Palm Beach County.</p>
+                <p className="text-xs text-muted-foreground">Street number + name only. Supports Miami-Dade, Broward, and Palm Beach County (FL), and the Boston metro area (MA).</p>
               </div>
               {error && <ErrorBox msg={error} />}
               <Button type="submit" disabled={isPending} className="w-full">

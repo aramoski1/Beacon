@@ -111,18 +111,21 @@ function folio(sourceUrl: string | null) {
   if (!sourceUrl?.startsWith("mdpa:")) return null;
   return sourceUrl.replace("mdpa:", "");
 }
-// County-agnostic strap/folio extraction (MDPA, BCPA, or PBCPA) — used for
-// re-running county enhancement directly, since folio() above is Miami-Dade-only.
+// County-agnostic strap/folio extraction (MDPA, BCPA, PBCPA, or MassGIS) —
+// used for re-running county enhancement directly, since folio() above is
+// Miami-Dade-only.
 function countyStrap(sourceUrl: string | null): string | null {
   if (sourceUrl?.startsWith("mdpa:")) return sourceUrl.replace("mdpa:", "");
   if (sourceUrl?.startsWith("bcpa:")) return sourceUrl.replace("bcpa:", "");
   if (sourceUrl?.startsWith("pbcpa:")) return sourceUrl.replace("pbcpa:", "");
+  if (sourceUrl?.startsWith("magis:")) return sourceUrl.replace("magis:", "");
   return null;
 }
 function sourceLabel(source: string | null, sourceUrl?: string | null) {
   if (source === "tax_roll") {
     if (sourceUrl?.startsWith("bcpa:")) return "Tax roll · BCPA";
     if (sourceUrl?.startsWith("pbcpa:")) return "Tax roll · PBCPA";
+    if (sourceUrl?.startsWith("magis:")) return "Tax roll · MassGIS";
     return "Tax roll · MDPA";
   }
   if (source === "url") return "Listing URL";
@@ -131,7 +134,7 @@ function sourceLabel(source: string | null, sourceUrl?: string | null) {
   return source ?? "Unknown";
 }
 function isCountySourceUrl(sUrl: string | null): boolean {
-  return !!sUrl && (sUrl.startsWith("mdpa:") || sUrl.startsWith("bcpa:") || sUrl.startsWith("pbcpa:"));
+  return !!sUrl && (sUrl.startsWith("mdpa:") || sUrl.startsWith("bcpa:") || sUrl.startsWith("pbcpa:") || sUrl.startsWith("magis:"));
 }
 function listingUrl(source: string | null, sUrl: string | null) {
   if (source === "url" && sUrl && !isCountySourceUrl(sUrl)) return sUrl;

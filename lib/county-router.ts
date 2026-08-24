@@ -305,6 +305,54 @@ const MASSACHUSETTS: ReadonlySet<string> = new Set([
   "WEST NEWBURY",
 ]);
 
+// Boston neighborhoods commonly written as the "city" in a mailing address
+// ("One Westinghouse Plaza, Hyde Park, MA 02136"), even though they are not
+// municipalities — confirmed live against MassGIS: a real East Boston
+// parcel's own CITY field is "BOSTON", not "East Boston" ("EAST BOSTON"
+// only shows up in the separate owner-mailing-address OWN_CITY field).
+// These route to "massachusetts" like any other recognized city (so a
+// neighborhood name doesn't fall through to the unscoped 4-way fallback
+// search), and resolveMassachusettsCity below maps the typed neighborhood
+// back to "Boston" before it's used as MassGIS's actual CITY query filter.
+const BOSTON_NEIGHBORHOODS: ReadonlySet<string> = new Set([
+  "ALLSTON",
+  "BACK BAY",
+  "BAY VILLAGE",
+  "BEACON HILL",
+  "BRIGHTON",
+  "CHARLESTOWN",
+  "CHINATOWN",
+  "DORCHESTER",
+  "DOWNTOWN",
+  "EAST BOSTON",
+  "FENWAY",
+  "HYDE PARK",
+  "JAMAICA PLAIN",
+  "LEATHER DISTRICT",
+  "LONGWOOD",
+  "MATTAPAN",
+  "MISSION HILL",
+  "NORTH END",
+  "ROSLINDALE",
+  "ROXBURY",
+  "SEAPORT",
+  "SOUTH BOSTON",
+  "SOUTH END",
+  "WEST END",
+  "WEST ROXBURY",
+]);
+
+/**
+ * Resolves a Boston neighborhood name to the municipality MassGIS's CITY
+ * field actually uses ("Boston"), leaving any other MA city/town — or a
+ * missing city — unchanged. Used wherever a parsed city is about to be
+ * passed to magisSearch as a real query filter (see searchParcelsByAddress).
+ */
+export function resolveMassachusettsCity(city: string | undefined): string | undefined {
+  if (!city) return city;
+  return BOSTON_NEIGHBORHOODS.has(city.toUpperCase().trim()) ? "Boston" : city;
+}
+
 // ─── City extraction ──────────────────────────────────────────────────────────
 
 /**
@@ -341,7 +389,7 @@ export function detectCounty(city: string): SupportedCounty | null {
   if (MIAMI_DADE.has(normalized)) return "miami-dade";
   if (BROWARD.has(normalized)) return "broward";
   if (PALM_BEACH.has(normalized)) return "palm-beach";
-  if (MASSACHUSETTS.has(normalized)) return "massachusetts";
+  if (MASSACHUSETTS.has(normalized) || BOSTON_NEIGHBORHOODS.has(normalized)) return "massachusetts";
   return null;
 }
 
@@ -387,7 +435,7 @@ export async function searchParcelsByAddress(
     // address can't be parsed into a house number/keyword — same
     // degrade-to-{kind:"error"} handling as the other branches.
     try {
-      const result = await magisSearch(rawAddress, city);
+      const result = await magisSearch(rawAddress, resolveMassachusettsCity(city));
       if (result.kind !== "ok") return result;
       return {
         kind: "ok",
