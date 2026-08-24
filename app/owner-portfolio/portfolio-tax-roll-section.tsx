@@ -18,18 +18,22 @@ import {
   discoverMdpaPortfolio,
   discoverBcpaPortfolio,
   discoverPbcpaPortfolio,
+  discoverMagisPortfolio,
   importAllMdpaPortfolioParcels,
   importAllBcpaPortfolioParcels,
   importAllPbcpaPortfolioParcels,
+  importAllMagisPortfolioParcels,
   importMdpaPortfolioParcel,
   importBcpaPortfolioParcel,
   importPbcpaPortfolioParcel,
+  importMagisPortfolioParcel,
   type MdpaPortfolioDiscovery,
   type BcpaPortfolioDiscovery,
   type PbcpaPortfolioDiscovery,
+  type MagisPortfolioDiscovery,
 } from "./discovery-actions";
 
-type County = "miami-dade" | "broward" | "palm-beach";
+type County = "miami-dade" | "broward" | "palm-beach" | "massachusetts";
 
 type TaxRollParcel = {
   county: County;
@@ -47,6 +51,7 @@ const COUNTY_LABEL: Record<County, string> = {
   "miami-dade": "Miami-Dade",
   broward: "Broward",
   "palm-beach": "Palm Beach",
+  massachusetts: "Massachusetts",
 };
 
 const mdpaVerifyUrl = (folio: string) =>
@@ -58,15 +63,24 @@ const bcpaVerifyUrl = (folio: string) =>
 const pbcpaVerifyUrl = (folio: string) =>
   `https://pbcpao.gov/Property/Details?parcelId=${folio.replace(/-/g, "")}`;
 
+// MassGIS has no single, polished per-parcel "verify" page the way the three
+// Florida county appraisers do (each town runs its own local assessor site,
+// no one stable URL pattern) — this links the raw ArcGIS record query
+// instead of guessing/fabricating a page that might not exist.
+const magisVerifyUrl = (locId: string) =>
+  `https://services1.arcgis.com/hGdibHYSPO59RG1h/ArcGIS/rest/services/Massachusetts_Property_Tax_Parcels/FeatureServer/0/query?where=LOC_ID='${encodeURIComponent(locId)}'&outFields=*&f=json`;
+
 function verifyUrlFor(county: County, strap: string): string {
   if (county === "miami-dade") return mdpaVerifyUrl(strap);
   if (county === "palm-beach") return pbcpaVerifyUrl(strap);
+  if (county === "massachusetts") return magisVerifyUrl(strap);
   return bcpaVerifyUrl(strap);
 }
 
 function verifyLabelFor(county: County): string {
   if (county === "miami-dade") return "MDPA";
   if (county === "palm-beach") return "PBCPA";
+  if (county === "massachusetts") return "MassGIS (raw record)";
   return "BCPA";
 }
 
@@ -74,6 +88,7 @@ function mergeParcels(
   mdpa: MdpaPortfolioDiscovery | null,
   bcpa: BcpaPortfolioDiscovery | null,
   pbcpa: PbcpaPortfolioDiscovery | null,
+  magis: MagisPortfolioDiscovery | null,
 ): TaxRollParcel[] {
   const parcels: TaxRollParcel[] = [];
   for (const p of mdpa?.parcels ?? []) {
@@ -84,6 +99,9 @@ function mergeParcels(
   }
   for (const p of pbcpa?.parcels ?? []) {
     parcels.push({ county: "palm-beach", ...p });
+  }
+  for (const p of magis?.parcels ?? []) {
+    parcels.push({ county: "massachusetts", ...p });
   }
   return parcels.sort((a, b) => (a.address ?? a.folio).localeCompare(b.address ?? b.folio));
 }
@@ -97,6 +115,7 @@ export function PortfolioTaxRollSection({
   const [mdpa, setMdpa] = useState<MdpaPortfolioDiscovery | null>(null);
   const [bcpa, setBcpa] = useState<BcpaPortfolioDiscovery | null>(null);
   const [pbcpa, setPbcpa] = useState<PbcpaPortfolioDiscovery | null>(null);
+  const [magis, setMagis] = useState<MagisPortfolioDiscovery | null>(null);
   const [loading, setLoading] = useState(true);
   const [importingStrap, setImportingStrap] = useState<string | null>(null);
   const [bulkPending, startBulk] = useTransition();
@@ -108,24 +127,27 @@ export function PortfolioTaxRollSection({
     setError(null);
     setOtherCountyNotice(null);
 
-    const [mdpaSettled, bcpaSettled, pbcpaSettled] = await Promise.allSettled([
+    const [mdpaSettled, bcpaSettled, pbcpaSettled, magisSettled] = await Promise.allSettled([
       discoverMdpaPortfolio(queries),
       discoverBcpaPortfolio(queries),
       discoverPbcpaPortfolio(queries),
+      discoverMagisPortfolio(queries),
     ]);
 
     const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : null;
     const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : null;
     const pbcpaResult = pbcpaSettled.status === "fulfilled" ? pbcpaSettled.value : null;
+    const magisResult = magisSettled.status === "fulfilled" ? magisSettled.value : null;
 
     setMdpa(mdpaResult);
     setBcpa(bcpaResult);
     setPbcpa(pbcpaResult);
+    setMagis(magisResult);
 
     // Miami-Dade errors are surfaced as the primary error (this county has the
-    // deepest/most reliable coverage); Broward/Palm Beach failures are shown
-    // as an honest notice so the section stays useful even if one of those
-    // searches is limited.
+    // deepest/most reliable coverage); Broward/Palm Beach/Massachusetts
+    // failures are shown as an honest notice so the section stays useful even
+    // if one of those searches is limited.
     if (mdpaResult?.error) {
       setError(mdpaResult.error);
     } else if (mdpaSettled.status === "rejected") {
@@ -142,6 +164,11 @@ export function PortfolioTaxRollSection({
       limitedNotices.push(`Palm Beach: ${pbcpaResult.error}`);
     } else if (pbcpaSettled.status === "rejected") {
       limitedNotices.push(`Palm Beach: ${String(pbcpaSettled.reason)}`);
+    }
+    if (magisResult?.error) {
+      limitedNotices.push(`Massachusetts: ${magisResult.error}`);
+    } else if (magisSettled.status === "rejected") {
+      limitedNotices.push(`Massachusetts: ${String(magisSettled.reason)}`);
     }
     if (limitedNotices.length > 0) {
       setOtherCountyNotice(`Tax roll search limited — ${limitedNotices.join(" · ")}`);
@@ -162,6 +189,8 @@ export function PortfolioTaxRollSection({
         ? await importMdpaPortfolioParcel(strap, address ?? strap, city)
         : county === "palm-beach"
         ? await importPbcpaPortfolioParcel(strap, address ?? strap, city)
+        : county === "massachusetts"
+        ? await importMagisPortfolioParcel(strap, address ?? strap, city)
         : await importBcpaPortfolioParcel(strap, address ?? strap, city);
     setImportingStrap(null);
     if ("error" in res && !("existingId" in res && res.existingId)) {
@@ -182,11 +211,14 @@ export function PortfolioTaxRollSection({
     const toImportPbcpa = (pbcpa?.parcels ?? [])
       .filter((p) => !p.inCrm)
       .map((p) => ({ strap: p.strap, address: p.address ?? p.strap, city: p.city }));
-    if (toImportMdpa.length === 0 && toImportBcpa.length === 0 && toImportPbcpa.length === 0) return;
+    const toImportMagis = (magis?.parcels ?? [])
+      .filter((p) => !p.inCrm)
+      .map((p) => ({ strap: p.strap, address: p.address ?? p.strap, city: p.city }));
+    if (toImportMdpa.length === 0 && toImportBcpa.length === 0 && toImportPbcpa.length === 0 && toImportMagis.length === 0) return;
 
     startBulk(async () => {
       setError(null);
-      const [mdpaRes, bcpaRes, pbcpaRes] = await Promise.all([
+      const [mdpaRes, bcpaRes, pbcpaRes, magisRes] = await Promise.all([
         toImportMdpa.length > 0
           ? importAllMdpaPortfolioParcels(toImportMdpa)
           : Promise.resolve({ imported: [], skipped: 0, errors: [] as string[] }),
@@ -196,10 +228,13 @@ export function PortfolioTaxRollSection({
         toImportPbcpa.length > 0
           ? importAllPbcpaPortfolioParcels(toImportPbcpa)
           : Promise.resolve({ imported: [], skipped: 0, errors: [] as string[] }),
+        toImportMagis.length > 0
+          ? importAllMagisPortfolioParcels(toImportMagis)
+          : Promise.resolve({ imported: [], skipped: 0, errors: [] as string[] }),
       ]);
-      const errors = [...mdpaRes.errors, ...bcpaRes.errors, ...pbcpaRes.errors];
-      const importedCount = mdpaRes.imported.length + bcpaRes.imported.length + pbcpaRes.imported.length;
-      const skipped = mdpaRes.skipped + bcpaRes.skipped + pbcpaRes.skipped;
+      const errors = [...mdpaRes.errors, ...bcpaRes.errors, ...pbcpaRes.errors, ...magisRes.errors];
+      const importedCount = mdpaRes.imported.length + bcpaRes.imported.length + pbcpaRes.imported.length + magisRes.imported.length;
+      const skipped = mdpaRes.skipped + bcpaRes.skipped + pbcpaRes.skipped + magisRes.skipped;
       if (errors.length > 0) {
         setError(`Imported ${importedCount}; ${skipped} skipped. ${errors[0]}`);
       }
@@ -208,12 +243,12 @@ export function PortfolioTaxRollSection({
     });
   }
 
-  const parcels = mergeParcels(mdpa, bcpa, pbcpa);
+  const parcels = mergeParcels(mdpa, bcpa, pbcpa, magis);
   const notInCrm = parcels.filter((p) => !p.inCrm);
   const totalOnTaxRoll = parcels.length;
   const inCrmCount = parcels.filter((p) => p.inCrm).length;
-  const truncated = Boolean(mdpa?.truncated || bcpa?.truncated || pbcpa?.truncated);
-  const hasAnyResult = Boolean(mdpa || bcpa || pbcpa);
+  const truncated = Boolean(mdpa?.truncated || bcpa?.truncated || pbcpa?.truncated || magis?.truncated);
+  const hasAnyResult = Boolean(mdpa || bcpa || pbcpa || magis);
 
   const searchSummary = queries
     .map((q) => q.label ?? q.query)
@@ -229,7 +264,7 @@ export function PortfolioTaxRollSection({
             Tax roll portfolio
           </h2>
           <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-            County-wide search (Miami-Dade + Broward + Palm Beach):{" "}
+            County-wide search (Miami-Dade + Broward + Palm Beach + Massachusetts):{" "}
             <span className="font-medium text-foreground">{searchSummary}</span>
             {" "}— all parcels owned under matching LLC / owner names on the tax roll.
           </p>
@@ -277,13 +312,13 @@ export function PortfolioTaxRollSection({
       {loading && !hasAnyResult && (
         <div className="rounded-xl border bg-card px-4 py-10 flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          Searching Miami-Dade, Broward, and Palm Beach tax rolls…
+          Searching Miami-Dade, Broward, Palm Beach, and Massachusetts tax rolls…
         </div>
       )}
 
       {hasAnyResult && !loading && parcels.length === 0 && !error && (
         <p className="text-sm text-muted-foreground rounded-xl border bg-card px-4 py-8 text-center">
-          No matching parcels on the Miami-Dade, Broward, or Palm Beach tax rolls for this owner.
+          No matching parcels on the Miami-Dade, Broward, Palm Beach, or Massachusetts tax rolls for this owner.
         </p>
       )}
 
@@ -301,7 +336,7 @@ export function PortfolioTaxRollSection({
             </span>
             {truncated && (
               <span className="text-muted-foreground self-center">
-                Capped at 3,000 per county — portfolio may be larger.
+                Capped at 3,000 per source — portfolio may be larger.
               </span>
             )}
           </div>

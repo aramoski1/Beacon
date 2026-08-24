@@ -11,6 +11,18 @@ describe("shouldSkipCountyEnhance", () => {
     expect(shouldSkipCountyEnhance({ source: "csv_import", source_url: "mdpa:01-1" })).toBe(true);
     expect(shouldSkipCountyEnhance({ source: "csv_import", source_url: null })).toBe(false);
   });
+
+  // Regression: a property enhanced later via the Enrich panel's "Run" flow
+  // (applyCountyEnhancement) keeps its original `source` (e.g. "csv_import"
+  // or "url") and only gets a new source_url — this used to only be
+  // recognized for Miami-Dade's mdpa: prefix, so a Broward/Palm Beach/
+  // Massachusetts property in this state would be wrongly re-queued for
+  // county enhancement in the bulk onboarding enrich flow.
+  it("skips bcpa:/pbcpa:/magis: source_url too, not just mdpa:", () => {
+    expect(shouldSkipCountyEnhance({ source: "csv_import", source_url: "bcpa:514209051449" })).toBe(true);
+    expect(shouldSkipCountyEnhance({ source: "url", source_url: "pbcpa:08434529010190251" })).toBe(true);
+    expect(shouldSkipCountyEnhance({ source: "csv_import", source_url: "magis:F_790618_2965662" })).toBe(true);
+  });
 });
 
 describe("planEnrichJobs", () => {

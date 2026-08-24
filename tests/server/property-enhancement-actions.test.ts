@@ -29,12 +29,29 @@ vi.mock("@/lib/mdpa", () => ({
   parseAddressForGIS: vi.fn(),
 }));
 
+vi.mock("@/lib/magis", () => ({
+  searchByAddressGIS: vi.fn(),
+  getPropertyDetail: vi.fn(),
+  extractOwnerMailing: vi.fn().mockReturnValue(null),
+  primaryOwnerName: vi.fn((raw: { OWNER1?: string | null } | null) => raw?.OWNER1?.trim() || null),
+  propertyTypeFromUseDesc: vi.fn().mockReturnValue("other"),
+  maSaleDate: vi.fn().mockReturnValue(null),
+  parseAddressForGIS: vi.fn(),
+}));
+
+vi.mock("@/lib/sunbiz", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/sunbiz")>();
+  return { ...actual, searchAndExtractSunbiz: vi.fn() };
+});
+
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { createClient } from "@/lib/supabase/server";
 import { fetchFieldDefs, type FieldDefinition } from "@/lib/custom-fields";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
 import { getPropertyDetail } from "@/lib/mdpa";
+import { getPropertyDetail as magisGetPropertyDetail, type MARecord } from "@/lib/magis";
+import { searchAndExtractSunbiz } from "@/lib/sunbiz";
 import { previewCountyEnhancement, applyDocumentEnhancement } from "@/app/properties/[id]/actions";
 
 // ─── Mock Supabase builder ────────────────────────────────────────────────────
@@ -149,6 +166,102 @@ describe("previewCountyEnhancement — custom-field pass-through", () => {
     const passedCustomFields = (extractPropertyFields as Mock).mock.calls[0][2];
     expect(passedCustomFields).toEqual(customDefs);
     expect(passedCustomFields.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── previewCountyEnhancement — Massachusetts path ─────────────────────────────
+// Critical: Sunbiz is Florida's Division of Corporations registry and must
+// NEVER be queried for a Massachusetts property, even when the owner name
+// matches the LLC/INC/CORP pattern (a MA LLC matches that pattern too) —
+// see app/properties/[id]/actions.ts's county-guarded auto-Sunbiz block and
+// lib/magis.ts's file header.
+
+function maRecord(overrides: Partial<MARecord> = {}): MARecord {
+  return {
+    LOC_ID: "F_790618_2965662",
+    MAP_PAR_ID: "0101268000",
+    SITE_ADDR: "1105 Saratoga ST",
+    CITY: "BOSTON",
+    ZIP: "02128",
+    OWNER1: "ACME REALTY LLC",
+    OWN_ADDR: null,
+    OWN_CITY: null,
+    OWN_STATE: null,
+    OWN_ZIP: null,
+    OWN_CO: null,
+    LOT_SIZE: 0,
+    LOT_UNITS: "Acres",
+    LS_DATE: "20210120",
+    LS_PRICE: 995000,
+    LS_BOOK: null,
+    LS_PAGE: null,
+    USE_CODE: "105",
+    USE_DESC: "Three-Family Residential",
+    TOTAL_VAL: 902000,
+    LAND_VAL: 269500,
+    BLDG_VAL: 632500,
+    OTHER_VAL: 0,
+    YEAR_BUILT: 1910,
+    BLD_AREA: 0,
+    RES_AREA: 3210,
+    UNITS: null,
+    STORIES: "2.0",
+    NUM_ROOMS: 14,
+    STYLE: "Conventional",
+    ...overrides,
+  };
+}
+
+describe("previewCountyEnhancement — Massachusetts path (F_ LOC_ID strap)", () => {
+  it("routes an F_ LOC_ID to the massachusetts branch, uses the deterministic mapping (no Claude call)", async () => {
+    const { supabase } = buildSupabaseSpy({
+      owner_name: null,
+      size_sqft: null,
+      last_sale_date: null,
+      last_sale_price: null,
+      building_composition: null,
+      owner_mailing_address: null,
+      land_sqft: null,
+      asset_description: null,
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+    (fetchFieldDefs as Mock).mockResolvedValue([]);
+    (magisGetPropertyDetail as Mock).mockResolvedValue(maRecord());
+
+    const result = await previewCountyEnhancement("prop-1", "F_790618_2965662", "1105 Saratoga St");
+
+    expect("error" in result).toBe(false);
+    if (!("error" in result)) {
+      expect(result.preview.county).toBe("massachusetts");
+      expect(result.preview.mdpaData.owner_name).toBe("ACME REALTY LLC");
+    }
+    // Deterministic mapping (like Broward/Palm Beach) — no Claude extraction call.
+    expect(extractPropertyFields).not.toHaveBeenCalled();
+  });
+
+  it("CRITICAL — never calls Sunbiz for a Massachusetts property, even with an LLC-shaped owner name", async () => {
+    const { supabase } = buildSupabaseSpy({
+      owner_name: null,
+      size_sqft: null,
+      last_sale_date: null,
+      last_sale_price: null,
+      building_composition: null,
+      owner_mailing_address: null,
+      land_sqft: null,
+      asset_description: null,
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+    (fetchFieldDefs as Mock).mockResolvedValue([]);
+    (magisGetPropertyDetail as Mock).mockResolvedValue(maRecord({ OWNER1: "ACME REALTY LLC" }));
+
+    const result = await previewCountyEnhancement("prop-1", "F_790618_2965662", "1105 Saratoga St");
+
+    expect("error" in result).toBe(false);
+    if (!("error" in result)) {
+      expect(result.preview.sunbiz_result).toBeNull();
+      expect(result.preview.sunbiz_error).toBeNull();
+    }
+    expect(searchAndExtractSunbiz).not.toHaveBeenCalled();
   });
 });
 

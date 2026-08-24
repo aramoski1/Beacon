@@ -30,6 +30,7 @@ const COUNTY_SOURCE_LABEL: Record<string, string> = {
   broward: "BCPA",
   "palm-beach": "PBCPA",
   "miami-dade": "MDPA",
+  massachusetts: "MassGIS",
 };
 
 // ─── Phase machine ────────────────────────────────────────────────────────────

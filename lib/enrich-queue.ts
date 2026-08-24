@@ -23,13 +23,26 @@ export type EnrichJobPlan = {
   skipReason?: string;
 };
 
-/** Skip county enhance when already MDPA-sourced. */
+/** Skip county enhance when already county/state-sourced (any of MDPA/BCPA/
+ * PBCPA/MassGIS's source_url prefixes — not just MDPA's). `source ===
+ * "tax_roll"` already covers a property ingested directly from the tax
+ * roll, but a property enhanced later via the Enrich panel's "Run" flow
+ * (applyCountyEnhancement) keeps its original `source` and only gets a new
+ * `source_url` — this second check is what catches that case, so it has to
+ * cover every county/state prefix, not just Miami-Dade's. */
 export function shouldSkipCountyEnhance(p: {
   source: string | null;
   source_url: string | null;
 }): boolean {
   if (p.source === "tax_roll") return true;
-  if (p.source_url?.startsWith("mdpa:")) return true;
+  if (
+    p.source_url?.startsWith("mdpa:") ||
+    p.source_url?.startsWith("bcpa:") ||
+    p.source_url?.startsWith("pbcpa:") ||
+    p.source_url?.startsWith("magis:")
+  ) {
+    return true;
+  }
   return false;
 }
 

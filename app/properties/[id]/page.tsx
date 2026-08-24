@@ -475,6 +475,7 @@ export default async function PropertyPage({
         countyEnrichedAt={isMdpaSource ? p.ingested_at : null}
         initialOwnerContacts={storedOwnerContacts}
         costarEnabled={userSettings.costar_enabled}
+        supportsEntityLookup={!p.source_url?.startsWith("magis:")}
       />
 
       <Suspense

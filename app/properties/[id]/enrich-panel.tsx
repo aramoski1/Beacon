@@ -51,6 +51,7 @@ const COUNTY_SOURCE_LABEL: Record<string, string> = {
   broward: "BCPA",
   "palm-beach": "PBCPA",
   "miami-dade": "MDPA",
+  massachusetts: "MassGIS",
 };
 
 // ── Types derived from action return types ────────────────────────────────────
@@ -176,6 +177,7 @@ export function EnrichPanel({
   countyEnrichedAt,
   initialOwnerContacts,
   costarEnabled,
+  supportsEntityLookup,
 }: {
   propertyId: string;
   address: string | null;
@@ -187,6 +189,13 @@ export function EnrichPanel({
   countyEnrichedAt: string | null;
   initialOwnerContacts: StoredOwnerContact[];
   costarEnabled: boolean;
+  /** Sunbiz is Florida's Division of Corporations registry — it has no
+   * Massachusetts data. False for a magis:-sourced property so the panel
+   * says so honestly instead of offering a lookup guaranteed to be wrong
+   * or empty. See lib/magis.ts's file header and lookupSunbiz's server-side
+   * guard in app/properties/[id]/actions.ts (the actual enforcement point —
+   * this prop only controls what the UI offers). */
+  supportsEntityLookup: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -454,7 +463,7 @@ export function EnrichPanel({
   if (!open) {
     const sources = [
       needsCountyEnhancement && "County records",
-      isEntityOwner && "Owner lookup (Sunbiz)",
+      isEntityOwner && supportsEntityLookup && "Owner lookup (Sunbiz)",
       costarEnabled && "CoStar export",
     ].filter(Boolean) as string[];
 
@@ -774,6 +783,10 @@ export function EnrichPanel({
                 <p className="text-sm text-muted-foreground">
                   Not applicable — {ownerName} doesn&apos;t look like a registered entity, so there&apos;s nothing to look up on Sunbiz.
                 </p>
+              ) : !supportsEntityLookup ? (
+                <p className="text-sm text-muted-foreground">
+                  Not available yet — Sunbiz only covers Florida-registered entities, and this property is sourced from Massachusetts (MassGIS).
+                </p>
               ) : (
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm text-muted-foreground">
@@ -984,7 +997,9 @@ export function EnrichPanel({
           )}
           {isEntityOwner && ownerContacts.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              {needsCountyEnhancement
+              {!supportsEntityLookup
+                ? "Entity/owner lookup isn't available for Massachusetts yet — Sunbiz only covers Florida-registered entities."
+                : needsCountyEnhancement
                 ? "Run county data above — it will auto-search Sunbiz for entity owners."
                 : "Run the Sunbiz lookup above to find registered agents and authorized persons."}
             </p>

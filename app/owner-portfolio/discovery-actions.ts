@@ -24,6 +24,13 @@ import {
   type PbcpaSearchMode,
 } from "@/lib/pbcpa";
 import { importPbcpaFolio } from "@/lib/pbcpa-folio-ingest";
+import {
+  folioStrapKey as magisFolioStrapKey,
+  searchParcelsByOwnerQueries as searchMagisParcelsByOwnerQueries,
+  type MagisOwnerParcelHit,
+  type MagisSearchMode,
+} from "@/lib/magis-owner-search";
+import { importMagisFolio } from "@/lib/magis-folio-ingest";
 
 export type MdpaPortfolioParcel = MdpaOwnerParcelHit & {
   inCrm: boolean;
@@ -70,10 +77,25 @@ export type PbcpaPortfolioDiscovery = {
   error?: string;
 };
 
+export type MagisPortfolioParcel = MagisOwnerParcelHit & {
+  inCrm: boolean;
+  crmPropertyId: string | null;
+};
+
+export type MagisPortfolioDiscovery = {
+  queries: { query: string; mode: MagisSearchMode; label?: string }[];
+  parcels: MagisPortfolioParcel[];
+  totalOnTaxRoll: number;
+  inCrmCount: number;
+  notInCrmCount: number;
+  truncated: boolean;
+  error?: string;
+};
+
 /** Loads folio→property and address→property maps for a given CRM source_url prefix (e.g. "mdpa:", "bcpa:"). */
 async function loadCrmMatchMaps(
   userId: string,
-  sourcePrefix: "mdpa:" | "bcpa:" | "pbcpa:",
+  sourcePrefix: "mdpa:" | "bcpa:" | "pbcpa:" | "magis:",
   normalizeFolioKey: (raw: string) => string,
 ): Promise<{
   folioMap: Map<string, string>;
@@ -420,6 +442,109 @@ export async function importAllPbcpaPortfolioParcels(
       continue;
     }
     const res = await importPbcpaFolio(row.strap, address, row.city);
+    if ("id" in res && res.id) {
+      imported.push(res.id);
+    } else if ("existingId" in res && res.existingId) {
+      skipped++;
+    } else if ("error" in res) {
+      errors.push(`${row.strap}: ${res.error}`);
+      if (errors.length >= 5) break;
+    }
+  }
+
+  return { imported, skipped, errors };
+}
+
+// ─── Massachusetts tax roll portfolio discovery ───────────────────────────────
+// Parallel to the Miami-Dade / Broward / Palm Beach functions above. Reuses
+// the same MdpaSearchQuery shape (query/mode/label are region-agnostic
+// owner-name searches) so callers can run one query list against all four
+// sources. Not Sunbiz — see lib/magis-owner-search.ts's file header.
+
+export async function discoverMagisPortfolio(
+  queries: { query: string; mode: MdpaSearchMode; label?: string }[],
+): Promise<MagisPortfolioDiscovery> {
+  const normalizedQueries = queries
+    .map((q) => ({ ...q, query: q.query.trim() }))
+    .filter((q) => q.query.length >= 2);
+
+  if (normalizedQueries.length === 0) {
+    return {
+      queries: [],
+      parcels: [],
+      totalOnTaxRoll: 0,
+      inCrmCount: 0,
+      notInCrmCount: 0,
+      truncated: false,
+      error: "No owner name to search.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return {
+        queries: normalizedQueries,
+        parcels: [],
+        totalOnTaxRoll: 0,
+        inCrmCount: 0,
+        notInCrmCount: 0,
+        truncated: false,
+        error: "Not authenticated.",
+      };
+    }
+
+    const hits = await searchMagisParcelsByOwnerQueries(
+      normalizedQueries.map((q) => ({ query: q.query, mode: q.mode })),
+    );
+    const { folioMap, addressMap } = await loadCrmMatchMaps(user.id, "magis:", magisFolioStrapKey);
+    const parcels = attachCrmStatus(hits, folioMap, addressMap);
+    const inCrmCount = parcels.filter((p) => p.inCrm).length;
+
+    return {
+      queries: normalizedQueries,
+      parcels,
+      totalOnTaxRoll: parcels.length,
+      inCrmCount,
+      notInCrmCount: parcels.length - inCrmCount,
+      truncated: parcels.length >= 3000,
+    };
+  } catch (e) {
+    return {
+      queries: normalizedQueries,
+      parcels: [],
+      totalOnTaxRoll: 0,
+      inCrmCount: 0,
+      notInCrmCount: 0,
+      truncated: false,
+      error: e instanceof Error ? e.message : "Massachusetts tax roll search failed.",
+    };
+  }
+}
+
+export async function importMagisPortfolioParcel(
+  strap: string,
+  siteAddress: string,
+  city?: string | null,
+): Promise<{ id: string } | { error: string; existingId?: string }> {
+  return importMagisFolio(strap, siteAddress, city);
+}
+
+export async function importAllMagisPortfolioParcels(
+  straps: { strap: string; address: string | null; city: string | null }[],
+): Promise<{ imported: string[]; skipped: number; errors: string[] }> {
+  const imported: string[] = [];
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const row of straps) {
+    const address = row.address?.trim();
+    if (!address) {
+      skipped++;
+      continue;
+    }
+    const res = await importMagisFolio(row.strap, address, row.city);
     if ("id" in res && res.id) {
       imported.push(res.id);
     } else if ("existingId" in res && res.existingId) {

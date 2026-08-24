@@ -20,6 +20,14 @@ import {
   pbSaleDate,
   type PBRecord,
 } from "@/lib/pbcpa";
+import {
+  getPropertyDetail as magisDetail,
+  extractOwnerMailing as magisExtractMailing,
+  primaryOwnerName as magisOwnerName,
+  propertyTypeFromUseDesc,
+  maSaleDate,
+  type MARecord,
+} from "@/lib/magis";
 import { extractPropertyFields, type ExtractedProperty, type PipelineContent } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
@@ -83,12 +91,24 @@ export async function lookupSunbiz(
 
   const { data: prop } = await supabase
     .from("properties")
-    .select("owner_name")
+    .select("owner_name, source_url")
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
 
   if (!prop) return { error: "Property not found." };
+
+  // Sunbiz is Florida's Division of Corporations registry — it has no
+  // knowledge of Massachusetts entities. Querying it for a MA-sourced
+  // property risks a false-positive match against an unrelated Florida
+  // entity that happens to share a name, which would silently attribute the
+  // wrong registered agent/officers to this property. Server-side gate
+  // (not just a UI hint) because this action has multiple callers
+  // (enrich-panel.tsx, the CRM bulk-enrich panel) that must all be
+  // protected the same way, not just whichever one remembers to check.
+  if (prop.source_url?.startsWith("magis:")) {
+    return { error: "Entity/owner lookup isn't available for Massachusetts yet — Sunbiz only covers Florida-registered entities." };
+  }
 
   // Use the caller-provided override (e.g. corrected Sunbiz name) or fall back to DB owner_name
   const nameToSearch = searchTermOverride?.trim() || prop.owner_name?.trim();
@@ -366,9 +386,13 @@ export type EnhancementPreview = {
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-// County detection from strap length: Broward folios are 12 digits,
-// Miami-Dade 13, Palm Beach PCNs 17 (confirmed live — see lib/pbcpa.ts).
+// County detection from strap format: Massachusetts LOC_IDs are always
+// "F_<digits>_<digits>" (confirmed live — see lib/magis.ts), checked first
+// since it's structurally distinct from any Florida folio; Broward folios
+// are 12 digits, Miami-Dade 13, Palm Beach PCNs 17 (confirmed live — see
+// lib/pbcpa.ts).
 function countyFromStrap(strap: string): SupportedCounty {
+  if (strap.startsWith("F_")) return "massachusetts";
   const digits = strap.replace(/-/g, "").length;
   if (digits === 12) return "broward";
   if (digits === 17) return "palm-beach";
@@ -410,7 +434,12 @@ export async function initiateCountyEnhancement(
   if (prop.source === "tax_roll") {
     return { error: "This property is already sourced from the county property appraiser." };
   }
-  if (prop.source_url?.startsWith("mdpa:") || prop.source_url?.startsWith("bcpa:") || prop.source_url?.startsWith("pbcpa:")) {
+  if (
+    prop.source_url?.startsWith("mdpa:") ||
+    prop.source_url?.startsWith("bcpa:") ||
+    prop.source_url?.startsWith("pbcpa:") ||
+    prop.source_url?.startsWith("magis:")
+  ) {
     return { error: "This property has already been enhanced with county data." };
   }
   if (!prop.address?.trim()) {
@@ -442,27 +471,30 @@ export async function initiateCountyEnhancement(
         };
       }
     } else {
-      // Unknown city — search all supported counties in parallel and merge results
-      const [mdpaSettled, bcpaSettled, pbcpaSettled] = await Promise.allSettled([
+      // Unknown city — search all supported regions in parallel and merge results
+      const [mdpaSettled, bcpaSettled, pbcpaSettled, magisSettled] = await Promise.allSettled([
         searchParcelsByAddress(address, "miami-dade"),
         searchParcelsByAddress(address, "broward"),
         searchParcelsByAddress(address, "palm-beach"),
+        searchParcelsByAddress(address, "massachusetts"),
       ]);
       const mdpaResult = mdpaSettled.status === "fulfilled" ? mdpaSettled.value : { kind: "error" as const, message: String(mdpaSettled.reason) };
       const bcpaResult = bcpaSettled.status === "fulfilled" ? bcpaSettled.value : { kind: "error" as const, message: String(bcpaSettled.reason) };
       const pbcpaResult = pbcpaSettled.status === "fulfilled" ? pbcpaSettled.value : { kind: "error" as const, message: String(pbcpaSettled.reason) };
+      const magisResult = magisSettled.status === "fulfilled" ? magisSettled.value : { kind: "error" as const, message: String(magisSettled.reason) };
       parcels = [
         ...(mdpaResult.kind === "ok" ? mdpaResult.parcels : []),
         ...(bcpaResult.kind === "ok" ? bcpaResult.parcels : []),
         ...(pbcpaResult.kind === "ok" ? pbcpaResult.parcels : []),
+        ...(magisResult.kind === "ok" ? magisResult.parcels : []),
       ];
 
       if (parcels.length === 0) {
-        // Couldn't route the city to a supported county, and every search
+        // Couldn't route the city to a supported region, and every search
         // genuinely came back empty — most likely outside coverage (e.g.
         // Orlando/Orange County), not a property that doesn't exist.
         return {
-          error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach only).",
+          error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach counties; Boston-metro Massachusetts).",
         };
       }
     }
@@ -581,6 +613,45 @@ export async function previewCountyEnhancement(
       // custom fields can't be extracted from it, so leave them null.
       custom_fields: Object.fromEntries(customExtractFields.map((f) => [fieldSlug(f.field_name), null])),
     };
+  } else if (county === "massachusetts") {
+    // ── Massachusetts: MARecord maps directly — no Claude needed ───────────────
+    let rec: MARecord | null;
+    try {
+      rec = await magisDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `MassGIS detail fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: `No Massachusetts parcel record found for LOC_ID ${strap}.` };
+
+    const sizeSqft = rec.BLD_AREA || rec.RES_AREA || null;
+    const stories = rec.STORIES != null ? Number(rec.STORIES) : NaN;
+    const lotSize = rec.LOT_SIZE;
+    const lotSizeSqft = typeof lotSize === "number" && lotSize > 0 && rec.LOT_UNITS === "Acres" ? Math.round(lotSize * 43_560) : null;
+    bc = {
+      year_built: rec.YEAR_BUILT ?? null,
+      lot_size_sqft: lotSizeSqft,
+      stories: Number.isNaN(stories) ? null : stories,
+      units: rec.UNITS ?? null,
+      assessed_value: rec.TOTAL_VAL ?? null,
+      dor_code: rec.USE_CODE ?? null,
+      dor_description: rec.USE_DESC ?? null,
+    };
+    mdpaData = {
+      owner_name: magisOwnerName(rec),
+      size_sqft: sizeSqft && sizeSqft > 0 ? sizeSqft : null,
+      last_sale_date: maSaleDate(rec.LS_DATE),
+      last_sale_price: rec.LS_PRICE,
+      building_composition: bc,
+      owner_mailing_address: magisExtractMailing(rec),
+      land_sqft: lotSizeSqft,
+      asset_description: rec.USE_DESC ? `MassGIS USE_DESC: ${rec.USE_DESC} (${propertyTypeFromUseDesc(rec.USE_DESC)})` : null,
+      // MassGIS is a deterministic field mapping (no Claude call) — broker-
+      // defined custom fields can't be extracted from it, so leave them
+      // null. No auto-Sunbiz below either — Sunbiz is Florida-only (see
+      // lib/magis.ts file header, lookupSunbiz's guard above).
+      custom_fields: Object.fromEntries(customExtractFields.map((f) => [fieldSlug(f.field_name), null])),
+    };
   } else {
     // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────
     let detail: unknown;
@@ -666,12 +737,16 @@ STRICT RULES — violation is not permitted:
   const changes   = allFields.filter((f) => f.before !== f.after);
   const unchanged = allFields.filter((f) => f.before === f.after && (f.before !== null || f.after !== null));
 
-  // Auto Sunbiz — non-blocking, never prevents preview returning
+  // Auto Sunbiz — non-blocking, never prevents preview returning.
+  // Sunbiz is Florida's Division of Corporations registry — never run it for
+  // a Massachusetts property regardless of whether the owner name happens to
+  // match the LLC/INC/CORP pattern (a MA LLC matches that pattern too), or a
+  // same-named unrelated Florida entity could get silently attributed here.
   let sunbiz_result: import("@/lib/sunbiz").SunbizResult | null = null;
   let sunbiz_error: string | null = null;
   const ownerNorm = (mdpaData.owner_name ?? "").replace(/\./g, "");
   const isEntity = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i.test(ownerNorm);
-  if (isEntity && mdpaData.owner_name) {
+  if (county !== "massachusetts" && isEntity && mdpaData.owner_name) {
     try {
       const lookup = await searchAndExtractSunbiz(mdpaData.owner_name);
       sunbiz_result = lookup.result;
@@ -714,6 +789,7 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
   const strap = sourceUrl?.startsWith("mdpa:") ? sourceUrl.replace("mdpa:", "")
     : sourceUrl?.startsWith("bcpa:") ? sourceUrl.replace("bcpa:", "")
     : sourceUrl?.startsWith("pbcpa:") ? sourceUrl.replace("pbcpa:", "")
+    : sourceUrl?.startsWith("magis:") ? sourceUrl.replace("magis:", "")
     : null;
   if (!strap) return { error: "No county folio on record. Run county enhancement first." };
 
@@ -745,6 +821,18 @@ export async function checkOwnershipChange(propertyId: string): Promise<Ownershi
     newOwner = pbcpaOwnerName(rec);
     // PBCPA has full day-level SALE_DATE — compare exactly (see saleDatesDiffer "full" call below)
     newSaleDate = pbSaleDate(rec.SALE_DATE);
+  } else if (county === "massachusetts") {
+    let rec: MARecord | null;
+    try {
+      rec = await magisDetail(strap);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { error: `MassGIS fetch failed: ${msg}` };
+    }
+    if (!rec) return { error: "Massachusetts parcel record not found." };
+    newOwner = magisOwnerName(rec);
+    // LS_DATE is full day-level (YYYYMMDD) — compare exactly, same as MDPA/PBCPA below.
+    newSaleDate = maSaleDate(rec.LS_DATE);
   } else {
     let detail: unknown;
     try {
@@ -828,7 +916,7 @@ export async function setOwnershipWatch(
   return { ok: true };
 }
 
-/** Re-check up to `limit` enrolled properties (MDPA + BCPA via checkOwnershipChange). */
+/** Re-check up to `limit` enrolled properties (MDPA/BCPA/PBCPA/MassGIS via checkOwnershipChange). */
 export async function runOwnershipWatchBatch(
   limit = 15,
 ): Promise<{ checked: number; changed: number; errors: string[] }> {
@@ -934,6 +1022,7 @@ export async function applyCountyEnhancement(
       field_sources:         fieldSourcesUpdate,
       source_url:            countyFromStrap(strap) === "broward" ? `bcpa:${strap}`
                               : countyFromStrap(strap) === "palm-beach" ? `pbcpa:${strap}`
+                              : countyFromStrap(strap) === "massachusetts" ? `magis:${strap}`
                               : `mdpa:${strap}`,
       confidence_flags:      [...remainingFlags, ...newCustomFlags],
       ingested_at:           new Date().toISOString(),

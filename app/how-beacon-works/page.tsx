@@ -49,9 +49,9 @@ export default async function HowBeaconWorksPage({
           <li className="pl-0">
             <p className="font-medium text-foreground">1. Ownership truth</p>
             <p className="text-muted-foreground mt-0.5">
-              Pull parcel owners from county tax roll (Miami-Dade, Broward, Palm Beach), find people
-              behind LLCs on Sunbiz, and promote them into your CRM. Enroll key assets on ownership
-              watch so flips don&apos;t surprise you.
+              Pull parcel owners from the county/state tax roll (Miami-Dade, Broward, Palm Beach; Boston-metro
+              Massachusetts), find people behind Florida LLCs on Sunbiz, and promote them into your CRM.
+              Enroll key assets on ownership watch so flips don&apos;t surprise you.
             </p>
           </li>
           <li>
@@ -105,8 +105,9 @@ export default async function HowBeaconWorksPage({
         <h2 className="text-sm font-semibold tracking-tight">Honest limits</h2>
         <ul className="space-y-2 text-sm text-muted-foreground leading-relaxed list-disc list-inside">
           <li>Beacon drafts email — you send it from Gmail/Outlook.</li>
-          <li>County enrichment is South Florida–first (Miami-Dade, Broward, Palm Beach).</li>
+          <li>County enrichment covers South Florida (Miami-Dade, Broward, Palm Beach) and the Boston metro area (Massachusetts).</li>
           <li>Comps come from tax-roll sales and your own lease abstracts — not CoStar market data.</li>
+          <li>Entity/LLC lookup (Sunbiz) is Florida-only — Massachusetts has no equivalent wired up yet, so owner names there stay as the tax roll shows them.</li>
           <li>
             Stuck on where something lives? Ask Copilot on the Dashboard — or come back to this page
             from Settings.

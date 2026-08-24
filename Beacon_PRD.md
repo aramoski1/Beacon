@@ -10,7 +10,7 @@
 
 Beacon is a CRM for commercial real estate brokers. Every account still defaults to acting exactly like a single-broker tool — one owner, fully private data, nothing shared with anyone — but a broker can now invite teammates into a firm and explicitly share specific records with them. See §5.11 and `Beacon_Team_Multitenancy_Plan.md` for the full design and the safety rationale behind it; the short version is that sharing is opt-in per record, never automatic, and this was built ahead of pilot validation by explicit product decision (§9). The broker uses Beacon to:
 
-1. **Track properties** — who owns them, when they last sold, what's on the land (Miami-Dade, Broward, and Palm Beach tax roll)
+1. **Track properties** — who owns them, when they last sold, what's on the land (Miami-Dade, Broward, and Palm Beach tax roll; Boston-metro Massachusetts via MassGIS)
 2. **Track owner contacts** — with contact tiers, outreach cadence, and relationship notes
 3. **Track lease abstracts** — expiration dates, base rates, tenants (must be linked to a property)
 4. **Stay on top of follow-ups** — lease expiry alerts, cadence overdue reminders
@@ -157,7 +157,7 @@ User confirms save
   → lib/property-ingest.ts:upsertProperty (dedup by source_url exact match, then address case-insensitive)
 ```
 
-Coverage today is **Miami-Dade, Broward, and Palm Beach only**; an address search outside those three counties returns a coverage error rather than a false negative.
+Coverage today is **Miami-Dade, Broward, and Palm Beach counties (FL), plus the Boston-metro area — Suffolk, Middlesex, Norfolk, and Essex counties (MA), via the statewide MassGIS parcel service**; an address search outside that coverage returns a coverage error rather than a false negative. Massachusetts properties are enriched deterministically from MassGIS the same way Broward/Palm Beach are (no Claude call needed) — see `lib/magis.ts`. Entity/LLC lookup (Sunbiz) remains Florida-only; it is not queried for Massachusetts properties (see §5.8).
 
 ### 5.2 Property Ingestion (URL)
 
@@ -228,7 +228,7 @@ From a property or contact, the "Portfolio →" link goes to `/owner-portfolio/p
 
 This page aggregates all workspace properties belonging to the same owner (entity fuzzy match or person name match) and shows a unified timeline of lease events, contacts, outreach, and activities.
 
-It also offers a county-wide tax roll search (via Miami-Dade, Broward, and Palm Beach) to discover the owner's properties that are NOT yet in the broker's workspace.
+It also offers a county/state-wide tax roll search (via Miami-Dade, Broward, Palm Beach, and Massachusetts/MassGIS) to discover the owner's properties that are NOT yet in the broker's workspace. Entity/LLC lookup (Sunbiz) stays Florida-only — Massachusetts owner names are shown as the tax roll lists them, with no LLC-to-person resolution.
 
 ### 5.9 Deals Pipeline
 
@@ -387,7 +387,7 @@ Users can define custom fields for properties, contacts, leases, and **deals** a
 - Document attachments **exist** for properties, contacts, leases, and deals.
 - Account deletion **exists** and is covered by an end-to-end test.
 - **Lease XLSX export** uses real abstract + linked property columns (`app/api/export/leases/route.ts`).
-- Owner portfolio tax-roll discovery covers **Miami-Dade, Broward, and Palm Beach**.
+- Owner portfolio tax-roll discovery covers **Miami-Dade, Broward, Palm Beach, and Massachusetts (MassGIS)**. Entity/LLC lookup (Sunbiz) is Florida-only.
 - Follow-ups live primarily via **Today desk**; `/follow-ups` remains under Advanced.
 
 ### UX / polish
