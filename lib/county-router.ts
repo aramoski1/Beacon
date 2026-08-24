@@ -29,9 +29,20 @@ import {
   extractOwnerMailing as pbcpaExtractMailing,
 } from "./pbcpa";
 
+import {
+  searchByAddressGIS as magisSearch,
+  getPropertyDetail as magisDetail,
+  extractOwnerMailing as magisExtractMailing,
+} from "./magis";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type SupportedCounty = "miami-dade" | "broward" | "palm-beach";
+// "massachusetts" is not a county like the other three — MassGIS covers the
+// entire state through one statewide service (lib/magis.ts), so a single
+// bucket routes every supported MA city/town there. Named to match the
+// SupportedCounty type's existing per-region-bucket shape rather than
+// renaming the type for one entry.
+export type SupportedCounty = "miami-dade" | "broward" | "palm-beach" | "massachusetts";
 
 export type RoutedParcel = {
   folio: string;
@@ -161,6 +172,139 @@ const PALM_BEACH: ReadonlySet<string> = new Set([
   "CANAL POINT",
 ]);
 
+// Massachusetts — Boston metro coverage: Suffolk, Middlesex, Norfolk, and
+// Essex counties (task-scoped initial rollout; MassGIS itself covers all of
+// Massachusetts, so widening this set later needs no new integration, only
+// more city names). One combined set is enough for routing purposes — we
+// only need "is this a city we cover," not which of the four counties it's
+// in, since all four route to the same statewide service.
+const MASSACHUSETTS: ReadonlySet<string> = new Set([
+  // Suffolk County
+  "BOSTON",
+  "CHELSEA",
+  "REVERE",
+  "WINTHROP",
+  // Middlesex County
+  "ACTON",
+  "ARLINGTON",
+  "ASHBY",
+  "ASHLAND",
+  "AYER",
+  "BEDFORD",
+  "BELMONT",
+  "BILLERICA",
+  "BOXBOROUGH",
+  "BURLINGTON",
+  "CAMBRIDGE",
+  "CARLISLE",
+  "CHELMSFORD",
+  "CONCORD",
+  "DRACUT",
+  "DUNSTABLE",
+  "EVERETT",
+  "FRAMINGHAM",
+  "GROTON",
+  "HOLLISTON",
+  "HOPKINTON",
+  "HUDSON",
+  "LEXINGTON",
+  "LINCOLN",
+  "LITTLETON",
+  "LOWELL",
+  "MALDEN",
+  "MARLBOROUGH",
+  "MAYNARD",
+  "MEDFORD",
+  "MELROSE",
+  "NATICK",
+  "NEWTON",
+  "NORTH READING",
+  "PEPPERELL",
+  "READING",
+  "SHERBORN",
+  "SHIRLEY",
+  "SOMERVILLE",
+  "STONEHAM",
+  "STOW",
+  "SUDBURY",
+  "TEWKSBURY",
+  "TOWNSEND",
+  "TYNGSBOROUGH",
+  "WAKEFIELD",
+  "WALTHAM",
+  "WATERTOWN",
+  "WAYLAND",
+  "WESTFORD",
+  "WESTON",
+  "WILMINGTON",
+  "WINCHESTER",
+  "WOBURN",
+  // Norfolk County
+  "AVON",
+  "BELLINGHAM",
+  "BRAINTREE",
+  "BROOKLINE",
+  "CANTON",
+  "COHASSET",
+  "DEDHAM",
+  "DOVER",
+  "FOXBOROUGH",
+  "FRANKLIN",
+  "HOLBROOK",
+  "MEDFIELD",
+  "MEDWAY",
+  "MILLIS",
+  "MILTON",
+  "NEEDHAM",
+  "NORFOLK",
+  "NORWOOD",
+  "PLAINVILLE",
+  "QUINCY",
+  "RANDOLPH",
+  "SHARON",
+  "STOUGHTON",
+  "WALPOLE",
+  "WELLESLEY",
+  "WESTWOOD",
+  "WEYMOUTH",
+  "WRENTHAM",
+  // Essex County
+  "AMESBURY",
+  "ANDOVER",
+  "BEVERLY",
+  "BOXFORD",
+  "DANVERS",
+  "ESSEX",
+  "GEORGETOWN",
+  "GLOUCESTER",
+  "GROVELAND",
+  "HAMILTON",
+  "HAVERHILL",
+  "IPSWICH",
+  "LAWRENCE",
+  "LYNN",
+  "LYNNFIELD",
+  "MANCHESTER-BY-THE-SEA",
+  "MARBLEHEAD",
+  "MERRIMAC",
+  "METHUEN",
+  "MIDDLETON",
+  "NAHANT",
+  "NEWBURY",
+  "NEWBURYPORT",
+  "NORTH ANDOVER",
+  "PEABODY",
+  "ROCKPORT",
+  "ROWLEY",
+  "SALEM",
+  "SALISBURY",
+  "SAUGUS",
+  "SWAMPSCOTT",
+  "TOPSFIELD",
+  "WENHAM",
+  "WEST NEWBURY",
+]);
+
 // ─── City extraction ──────────────────────────────────────────────────────────
 
 /**
@@ -197,6 +341,7 @@ export function detectCounty(city: string): SupportedCounty | null {
   if (MIAMI_DADE.has(normalized)) return "miami-dade";
   if (BROWARD.has(normalized)) return "broward";
   if (PALM_BEACH.has(normalized)) return "palm-beach";
+  if (MASSACHUSETTS.has(normalized)) return "massachusetts";
   return null;
 }
 
@@ -230,10 +375,33 @@ export async function searchParcelsByAddress(
     }
   }
 
-  // Broward / Palm Beach — city is still parsed for detectCounty / callers;
-  // bcpaSearch/pbcpaSearch no longer need it for server-side filtering (tight
-  // keyword WHERE).
+  // Broward / Palm Beach / Massachusetts — city is parsed once here. Broward
+  // and Palm Beach no longer need it for server-side filtering (tight keyword
+  // WHERE, already scoped to the right county by which service is called);
+  // Massachusetts DOES need it — MassGIS is one statewide table, so without a
+  // CITY filter a common address collides across every town (see lib/magis.ts).
   const city = parseCityFromAddress(rawAddress);
+
+  if (county === "massachusetts") {
+    // magisSearch throws (not just rejects with a GISSearchResult) when the
+    // address can't be parsed into a house number/keyword — same
+    // degrade-to-{kind:"error"} handling as the other branches.
+    try {
+      const result = await magisSearch(rawAddress, city);
+      if (result.kind !== "ok") return result;
+      return {
+        kind: "ok",
+        parcels: result.parcels.map((p) => ({
+          folio: p.folio,
+          strap: p.strap,
+          address: p.address,
+          county: "massachusetts" as const,
+        })),
+      };
+    } catch (e) {
+      return { kind: "error", message: e instanceof Error ? e.message : String(e) };
+    }
+  }
 
   if (county === "palm-beach") {
     // pbcpaSearch throws (not just rejects with a GISSearchResult) when the
@@ -279,6 +447,7 @@ export async function searchParcelsByAddress(
  * Fetches the raw detail record for a confirmed strap/folio.
  * For Miami-Dade, pass the dashed strap (e.g. "01-4137-065-0001").
  * For Broward and Palm Beach, pass either the undashed folio/PCN or the dashed strap (both are accepted).
+ * For Massachusetts, pass the LOC_ID (e.g. "F_790618_2965662").
  * Returns the raw record as-is; callers use extractMailingAddress to pull specific fields.
  */
 export async function fetchParcelDetail(
@@ -290,6 +459,9 @@ export async function fetchParcelDetail(
   }
   if (county === "palm-beach") {
     return pbcpaDetail(strapOrFolio);
+  }
+  if (county === "massachusetts") {
+    return magisDetail(strapOrFolio);
   }
   return bcpaDetail(strapOrFolio);
 }
@@ -307,6 +479,9 @@ export function extractMailingAddress(
   }
   if (county === "palm-beach") {
     return pbcpaExtractMailing(raw);
+  }
+  if (county === "massachusetts") {
+    return magisExtractMailing(raw);
   }
   return bcpaExtractMailing(raw);
 }
