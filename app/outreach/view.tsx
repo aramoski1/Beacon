@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle } from "lucide-react";
+import { Loader2, CheckCircle2, Zap, FlaskConical, AlertTriangle, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   generateDrafts,
@@ -54,6 +54,7 @@ const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] 
 type ListMode = "due" | "all" | "selection";
 
 const CHUNK_SIZE = OUTREACH_CHUNK_SIZE;
+const TIER_PAGE_SIZE = 25;
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -261,7 +262,7 @@ export default function OutreachView({
 
   if (step === "select") {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-8">
+      <div className="max-w-2xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-5">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
             {listMode === "selection" ? "Selected contacts" : "Outreach"}
@@ -289,53 +290,55 @@ export default function OutreachView({
         </div>
 
         {listMode !== "selection" && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
-              <button
-                type="button"
-                onClick={() => switchMode("due")}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  listMode === "due"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Due now
-              </button>
-              <button
-                type="button"
-                onClick={() => switchMode("all")}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  listMode === "all"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                All contacts
-              </button>
-            </div>
-            <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
-              {([
-                ["all", "All channels"],
-                ["email", "Has email"],
-                ["phone", "Has phone"],
-              ] as const).map(([value, label]) => (
+          <div className="sticky top-0 z-10 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 border-b bg-background/95 backdrop-blur-sm space-y-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
                 <button
-                  key={value}
                   type="button"
-                  onClick={() => setChannelFilter(value)}
+                  onClick={() => switchMode("due")}
                   className={cn(
-                    "px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
-                    channelFilter === value
-                      ? "bg-muted text-foreground"
+                    "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                    listMode === "due"
+                      ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {label}
+                  Due now
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => switchMode("all")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                    listMode === "all"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  All contacts
+                </button>
+              </div>
+              <div className="flex gap-1 border border-border rounded-lg p-1 w-fit">
+                {([
+                  ["all", "All channels"],
+                  ["email", "Has email"],
+                  ["phone", "Has phone"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setChannelFilter(value)}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                      channelFilter === value
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -363,42 +366,12 @@ export default function OutreachView({
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">About you</label>
-          <textarea
-            value={brokerContext}
-            onChange={(e) => saveBrokerContext(e.target.value)}
-            rows={3}
-            placeholder="e.g. I'm [name], a commercial broker in Miami specializing in industrial properties over 50,000 sqft…"
-            className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background resize-y placeholder:text-muted-foreground/60"
-          />
-          <p className="text-xs text-muted-foreground">
-            Claude will use this to personalize each draft.
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">Email type</label>
-          <div className="flex flex-wrap gap-2">
-            {TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTemplate(t.id)}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-sm border transition-colors",
-                  template === t.id
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border text-muted-foreground hover:bg-muted/50"
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {TEMPLATES.find((t) => t.id === template)?.description}
-          </p>
-        </div>
+        <CampaignSettings
+          brokerContext={brokerContext}
+          onBrokerContextChange={saveBrokerContext}
+          template={template}
+          onTemplateChange={setTemplate}
+        />
 
         {error && (
           <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -436,14 +409,14 @@ export default function OutreachView({
             )}
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={selectAllVisible}
                 className="text-xs text-primary hover:underline underline-offset-2"
               >
-                Select all ({contacts.length})
+                Select all ({channelFiltered.length})
               </button>
               {listMode === "due" && overdueInList.length > 0 && (
                 <button
@@ -491,9 +464,9 @@ export default function OutreachView({
           </div>
         )}
 
-        {/* Sticky bottom bar */}
+        {/* Sticky bottom bar — full width on mobile, offset for lg sidebar (w-52) */}
         {selected.size > 0 && (
-          <div className="fixed bottom-0 left-52 right-0 border-t bg-background/95 backdrop-blur px-6 py-4 flex items-center justify-between gap-4">
+          <div className="fixed bottom-0 left-0 right-0 lg:left-52 border-t bg-background/95 backdrop-blur px-4 sm:px-6 py-4 flex items-center justify-between gap-4 z-20">
             <p className="text-sm text-muted-foreground">
               {selected.size} contact{selected.size !== 1 ? "s" : ""} selected
               {selected.size > CHUNK_SIZE && (
@@ -507,7 +480,7 @@ export default function OutreachView({
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
             >
               <Zap className="size-4" />
               Generate drafts
@@ -825,6 +798,88 @@ export default function OutreachView({
   );
 }
 
+// ─── Campaign settings (collapsed by default) ─────────────────────────────────
+
+function CampaignSettings({
+  brokerContext,
+  onBrokerContextChange,
+  template,
+  onTemplateChange,
+}: {
+  brokerContext: string;
+  onBrokerContextChange: (val: string) => void;
+  template: OutreachTemplate;
+  onTemplateChange: (t: OutreachTemplate) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const templateLabel = TEMPLATES.find((t) => t.id === template)?.label ?? template;
+
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Campaign settings</p>
+          <p className="text-[11px] text-muted-foreground truncate">
+            {templateLabel}
+            {brokerContext.trim() ? " · About you set" : " · Add about-you for better drafts"}
+          </p>
+        </div>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="border-t px-3 py-3 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">About you</label>
+            <textarea
+              value={brokerContext}
+              onChange={(e) => onBrokerContextChange(e.target.value)}
+              rows={3}
+              placeholder="e.g. I'm [name], a commercial broker in Miami specializing in industrial properties over 50,000 sqft…"
+              className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background resize-y placeholder:text-muted-foreground/60"
+            />
+            <p className="text-xs text-muted-foreground">
+              Claude will use this to personalize each draft.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Email type</label>
+            <div className="flex flex-wrap gap-2">
+              {TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onTemplateChange(t.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-sm border transition-colors",
+                    template === t.id
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {TEMPLATES.find((t) => t.id === template)?.description}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Contact section ──────────────────────────────────────────────────────────
 
 function ContactSection({
@@ -840,13 +895,20 @@ function ContactSection({
   onToggle: (id: string) => void;
   accent: string;
 }) {
+  const [visibleCount, setVisibleCount] = useState(TIER_PAGE_SIZE);
+  const visible = contacts.slice(0, visibleCount);
+  const remaining = contacts.length - visible.length;
+
   return (
-    <div className="space-y-2">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="space-y-1.5">
+      <h2 className="sticky top-12 z-[9] text-xs font-semibold uppercase tracking-wide text-muted-foreground bg-background/95 backdrop-blur-sm py-1">
         {title}
+        <span className="ml-1.5 tabular-nums font-normal normal-case tracking-normal">
+          · {contacts.length}
+        </span>
       </h2>
       <div className="space-y-1">
-        {contacts.map((c) => (
+        {visible.map((c) => (
           <ContactRow
             key={c.id}
             contact={c}
@@ -856,6 +918,15 @@ function ContactSection({
           />
         ))}
       </div>
+      {remaining > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((n) => n + TIER_PAGE_SIZE)}
+          className="w-full text-xs text-primary hover:underline underline-offset-2 py-1.5"
+        >
+          Show more ({remaining} remaining)
+        </button>
+      )}
     </div>
   );
 }
@@ -881,7 +952,7 @@ function ContactRow({
   return (
     <label
       className={cn(
-        "flex items-center gap-3 px-4 py-3 rounded-lg border bg-card cursor-pointer hover:bg-muted/20 transition-colors border-l-4",
+        "flex items-center gap-3 px-3 py-2 rounded-lg border bg-card cursor-pointer hover:bg-muted/20 transition-colors border-l-4",
         accent,
         checked && "bg-primary/5 border-primary/30"
       )}

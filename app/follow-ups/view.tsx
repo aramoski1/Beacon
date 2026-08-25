@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import {
   CheckSquare, CheckCircle2, Plus, Loader2, Building2, User,
-  AlertTriangle, X, CalendarClock, Mail,
+  AlertTriangle, X, CalendarClock, Mail, ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -62,7 +62,7 @@ function FollowUpItemRow({
         isOverdue && "bg-destructive/5 hover:bg-destructive/10"
       )}>
         {/* Mark done */}
-        <td className="px-4 py-3 w-8">
+        <td className="px-3 py-2 w-8">
           <button
             onClick={() => startTransition(async () => {
               const res = await markFollowUpDone(row.id);
@@ -84,7 +84,7 @@ function FollowUpItemRow({
         </td>
 
         {/* Description */}
-        <td className="px-4 py-3">
+        <td className="px-3 py-2">
           <div className="flex items-start gap-2">
             <p className={cn("text-sm font-medium", isOverdue && "text-destructive")}>
               {row.description}
@@ -99,7 +99,7 @@ function FollowUpItemRow({
         </td>
 
         {/* Contact */}
-        <td className="px-4 py-3 hidden sm:table-cell">
+        <td className="px-3 py-2 hidden sm:table-cell">
           {row.contact_id ? (
             <Link
               href={`/contacts/${row.contact_id}`}
@@ -114,7 +114,7 @@ function FollowUpItemRow({
         </td>
 
         {/* Property */}
-        <td className="px-4 py-3 hidden md:table-cell">
+        <td className="px-3 py-2 hidden md:table-cell">
           {row.property_id ? (
             <Link
               href={`/properties/${row.property_id}`}
@@ -129,14 +129,14 @@ function FollowUpItemRow({
         </td>
 
         {/* Due badge */}
-        <td className="px-4 py-3">
+        <td className="px-3 py-2">
           <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs", badge.cls)}>
             {badge.label}
           </span>
         </td>
 
         {/* Email action */}
-        <td className="px-4 py-3 w-8">
+        <td className="px-3 py-2 w-8">
           {canCompose && (
             <button
               onClick={() => setComposeOpen((v) => !v)}
@@ -321,6 +321,58 @@ function AddFollowUpForm({
   );
 }
 
+// ─── Section table ────────────────────────────────────────────────────────────
+
+function FollowUpTable({
+  rows,
+  label,
+  labelCls,
+  defaultOpen = true,
+  onDone,
+  userEmail,
+}: {
+  rows: FollowUpRow[];
+  label: string;
+  labelCls?: string;
+  defaultOpen?: boolean;
+  onDone: (id: string) => void;
+  userEmail: string | null;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-1 scroll-mt-14 lg:scroll-mt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="sticky top-0 z-10 w-full flex items-center justify-between gap-2 rounded-md border bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-left"
+      >
+        <p className={cn("text-xs font-semibold uppercase tracking-wide", labelCls ?? "text-muted-foreground")}>
+          {label} · {rows.length}
+        </p>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <tbody className="divide-y">
+              {rows.map((r) => (
+                <FollowUpItemRow key={r.id} row={r} onDone={onDone} userEmail={userEmail} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 export function FollowUpsView({
@@ -366,32 +418,12 @@ export function FollowUpsView({
     }
   }
 
-  const thCls = "text-left px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground";
-
-  function FollowUpTable({ rows, label, labelCls }: { rows: FollowUpRow[]; label: string; labelCls?: string }) {
-    if (rows.length === 0) return null;
-    return (
-      <div className="space-y-1">
-        <p className={cn("text-xs font-semibold uppercase tracking-wide px-1", labelCls ?? "text-muted-foreground")}>
-          {label} · {rows.length}
-        </p>
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <tbody className="divide-y">
-              {rows.map((r) => (
-                <FollowUpItemRow key={r.id} row={r} onDone={handleDone} userEmail={userEmail} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
-
+  const thCls = "text-left px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground";
   const openCount = overdue.length + dueToday.length + upcoming.length;
+  const hasUrgentOpen = overdue.length > 0 || dueToday.length > 0;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+    <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -421,7 +453,7 @@ export function FollowUpsView({
 
       {/* Overdue urgency banner */}
       {overdue.length > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2.5">
           <AlertTriangle className="size-4 text-destructive shrink-0" />
           <p className="text-sm font-medium text-destructive">
             {overdue.length} follow-up{overdue.length !== 1 ? "s" : ""} past due — take action now
@@ -437,10 +469,10 @@ export function FollowUpsView({
         </div>
       )}
 
-      <div className="space-y-6">
-        <FollowUpTable rows={overdue}  label="Overdue"   labelCls="text-destructive" />
-        <FollowUpTable rows={dueToday} label="Due today" labelCls="text-orange-600 dark:text-orange-400" />
-        <FollowUpTable rows={upcoming} label="Upcoming" />
+      <div className="space-y-4">
+        <FollowUpTable rows={overdue}  label="Overdue"   labelCls="text-destructive" onDone={handleDone} userEmail={userEmail} />
+        <FollowUpTable rows={dueToday} label="Due today" labelCls="text-orange-600 dark:text-orange-400" onDone={handleDone} userEmail={userEmail} />
+        <FollowUpTable rows={upcoming} label="Upcoming" defaultOpen={!hasUrgentOpen} onDone={handleDone} userEmail={userEmail} />
       </div>
 
       {/* Done toggle */}

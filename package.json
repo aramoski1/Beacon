@@ -12,7 +12,8 @@
     "db:verify": "tsx --env-file=.env.local scripts/verify-schema.ts",
     "audit:properties": "tsx --env-file=.env.local scripts/audit-bad-properties.ts",
     "check:gis": "tsx --env-file=.env.local scripts/check-gis-accuracy.ts",
-    "seed:test": "tsx --env-file=.env.local scripts/seed-test-properties.ts"
+    "seed:test": "tsx --env-file=.env.local scripts/seed-test-properties.ts",
+    "seed:demo": "tsx --env-file=.env.local scripts/seed-demo-account.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

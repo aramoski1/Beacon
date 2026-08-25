@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Building2,
   CalendarClock,
+  ChevronDown,
   ChevronRight,
   Loader2,
   Mail,
@@ -178,129 +179,118 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
   const contactForDraft = activeContact;
 
   return (
-    <div className={cn("rounded-xl border bg-card overflow-hidden", styles.row)}>
-      <div className="flex items-start gap-3 px-4 py-3 flex-wrap">
+    <div className={cn("rounded-lg border bg-card overflow-hidden", styles.row)}>
+      <div className="flex items-center gap-2.5 px-3 py-2 flex-wrap">
         <div className={cn(
-          "shrink-0 flex flex-col items-center justify-center size-11 rounded-lg border text-center",
+          "shrink-0 flex flex-col items-center justify-center size-9 rounded-md border text-center",
           styles.badge,
         )}>
-          <span className={cn("text-sm tabular-nums leading-none", styles.days)}>{entry.daysUntilExpiry}</span>
-          <span className="text-[9px] uppercase tracking-wide opacity-70">days</span>
+          <span className={cn("text-xs tabular-nums leading-none", styles.days)}>{entry.daysUntilExpiry}</span>
+          <span className="text-[8px] uppercase tracking-wide opacity-70">d</span>
         </div>
 
-        <div className="flex-1 min-w-0 space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             {entry.urgency === "critical" && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-600 dark:text-red-400">
-                <AlertTriangle className="size-3" />
-                Urgent
-              </span>
+              <AlertTriangle className="size-3 shrink-0 text-red-600 dark:text-red-400" />
             )}
             <Link
               href={`/abstracts/${entry.id}`}
-              className="text-sm font-semibold hover:underline underline-offset-2"
+              className="text-sm font-semibold hover:underline underline-offset-2 truncate"
             >
               {leaseLabel(entry.source_document)}
             </Link>
+            {entry.property_address && entry.property_id ? (
+              <Link
+                href={`/properties/${entry.property_id}`}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 min-w-0 truncate"
+              >
+                <Building2 className="size-3 shrink-0" />
+                <span className="truncate">{entry.property_address}</span>
+              </Link>
+            ) : (
+              <span className="text-xs text-muted-foreground">No property linked</span>
+            )}
             {entry.base_rate != null && (
-              <span className="text-xs text-muted-foreground">${entry.base_rate}/sf</span>
+              <span className="text-[11px] text-muted-foreground tabular-nums">${entry.base_rate}/sf</span>
             )}
           </div>
 
-          {entry.property_address && entry.property_id ? (
-            <Link
-              href={`/properties/${entry.property_id}`}
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 w-fit"
-            >
-              <Building2 className="size-3 shrink-0" />
-              {entry.property_address}
-            </Link>
-          ) : (
-            <p className="text-xs text-muted-foreground">No property linked</p>
-          )}
-
-          {/* WHO + WHY */}
+          {/* WHO + WHY — single secondary line when ready */}
           {resolution.kind === "ready" && (
-            <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap text-xs min-w-0">
               <Link
                 href={`/contacts/${resolution.contact.id}`}
-                className="text-xs flex items-center gap-1.5 w-fit hover:underline underline-offset-2"
+                className="inline-flex items-center gap-1 min-w-0 hover:underline underline-offset-2"
               >
-                <User className="size-3 text-muted-foreground" />
-                <span className="rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-muted border">
+                <User className="size-3 shrink-0 text-muted-foreground" />
+                <span className="rounded px-1 py-px text-[10px] font-semibold uppercase tracking-wide bg-muted border shrink-0">
                   {resolution.role}
                 </span>
-                <span className="font-medium">{resolution.contact.name ?? "Contact"}</span>
-                {resolution.contact.company && (
-                  <span className="text-muted-foreground">· {resolution.contact.company}</span>
-                )}
+                <span className="font-medium truncate">{resolution.contact.name ?? "Contact"}</span>
               </Link>
-              <p className="text-[11px] text-muted-foreground">{resolution.why}</p>
+              <span className="text-muted-foreground truncate">
+                · {resolution.why}
+                {" · "}Expires {fmtExpiry(entry.expiration_date)}
+              </span>
+              {entry.tenant_contact && entry.owner_contact && (
+                activeAction === "tenant_rollover" ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveAction("owner_renewal")}
+                    className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
+                  >
+                    Switch to owner
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveAction("tenant_rollover")}
+                    className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
+                  >
+                    Switch to tenant
+                  </button>
+                )
+              )}
             </div>
           )}
 
           {resolution.kind === "needs_choice" && (
-            <div className="rounded-md border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 px-2.5 py-2 space-y-1.5">
-              <p className="text-[11px] text-amber-900 dark:text-amber-300">{resolution.why}</p>
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  href={`/abstracts/${entry.id}`}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+            <div className="rounded-md border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 px-2 py-1.5 flex flex-wrap items-center gap-2">
+              <p className="text-[11px] text-amber-900 dark:text-amber-300 flex-1 min-w-0">{resolution.why}</p>
+              <Link
+                href={`/abstracts/${entry.id}`}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline shrink-0"
+              >
+                Link tenant
+                <ChevronRight className="size-3" />
+              </Link>
+              {resolution.ownerOption && draft.tag === "idle" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    composeTo(resolution.ownerOption!.contact, resolution.ownerOption!.action)
+                  }
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground hover:underline shrink-0"
                 >
-                  Link tenant on abstract
-                  <ChevronRight className="size-3" />
-                </Link>
-                {resolution.ownerOption && draft.tag === "idle" && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      composeTo(resolution.ownerOption!.contact, resolution.ownerOption!.action)
-                    }
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground hover:underline"
-                  >
-                    <Mail className="size-3" />
-                    Email owner instead
-                  </button>
-                )}
-              </div>
+                  <Mail className="size-3" />
+                  Email owner
+                </button>
+              )}
             </div>
           )}
 
           {resolution.kind === "missing" && (
             <p className="text-[11px] text-amber-700 dark:text-amber-400">
               {resolution.why}
+              <span className="text-muted-foreground">
+                {" · "}Expires {fmtExpiry(entry.expiration_date)} · {rolloverHint(entry.daysUntilExpiry)}
+              </span>
             </p>
           )}
-
-          {/* Secondary: show the other party when both exist */}
-          {entry.tenant_contact && entry.owner_contact && resolution.kind === "ready" && (
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              {activeAction === "tenant_rollover" ? (
-                <button
-                  type="button"
-                  onClick={() => setActiveAction("owner_renewal")}
-                  className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                >
-                  Switch to owner (renewal / vacancy)
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setActiveAction("tenant_rollover")}
-                  className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                >
-                  Switch to tenant (rollover)
-                </button>
-              )}
-            </div>
-          )}
-
-          <p className="text-[11px] text-muted-foreground">
-            Expires {fmtExpiry(entry.expiration_date)} · {rolloverHint(entry.daysUntilExpiry)}
-          </p>
         </div>
 
-        <div className="shrink-0 flex flex-col items-end gap-1.5">
+        <div className="shrink-0 flex items-center gap-1.5">
           {draft.tag === "sent" ? (
             <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
               <CheckCircle2 className="size-3.5" />
@@ -312,7 +302,7 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
                 <Button
                   size="sm"
                   variant="default"
-                  className="h-8 text-xs gap-1.5"
+                  className="h-7 text-xs gap-1 px-2.5"
                   onClick={() => composeTo(resolution.contact, resolution.action)}
                 >
                   <Mail className="size-3.5" />
@@ -346,7 +336,7 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
               }
               className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline underline-offset-2"
             >
-              {resolution.linkHint === "abstract" ? "Link tenant" : "Add owner contact"}
+              {resolution.linkHint === "abstract" ? "Link tenant" : "Add owner"}
               <ChevronRight className="size-3" />
             </Link>
           ) : null}
@@ -376,37 +366,65 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
 function BucketSection({
   bucket,
   entries,
+  defaultOpen,
 }: {
   bucket: LeaseRadarBucket;
   entries: LeaseRadarEntry[];
+  defaultOpen: boolean;
 }) {
   const meta = BUCKET_META[bucket];
   const isUrgent = bucket === "3mo";
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    function syncFromHash() {
+      if (typeof window === "undefined") return;
+      if (window.location.hash === `#bucket-${bucket}`) setOpen(true);
+    }
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, [bucket]);
 
   if (entries.length === 0) return null;
 
   return (
-    <section id={`bucket-${bucket}`} className="scroll-mt-8 space-y-3">
-      <div className={cn(
-        "flex items-center justify-between gap-3 rounded-lg px-4 py-3 border",
-        isUrgent ? "border-red-500/30 bg-red-500/[0.04]" : "border-border bg-muted/20",
-      )}>
-        <div>
+    <section id={`bucket-${bucket}`} className="scroll-mt-14 lg:scroll-mt-4 space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "sticky top-0 z-10 w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2 border text-left backdrop-blur-sm",
+          isUrgent
+            ? "border-red-500/30 bg-red-50/95 dark:bg-red-950/90"
+            : "border-border bg-background/95",
+        )}
+      >
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold flex items-center gap-2">
-            {isUrgent && <AlertTriangle className="size-4 text-red-600 dark:text-red-400" />}
+            {isUrgent && <AlertTriangle className="size-3.5 text-red-600 dark:text-red-400 shrink-0" />}
             {meta.label}
             <span className="rounded-full bg-background border px-2 py-0.5 text-[10px] font-bold tabular-nums">
               {entries.length}
             </span>
           </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">{meta.sub}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{meta.sub}</p>
         </div>
-      </div>
-      <div className="space-y-2">
-        {entries.map((e) => (
-          <LeaseRadarRow key={e.id} entry={e} />
-        ))}
-      </div>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="space-y-1.5">
+          {entries.map((e) => (
+            <LeaseRadarRow key={e.id} entry={e} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -468,8 +486,8 @@ export function LeaseRadarView({
   }
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-3 gap-3">
+    <div className="space-y-6">
+      <div className="grid grid-cols-3 gap-2.5">
         {(["3mo", "6mo", "12mo"] as LeaseRadarBucket[]).map((b) => {
           const count = b === "3mo" ? data.counts.within3 : b === "6mo" ? data.counts.within6 : data.counts.within12;
           const meta = BUCKET_META[b];
@@ -478,20 +496,20 @@ export function LeaseRadarView({
               key={b}
               href={meta.href}
               className={cn(
-                "rounded-xl border px-4 py-3 transition-colors hover:bg-muted/30",
+                "rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/30",
                 b === "3mo" && count > 0 && "border-red-500/30 bg-red-500/[0.03]",
               )}
             >
-              <p className="text-2xl font-bold tabular-nums">{count}</p>
-              <p className="text-xs font-medium mt-0.5">{meta.label}</p>
+              <p className="text-xl font-bold tabular-nums">{count}</p>
+              <p className="text-[11px] font-medium mt-0.5">{meta.label}</p>
             </a>
           );
         })}
       </div>
 
-      <BucketSection bucket="3mo" entries={data.within3} />
-      <BucketSection bucket="6mo" entries={data.within6} />
-      <BucketSection bucket="12mo" entries={data.within12} />
+      <BucketSection bucket="3mo" entries={data.within3} defaultOpen />
+      <BucketSection bucket="6mo" entries={data.within6} defaultOpen={false} />
+      <BucketSection bucket="12mo" entries={data.within12} defaultOpen={false} />
     </div>
   );
 }
