@@ -261,6 +261,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-zoning-data-json.ts",
     description: "Properties — zoning_data JSONB (full ZoningInfo) + zoning_geocoded boolean, so the property page shows the complete last zoning result (district name, FAR/height/density, geocoded caveat) on load, not just code+FAR",
   },
+  {
+    file: "migrate-dashboard-layout.ts",
+    description: "User settings — nullable dashboard_layout JSONB for dashboard show/hide customization (lib/dashboard-layout.ts); null/missing keys resolve to visible, so existing accounts render identically to today's fixed layout",
+  },
 ];
 
 const hr = "─".repeat(60);

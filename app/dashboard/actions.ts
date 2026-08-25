@@ -3,6 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserSettings } from "@/app/settings/actions";
 import { cadenceMapFromSettings } from "@/lib/cadence";
+import {
+  sanitizeVisiblePatch,
+  type DashboardLayoutPrefs,
+} from "@/lib/dashboard-layout";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -652,4 +656,77 @@ export async function getBriefingMetrics(
     coldTier1:             coldTier1.length,
     ownershipChanges:      ownershipChangesCount,
   };
+}
+
+// ─── Dashboard layout (show/hide customization) ───────────────────────────────
+
+/** Raw prefs for this user, or null if never set — pass through resolveVisible
+ * (lib/dashboard-layout.ts) to get a complete visibility map; do not read
+ * .visible directly, since missing keys must resolve to true. */
+export async function getDashboardLayout(): Promise<DashboardLayoutPrefs | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from("user_settings")
+    .select("dashboard_layout")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  return (data?.dashboard_layout as DashboardLayoutPrefs | null) ?? null;
+}
+
+/** Merges a {moduleId: boolean} patch into the stored prefs and persists it.
+ * Validated against the module catalog — an unknown id or non-boolean value
+ * is rejected outright rather than silently dropped. */
+export async function saveDashboardLayout(
+  patch: Record<string, unknown>,
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const sanitized = sanitizeVisiblePatch(patch);
+  if (!sanitized.ok) return { error: sanitized.error };
+
+  const { data: existing } = await supabase
+    .from("user_settings")
+    .select("dashboard_layout")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  const existingVisible = (existing?.dashboard_layout as DashboardLayoutPrefs | null)?.visible ?? {};
+  const merged: DashboardLayoutPrefs = {
+    version: 1,
+    visible: { ...existingVisible, ...sanitized.visible },
+  };
+
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { owner_id: user.id, dashboard_layout: merged, updated_at: new Date().toISOString() },
+      { onConflict: "owner_id" },
+    );
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+/** Clears the column entirely — null resolves to all-visible via
+ * resolveVisible, same as an account that never touched Customize. */
+export async function resetDashboardLayout(): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { error } = await supabase
+    .from("user_settings")
+    .upsert(
+      { owner_id: user.id, dashboard_layout: null, updated_at: new Date().toISOString() },
+      { onConflict: "owner_id" },
+    );
+
+  if (error) return { error: error.message };
+  return { ok: true };
 }

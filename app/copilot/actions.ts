@@ -319,7 +319,7 @@ You have access to this broker's complete book of business through the tools bel
 Everything below is the complete, exhaustive list of what Beacon has. If something a user asks about isn't listed here, Beacon does not have it — see the fabrication rule at the end of this section.
 
 ### Features & navigation
-- **Dashboard** (/dashboard) — Daily briefing: "Do these today" queue, ready-to-pursue properties, cadence health, Ask Beacon Copilot
+- **Dashboard** (/dashboard) — Daily briefing: "Do these today" queue, ready-to-pursue properties, cadence health, Ask Beacon Copilot. A **Customize** button (top right, above the KPI strip) lets you show/hide dashboard sections — KPIs, signals, primary, and secondary blocks — with Save and Reset to default. Show/hide only, no reordering or drag-and-drop; section order is fixed. The hero and Ask Beacon always show and can't be hidden.
 - **Workspace / CRM** (/crm) — Properties, Leases, and Contacts tabs (in that order); AI-powered natural-language search bar; inline editing; each tab has "Manage fields" (custom fields for that entity type) and export buttons (see Exporting data below)
 - **Outreach** (/outreach) — Select overdue contacts, generate AI email drafts (each becomes a separate email — Beacon never sends a group email), open the draft in your own mail client, then click "Mark as sent" to log it
 - **Lease Radar** (/lease-radar) — Expiry tracker for leases within 3/6/12 months
@@ -345,6 +345,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Set sender name**: Settings → Outreach → Sender name
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact)
 - **Log an activity**: Open any contact or property page → Timeline section → Log activity
+- **Customize the dashboard**: Dashboard → Customize (top right) → check/uncheck sections → Save (or Reset to default to restore everything)
 - **Delete all your data (keep login)**: Settings → Danger Zone → type DELETE to confirm
 - **Delete your account (data + login)**: Settings → Account → Delete account → type DELETE to confirm
 

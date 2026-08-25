@@ -26,6 +26,7 @@ import type {
 } from "./actions";
 import type { LeaseRadarEntry } from "@/lib/lease-radar";
 import { fmtKpiMoney, fmtKpiSqft, type LeaseExposureKpi } from "@/lib/dashboard-kpis";
+import type { KpiModuleId } from "@/lib/dashboard-layout";
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
@@ -121,7 +122,10 @@ export function DashboardHero({
   );
 }
 
-/** Top KPI strip — real DB numbers, deep-linked. */
+/** Top KPI strip — real DB numbers, deep-linked. `visible` controls which
+ * cells render (dashboard show/hide customization, lib/dashboard-layout.ts);
+ * renders nothing at all if every cell is hidden, so callers can render it
+ * unconditionally. */
 export function BrokerKpiStrip({
   activePursuits,
   estimatedCommission,
@@ -130,6 +134,7 @@ export function BrokerKpiStrip({
   ownershipChanges,
   bookProperties,
   bookSqft,
+  visible,
 }: {
   activePursuits: number;
   estimatedCommission: number;
@@ -138,8 +143,10 @@ export function BrokerKpiStrip({
   ownershipChanges: number;
   bookProperties: number;
   bookSqft: number;
+  visible: Record<KpiModuleId, boolean>;
 }) {
   const cells: Array<{
+    id: KpiModuleId;
     label: string;
     value: string;
     sub?: string;
@@ -147,6 +154,7 @@ export function BrokerKpiStrip({
     highlight?: boolean;
   }> = [
     {
+      id: "kpi_pursuits" as const,
       label: "Active pursuits",
       value: String(activePursuits),
       sub: estimatedCommission > 0 ? `${fmtKpiMoney(estimatedCommission)} est. fee` : "Pipeline",
@@ -154,6 +162,7 @@ export function BrokerKpiStrip({
       highlight: activePursuits === 0,
     },
     {
+      id: "kpi_leases_90" as const,
       label: "Leases ≤90d",
       value: String(leaseExposure.count90),
       sub: leaseExposure.sqft90 > 0 ? fmtKpiSqft(leaseExposure.sqft90) : "expiring",
@@ -161,6 +170,7 @@ export function BrokerKpiStrip({
       highlight: leaseExposure.count90 > 0,
     },
     {
+      id: "kpi_tier1_overdue" as const,
       label: "Tier-1 overdue",
       value: String(tier1Overdue),
       sub: "vs your cadence",
@@ -168,6 +178,7 @@ export function BrokerKpiStrip({
       highlight: tier1Overdue > 0,
     },
     {
+      id: "kpi_ownership" as const,
       label: "Ownership changes",
       value: String(ownershipChanges),
       sub: "open signals",
@@ -175,12 +186,15 @@ export function BrokerKpiStrip({
       highlight: ownershipChanges > 0,
     },
     {
+      id: "kpi_book" as const,
       label: "Book size",
       value: String(bookProperties),
       sub: bookSqft > 0 ? fmtKpiSqft(bookSqft) : "properties",
       href: "/crm",
     },
-  ];
+  ].filter((c) => visible[c.id]);
+
+  if (cells.length === 0) return null;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">

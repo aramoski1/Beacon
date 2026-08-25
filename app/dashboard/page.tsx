@@ -47,6 +47,8 @@ import { buildTodayDeskItems } from "@/lib/today-desk";
 import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
 import { TodayDesk } from "./today-desk";
 import { OwnershipWatchBatchButton } from "./ownership-watch-batch";
+import { DashboardCustomize } from "./customize-dashboard";
+import { resolveVisible, type DashboardLayoutPrefs } from "@/lib/dashboard-layout";
 
 function greeting() {
   const h = new Date().getHours();
@@ -90,10 +92,15 @@ export default async function DashboardPage() {
 
   const { data: obSettings } = await supabase
     .from("user_settings")
-    .select("onboarding_completed_at, display_name, broker_name, sender_name")
+    .select("onboarding_completed_at, display_name, broker_name, sender_name, dashboard_layout")
     .eq("owner_id", user.id)
     .maybeSingle();
   if (!obSettings?.onboarding_completed_at) redirect("/onboarding");
+
+  // Show/hide dashboard customization — null/missing prefs resolve to
+  // everything visible, so an account that's never touched Customize looks
+  // identical to today's fixed layout.
+  const visible = resolveVisible(obSettings.dashboard_layout as DashboardLayoutPrefs | null);
 
   const [
     enrichedItems,
@@ -225,6 +232,23 @@ export default async function DashboardPage() {
   });
   const heroName = name ? `${greeting()}, ${name}` : greeting();
 
+  // Dashboard show/hide customization — group-level visibility so a whole
+  // grid row/column is omitted (not left as an empty shell) when nothing in
+  // it is visible. stale_tier1_owners keeps its original data-driven
+  // condition (staleTier1Owners.length > 0) ANDed with the toggle, same as
+  // before this feature existed.
+  const primaryLeftVisible = visible.today_desk || visible.upcoming_followups;
+  const primaryRightVisible =
+    visible.ready_to_pursue ||
+    visible.cold_tier1 ||
+    (visible.stale_tier1_owners && staleTier1Owners.length > 0);
+  const primaryAnyVisible = primaryLeftVisible || primaryRightVisible;
+
+  const secondaryRow1Visible = visible.pipeline || visible.lease_exposure;
+  const bookOwnersCadenceVisible = visible.book_owners || visible.cadence;
+  const opsRecentVisible = visible.ops_health || visible.recent_activity;
+  const secondaryRow2Visible = bookOwnersCadenceVisible || opsRecentVisible;
+
   return (
     <div className="dashboard-page px-4 py-6 sm:px-6 sm:py-8 max-w-[80rem] mx-auto space-y-8">
 
@@ -238,6 +262,10 @@ export default async function DashboardPage() {
         search={<BeaconCopilot />}
       />
 
+      <div className="flex justify-end -mb-2">
+        <DashboardCustomize initialVisible={visible} />
+      </div>
+
       <BrokerKpiStrip
         activePursuits={dealsDashboard.activeCount}
         estimatedCommission={dealsDashboard.estimatedCommissionTotal}
@@ -246,148 +274,196 @@ export default async function DashboardPage() {
         ownershipChanges={ownershipChangedProperties.length}
         bookProperties={stats.properties}
         bookSqft={portfolio.totalSqft}
+        visible={{
+          kpi_pursuits: visible.kpi_pursuits,
+          kpi_leases_90: visible.kpi_leases_90,
+          kpi_tier1_overdue: visible.kpi_tier1_overdue,
+          kpi_ownership: visible.kpi_ownership,
+          kpi_book: visible.kpi_book,
+        }}
       />
 
-      <PriorityPills metrics={briefing} />
-      <WeekMomentumBar momentum={momentum} />
-      <SinceLastVisit />
+      {visible.priority_pills && <PriorityPills metrics={briefing} />}
+      {visible.week_momentum && <WeekMomentumBar momentum={momentum} />}
+      {visible.since_last_visit && <SinceLastVisit />}
 
       {/* PRIMARY — do today */}
-      <div className="grid lg:grid-cols-2 gap-6 items-start">
-        <div className="space-y-6">
-          <section className="space-y-3">
-            <SectionHeader
-              title="Do these today"
-              badge={
-                attentionCount > 0 ? (
-                  <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
-                    {attentionCount}
-                  </span>
-                ) : undefined
-              }
-              href="/outreach"
-              hrefLabel="Outreach →"
-            />
-            <TodayDesk items={todayDeskItems} />
-          </section>
+      {primaryAnyVisible ? (
+        <div className="grid lg:grid-cols-2 gap-6 items-start">
+          {primaryLeftVisible && (
+            <div className="space-y-6">
+              {visible.today_desk && (
+                <section className="space-y-3">
+                  <SectionHeader
+                    title="Do these today"
+                    badge={
+                      attentionCount > 0 ? (
+                        <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
+                          {attentionCount}
+                        </span>
+                      ) : undefined
+                    }
+                    href="/outreach"
+                    hrefLabel="Outreach →"
+                  />
+                  <TodayDesk items={todayDeskItems} />
+                </section>
+              )}
 
-          <section className="space-y-3">
-            <SectionHeader
-              title="Upcoming follow-ups"
-              href="/follow-ups"
-              hrefLabel="All tasks →"
-            />
-            <UpcomingFollowUpList items={upcomingFollowUps} />
-          </section>
+              {visible.upcoming_followups && (
+                <section className="space-y-3">
+                  <SectionHeader
+                    title="Upcoming follow-ups"
+                    href="/follow-ups"
+                    hrefLabel="All tasks →"
+                  />
+                  <UpcomingFollowUpList items={upcomingFollowUps} />
+                </section>
+              )}
+            </div>
+          )}
+
+          {primaryRightVisible && (
+            <div className="space-y-6">
+              {visible.ready_to_pursue && (
+                <section id="unworked" className="space-y-3 scroll-mt-8">
+                  <SectionHeader
+                    title="Ready to pursue"
+                    badge={
+                      unworked.length > 0 ? (
+                        <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5">
+                          {unworked.length}
+                        </span>
+                      ) : undefined
+                    }
+                    href="/crm"
+                    hrefLabel="Workspace →"
+                  />
+                  <UnworkedOpportunitiesPanel items={unworked} />
+                </section>
+              )}
+
+              {visible.cold_tier1 && (
+                <section className="space-y-3">
+                  <SectionHeader
+                    title="Tier 1 going cold"
+                    badge={
+                      coldTier1.length > 0 ? (
+                        <span className="rounded-full bg-orange-500/15 text-orange-700 dark:text-orange-400 text-[10px] font-semibold px-2 py-0.5">
+                          {coldTier1.length}
+                        </span>
+                      ) : undefined
+                    }
+                    href="/outreach"
+                    hrefLabel="Outreach →"
+                  />
+                  <ColdTier1Panel items={coldTier1} />
+                </section>
+              )}
+
+              {visible.stale_tier1_owners && staleTier1Owners.length > 0 && (
+                <section className="space-y-3">
+                  <SectionHeader
+                    title="Tier-1 owners not contacted"
+                    badge={
+                      <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
+                        {staleTier1Owners.length}
+                      </span>
+                    }
+                    href="/outreach"
+                    hrefLabel="Outreach →"
+                  />
+                  <StaleTier1OwnersPanel items={staleTier1Owners} userEmail={user.email} />
+                </section>
+              )}
+            </div>
+          )}
         </div>
+      ) : (
+        <div className="rounded-lg border border-dashed px-4 py-3 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+          <span>Primary sections are hidden.</span>
+          <DashboardCustomize initialVisible={visible} variant="hint" />
+        </div>
+      )}
 
-        <div className="space-y-6">
-          <section id="unworked" className="space-y-3 scroll-mt-8">
-            <SectionHeader
-              title="Ready to pursue"
-              badge={
-                unworked.length > 0 ? (
-                  <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5">
-                    {unworked.length}
-                  </span>
-                ) : undefined
-              }
-              href="/crm"
-              hrefLabel="Workspace →"
-            />
-            <UnworkedOpportunitiesPanel items={unworked} />
-          </section>
-
-          <section className="space-y-3">
-            <SectionHeader
-              title="Tier 1 going cold"
-              badge={
-                coldTier1.length > 0 ? (
-                  <span className="rounded-full bg-orange-500/15 text-orange-700 dark:text-orange-400 text-[10px] font-semibold px-2 py-0.5">
-                    {coldTier1.length}
-                  </span>
-                ) : undefined
-              }
-              href="/outreach"
-              hrefLabel="Outreach →"
-            />
-            <ColdTier1Panel items={coldTier1} />
-          </section>
-
-          {staleTier1Owners.length > 0 && (
+      {/* SECONDARY */}
+      {secondaryRow1Visible && (
+        <div className="grid xl:grid-cols-2 gap-6 items-start">
+          {visible.pipeline && (
             <section className="space-y-3">
               <SectionHeader
-                title="Tier-1 owners not contacted"
-                badge={
-                  <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
-                    {staleTier1Owners.length}
-                  </span>
-                }
-                href="/outreach"
-                hrefLabel="Outreach →"
+                title="Pipeline"
+                href="/deals"
+                hrefLabel="All pursuits →"
               />
-              <StaleTier1OwnersPanel items={staleTier1Owners} userEmail={user.email} />
+              <DealsDashboardPanel summary={dealsDashboard} />
+            </section>
+          )}
+
+          {visible.lease_exposure && (
+            <section className="space-y-3">
+              <SectionHeader
+                title="Lease exposure"
+                badge={
+                  leaseRadar.urgentCount > 0 ? (
+                    <span className="rounded-full bg-red-500/15 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
+                      {leaseRadar.urgentCount} ≤90d
+                    </span>
+                  ) : undefined
+                }
+                href="/lease-radar"
+                hrefLabel="Full radar →"
+              />
+              <LeaseRadarView data={leaseRadar} compact />
+              <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
             </section>
           )}
         </div>
-      </div>
+      )}
 
-      {/* SECONDARY */}
-      <div className="grid xl:grid-cols-2 gap-6 items-start">
-        <section className="space-y-3">
-          <SectionHeader
-            title="Pipeline"
-            href="/deals"
-            hrefLabel="All pursuits →"
-          />
-          <DealsDashboardPanel summary={dealsDashboard} />
-        </section>
+      {secondaryRow2Visible && (
+        <div className="grid xl:grid-cols-2 gap-6 items-start">
+          {bookOwnersCadenceVisible && (
+            <section className="space-y-3">
+              {visible.book_owners && (
+                <>
+                  <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
+                  <PortfolioPanel portfolio={portfolio} />
+                  <div className="space-y-2">
+                    <OwnershipWatchBatchButton />
+                    <OwnershipChangedPanel
+                      items={ownershipChangedProperties}
+                      emptyCopy={ownershipWatchEmptyCopy({
+                        openSignals: ownershipChangedProperties.length,
+                        enrolledCount: ownershipWatchStats.enrolledCount,
+                        everChecked: ownershipWatchStats.everChecked,
+                      })}
+                    />
+                  </div>
+                </>
+              )}
+              {visible.cadence && <CadencePanel cadence={cadence} />}
+            </section>
+          )}
 
-        <section className="space-y-3">
-          <SectionHeader
-            title="Lease exposure"
-            badge={
-              leaseRadar.urgentCount > 0 ? (
-                <span className="rounded-full bg-red-500/15 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
-                  {leaseRadar.urgentCount} ≤90d
-                </span>
-              ) : undefined
-            }
-            href="/lease-radar"
-            hrefLabel="Full radar →"
-          />
-          <LeaseRadarView data={leaseRadar} compact />
-          <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
-        </section>
-      </div>
-
-      <div className="grid xl:grid-cols-2 gap-6 items-start">
-        <section className="space-y-3">
-          <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
-          <PortfolioPanel portfolio={portfolio} />
-          <div className="space-y-2">
-            <OwnershipWatchBatchButton />
-            <OwnershipChangedPanel
-              items={ownershipChangedProperties}
-              emptyCopy={ownershipWatchEmptyCopy({
-                openSignals: ownershipChangedProperties.length,
-                enrolledCount: ownershipWatchStats.enrolledCount,
-                everChecked: ownershipWatchStats.everChecked,
-              })}
-            />
-          </div>
-          <CadencePanel cadence={cadence} />
-        </section>
-
-        <section className="space-y-3">
-          <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
-          <DataHealthPanel health={dataHealth} />
-          <section className="space-y-3">
-            <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
-            <ActivityTimeline activities={recentActivities} />
-          </section>
-        </section>
-      </div>
+          {opsRecentVisible && (
+            <section className="space-y-3">
+              {visible.ops_health && (
+                <>
+                  <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
+                  <DataHealthPanel health={dataHealth} />
+                </>
+              )}
+              {visible.recent_activity && (
+                <section className="space-y-3">
+                  <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
+                  <ActivityTimeline activities={recentActivities} />
+                </section>
+              )}
+            </section>
+          )}
+        </div>
+      )}
     </div>
   );
 }
