@@ -17,6 +17,7 @@ import {
   OUTREACH_CHUNK_SIZE,
   planOutreachBatches,
 } from "@/lib/outreach-chunks";
+import { SectionHeader } from "@/components/section-header";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ const TEMPLATES: { id: OutreachTemplate; label: string; description: string }[] 
 type ListMode = "due" | "all" | "selection";
 
 const CHUNK_SIZE = OUTREACH_CHUNK_SIZE;
-const TIER_PAGE_SIZE = 25;
+const SECTION_PAGE_SIZE = 25;
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -159,10 +160,19 @@ export default function OutreachView({
     return true;
   });
 
-  const overdueInList = channelFiltered.filter((c) => c.daysOverdue > 0);
-  const tier1Contacts   = channelFiltered.filter((c) => c.contact_tier === 1);
-  const tier2Contacts   = channelFiltered.filter((c) => c.contact_tier === 2);
-  const tier3Contacts   = channelFiltered.filter((c) => c.contact_tier === 3 || c.contact_tier === null);
+  // Grouped by urgency (when to act), same "when" framing as Lease radar's
+  // 3/6/12mo buckets and Follow-ups' overdue/today/upcoming — tier is still
+  // visible per-contact (see tierAccentCls/tierCls below) but no longer
+  // decides which section a contact lands in, so overdue Tier 2/3 contacts
+  // surface first instead of being buried inside a tier section.
+  const byPriority = (a: DueContact, b: DueContact) => {
+    const rank = (t: number | null) => t ?? 99;
+    if (rank(a.contact_tier) !== rank(b.contact_tier)) return rank(a.contact_tier) - rank(b.contact_tier);
+    return b.daysOverdue - a.daysOverdue;
+  };
+  const overdueContacts  = channelFiltered.filter((c) => c.daysOverdue > 0).sort(byPriority);
+  const dueTodayContacts = channelFiltered.filter((c) => c.daysOverdue === 0).sort(byPriority);
+  const upcomingContacts = channelFiltered.filter((c) => c.daysOverdue < 0).sort(byPriority);
 
   function toggleContact(id: string) {
     setSelected((prev) => {
@@ -178,7 +188,7 @@ export default function OutreachView({
   }
 
   function selectAllOverdue() {
-    setSelected(new Set(overdueInList.map((c) => c.id)));
+    setSelected(new Set(overdueContacts.map((c) => c.id)));
   }
 
   async function generateForIds(ids: string[]) {
@@ -271,8 +281,8 @@ export default function OutreachView({
             {listMode === "due" && (
               <>
                 Contacts due by cadence.
-                {overdueInList.length > 0 && (
-                  <span className="text-destructive font-medium"> {overdueInList.length} overdue.</span>
+                {overdueContacts.length > 0 && (
+                  <span className="text-destructive font-medium"> {overdueContacts.length} overdue.</span>
                 )}
                 {" "}Each draft becomes a separate email — never a group send.
               </>
@@ -418,13 +428,13 @@ export default function OutreachView({
               >
                 Select all ({channelFiltered.length})
               </button>
-              {listMode === "due" && overdueInList.length > 0 && (
+              {listMode === "due" && overdueContacts.length > 0 && (
                 <button
                   type="button"
                   onClick={selectAllOverdue}
                   className="text-xs text-primary hover:underline underline-offset-2"
                 >
-                  Select all overdue ({overdueInList.length})
+                  Select all overdue ({overdueContacts.length})
                 </button>
               )}
               <span className="text-xs text-muted-foreground">
@@ -432,33 +442,33 @@ export default function OutreachView({
               </span>
             </div>
 
-            {tier1Contacts.length > 0 && (
+            {overdueContacts.length > 0 && (
               <ContactSection
-                title="Tier 1 — Priority"
-                contacts={tier1Contacts}
+                title="Overdue"
+                contacts={overdueContacts}
                 selected={selected}
                 onToggle={toggleContact}
-                accent="border-l-orange-400"
+                sectionAccent="red"
               />
             )}
 
-            {tier2Contacts.length > 0 && (
+            {dueTodayContacts.length > 0 && (
               <ContactSection
-                title="Tier 2"
-                contacts={tier2Contacts}
+                title="Due today"
+                contacts={dueTodayContacts}
                 selected={selected}
                 onToggle={toggleContact}
-                accent="border-l-blue-400/60"
+                sectionAccent="amber"
               />
             )}
 
-            {tier3Contacts.length > 0 && (
+            {upcomingContacts.length > 0 && (
               <ContactSection
-                title={listMode === "all" || listMode === "selection" ? "Tier 3 / Untiered" : "Tier 3"}
-                contacts={tier3Contacts}
+                title="Upcoming"
+                contacts={upcomingContacts}
                 selected={selected}
                 onToggle={toggleContact}
-                accent="border-l-border"
+                sectionAccent="none"
               />
             )}
           </div>
@@ -887,26 +897,29 @@ function ContactSection({
   contacts,
   selected,
   onToggle,
-  accent,
+  sectionAccent,
 }: {
   title: string;
   contacts: DueContact[];
   selected: Set<string>;
   onToggle: (id: string) => void;
-  accent: string;
+  sectionAccent: "red" | "amber" | "none";
 }) {
-  const [visibleCount, setVisibleCount] = useState(TIER_PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(SECTION_PAGE_SIZE);
   const visible = contacts.slice(0, visibleCount);
   const remaining = contacts.length - visible.length;
 
   return (
     <div className="space-y-1.5">
-      <h2 className="sticky top-12 z-[9] text-xs font-semibold uppercase tracking-wide text-muted-foreground bg-background/95 backdrop-blur-sm py-1">
-        {title}
-        <span className="ml-1.5 tabular-nums font-normal normal-case tracking-normal">
-          · {contacts.length}
-        </span>
-      </h2>
+      {/* Not collapsible — sections stay open here because bulk-selecting
+          checkboxes across sections is the point of this page (unlike Lease
+          radar/Follow-ups, where collapsing reduces scroll). */}
+      <SectionHeader
+        label={title}
+        count={contacts.length}
+        accent={sectionAccent}
+        stickyOffset="top-12"
+      />
       <div className="space-y-1">
         {visible.map((c) => (
           <ContactRow
@@ -914,14 +927,13 @@ function ContactSection({
             contact={c}
             checked={selected.has(c.id)}
             onToggle={() => onToggle(c.id)}
-            accent={accent}
           />
         ))}
       </div>
       {remaining > 0 && (
         <button
           type="button"
-          onClick={() => setVisibleCount((n) => n + TIER_PAGE_SIZE)}
+          onClick={() => setVisibleCount((n) => n + SECTION_PAGE_SIZE)}
           className="w-full text-xs text-primary hover:underline underline-offset-2 py-1.5"
         >
           Show more ({remaining} remaining)
@@ -931,16 +943,23 @@ function ContactSection({
   );
 }
 
+// Per-row left-border accent by tier — sections are grouped by urgency now,
+// so this is the only place tier still shows up as a visual grouping cue
+// (alongside the T1/T2/T3 badge on the right).
+function tierAccentCls(tier: number | null): string {
+  if (tier === 1) return "border-l-orange-400";
+  if (tier === 2) return "border-l-blue-400/60";
+  return "border-l-border";
+}
+
 function ContactRow({
   contact: c,
   checked,
   onToggle,
-  accent,
 }: {
   contact: DueContact;
   checked: boolean;
   onToggle: () => void;
-  accent: string;
 }) {
   const overdueLabel =
     c.daysOverdue > 0
@@ -953,7 +972,7 @@ function ContactRow({
     <label
       className={cn(
         "flex items-center gap-3 px-3 py-2 rounded-lg border bg-card cursor-pointer hover:bg-muted/20 transition-colors border-l-4",
-        accent,
+        tierAccentCls(c.contact_tier),
         checked && "bg-primary/5 border-primary/30"
       )}
     >

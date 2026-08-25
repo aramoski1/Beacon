@@ -4,11 +4,12 @@ import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import {
   CheckSquare, CheckCircle2, Plus, Loader2, Building2, User,
-  AlertTriangle, X, CalendarClock, Mail, ChevronDown,
+  AlertTriangle, X, CalendarClock, Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ComposeOutreach } from "@/components/compose-outreach";
+import { SectionHeader } from "@/components/section-header";
 import {
   markFollowUpDone,
   createFollowUp,
@@ -326,14 +327,14 @@ function AddFollowUpForm({
 function FollowUpTable({
   rows,
   label,
-  labelCls,
+  accent = "none",
   defaultOpen = true,
   onDone,
   userEmail,
 }: {
   rows: FollowUpRow[];
   label: string;
-  labelCls?: string;
+  accent?: "red" | "amber" | "none";
   defaultOpen?: boolean;
   onDone: (id: string) => void;
   userEmail: string | null;
@@ -342,22 +343,14 @@ function FollowUpTable({
   if (rows.length === 0) return null;
   return (
     <div className="space-y-1 scroll-mt-14 lg:scroll-mt-4">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="sticky top-0 z-10 w-full flex items-center justify-between gap-2 rounded-md border bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-left"
-      >
-        <p className={cn("text-xs font-semibold uppercase tracking-wide", labelCls ?? "text-muted-foreground")}>
-          {label} · {rows.length}
-        </p>
-        <ChevronDown
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform",
-            !open && "-rotate-90",
-          )}
-        />
-      </button>
+      <SectionHeader
+        label={label}
+        count={rows.length}
+        accent={accent}
+        collapsible
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {open && (
         <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
@@ -470,8 +463,8 @@ export function FollowUpsView({
       )}
 
       <div className="space-y-4">
-        <FollowUpTable rows={overdue}  label="Overdue"   labelCls="text-destructive" onDone={handleDone} userEmail={userEmail} />
-        <FollowUpTable rows={dueToday} label="Due today" labelCls="text-orange-600 dark:text-orange-400" onDone={handleDone} userEmail={userEmail} />
+        <FollowUpTable rows={overdue}  label="Overdue"   accent="red" onDone={handleDone} userEmail={userEmail} />
+        <FollowUpTable rows={dueToday} label="Due today" accent="amber" onDone={handleDone} userEmail={userEmail} />
         <FollowUpTable rows={upcoming} label="Upcoming" defaultOpen={!hasUrgentOpen} onDone={handleDone} userEmail={userEmail} />
       </div>
 

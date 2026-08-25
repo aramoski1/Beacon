@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Building2,
   CalendarClock,
-  ChevronDown,
   ChevronRight,
   Loader2,
   Mail,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SectionHeader } from "@/components/section-header";
 import { generateDrafts, logOutreach } from "@/app/outreach/actions";
 import { composeUrl, isWebCompose, readStoredProvider, readStoredUserEmail } from "@/lib/email-provider";
 import {
@@ -216,42 +216,45 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
             )}
           </div>
 
-          {/* WHO + WHY — single secondary line when ready */}
+          {/* WHO + WHY — split so identity/expiry (short, scannable) don't
+              compete with the "why" sentence (often long) for room on one line */}
           {resolution.kind === "ready" && (
-            <div className="flex items-center gap-1.5 flex-wrap text-xs min-w-0">
-              <Link
-                href={`/contacts/${resolution.contact.id}`}
-                className="inline-flex items-center gap-1 min-w-0 hover:underline underline-offset-2"
-              >
-                <User className="size-3 shrink-0 text-muted-foreground" />
-                <span className="rounded px-1 py-px text-[10px] font-semibold uppercase tracking-wide bg-muted border shrink-0">
-                  {resolution.role}
+            <div className="text-xs min-w-0 space-y-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <Link
+                  href={`/contacts/${resolution.contact.id}`}
+                  className="inline-flex items-center gap-1 min-w-0 hover:underline underline-offset-2"
+                >
+                  <User className="size-3 shrink-0 text-muted-foreground" />
+                  <span className="rounded px-1 py-px text-[10px] font-semibold uppercase tracking-wide bg-muted border shrink-0">
+                    {resolution.role}
+                  </span>
+                  <span className="font-medium truncate">{resolution.contact.name ?? "Contact"}</span>
+                </Link>
+                <span className="text-muted-foreground shrink-0">
+                  · Expires {fmtExpiry(entry.expiration_date)}
                 </span>
-                <span className="font-medium truncate">{resolution.contact.name ?? "Contact"}</span>
-              </Link>
-              <span className="text-muted-foreground truncate">
-                · {resolution.why}
-                {" · "}Expires {fmtExpiry(entry.expiration_date)}
-              </span>
-              {entry.tenant_contact && entry.owner_contact && (
-                activeAction === "tenant_rollover" ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveAction("owner_renewal")}
-                    className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
-                  >
-                    Switch to owner
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveAction("tenant_rollover")}
-                    className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
-                  >
-                    Switch to tenant
-                  </button>
-                )
-              )}
+                {entry.tenant_contact && entry.owner_contact && (
+                  activeAction === "tenant_rollover" ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveAction("owner_renewal")}
+                      className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
+                    >
+                      Switch to owner
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActiveAction("tenant_rollover")}
+                      className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline shrink-0"
+                    >
+                      Switch to tenant
+                    </button>
+                  )
+                )}
+              </div>
+              <p className="text-muted-foreground truncate">{resolution.why}</p>
             </div>
           )}
 
@@ -390,34 +393,15 @@ function BucketSection({
 
   return (
     <section id={`bucket-${bucket}`} className="scroll-mt-14 lg:scroll-mt-4 space-y-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={cn(
-          "sticky top-0 z-10 w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2 border text-left backdrop-blur-sm",
-          isUrgent
-            ? "border-red-500/30 bg-red-50/95 dark:bg-red-950/90"
-            : "border-border bg-background/95",
-        )}
-      >
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold flex items-center gap-2">
-            {isUrgent && <AlertTriangle className="size-3.5 text-red-600 dark:text-red-400 shrink-0" />}
-            {meta.label}
-            <span className="rounded-full bg-background border px-2 py-0.5 text-[10px] font-bold tabular-nums">
-              {entries.length}
-            </span>
-          </h2>
-          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{meta.sub}</p>
-        </div>
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            !open && "-rotate-90",
-          )}
-        />
-      </button>
+      <SectionHeader
+        label={meta.label}
+        count={entries.length}
+        subLabel={meta.sub}
+        accent={isUrgent ? "red" : "none"}
+        collapsible
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {open && (
         <div className="space-y-1.5">
           {entries.map((e) => (
