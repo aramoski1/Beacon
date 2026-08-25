@@ -49,6 +49,7 @@ import {
   type DocumentEnhancementPreview,
   type ZoningResult,
 } from "./actions";
+import type { ZoningInfo } from "@/lib/zoning";
 
 const COUNTY_SOURCE_LABEL: Record<string, string> = {
   broward: "BCPA",
@@ -189,6 +190,7 @@ export function EnrichPanel({
   initialOwnerContacts,
   costarEnabled,
   supportsEntityLookup,
+  initialZoning,
 }: {
   propertyId: string;
   address: string | null;
@@ -207,6 +209,12 @@ export function EnrichPanel({
    * guard in app/properties/[id]/actions.ts (the actual enforcement point —
    * this prop only controls what the UI offers). */
   supportsEntityLookup: boolean;
+  /** Persisted result of the last zoning lookup (lib/zoning-persist.ts) —
+   * zoning now runs automatically as part of county enrichment / adding a
+   * property, so this is what a page load shows without any click. Null
+   * means zoning hasn't been checked yet (e.g. a property enriched before
+   * this feature existed) — the section falls back to a manual "Look up". */
+  initialZoning: { zone: ZoningInfo; source: string; geocoded: boolean } | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -247,9 +255,16 @@ export function EnrichPanel({
   const [docConflictSel, setDocConflictSel] = useState<Set<string>>(new Set());
   const docFileRef = useRef<HTMLInputElement>(null);
 
-  // Zoning
+  // Zoning — runs automatically as part of county enrichment now (see
+  // handleCountyApply and app/properties/new/actions.ts's saveIngestedProperty),
+  // so a page load already shows the last result via initialZoning rather than
+  // requiring a manual "Look up" click.
   const [zoningOpen, setZoningOpen] = useState(false);
-  const [zoning, setZoning] = useState<ZoningPhase>({ tag: "idle" });
+  const [zoning, setZoning] = useState<ZoningPhase>(
+    initialZoning
+      ? { tag: "result", result: { kind: "ok", zone: initialZoning.zone, source: initialZoning.source, geocoded: initialZoning.geocoded } }
+      : { tag: "idle" }
+  );
 
   // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar) ──
 
@@ -311,6 +326,9 @@ export function EnrichPanel({
       const res = await applyCountyEnhancement(propertyId, preview.strap, preview.mdpaData, sunbizPersons);
       if ("error" in res) { setCounty({ tag: "error", message: res.error }); return; }
       setCounty({ tag: "done", changesCount: preview.changes.length, ownerContactsSaved: res.owner_contacts_saved });
+      // Zoning ran automatically as part of this enrichment — show its
+      // result immediately instead of requiring a separate "Look up" click.
+      setZoning({ tag: "result", result: res.zoning });
       // Update owner contacts locally so the promote section shows immediately
       if (sunbizPersons.length > 0) {
         setOwnerContacts(sunbizPersons.map((p) => ({ name: p.name, title: p.title ?? "", address: p.address ?? null })));
@@ -1279,7 +1297,9 @@ export function EnrichPanel({
               {zoning.tag === "idle" && (
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm text-muted-foreground">
-                    Look up the current zoning district for this parcel from county/regional GIS records.
+                    {needsCountyEnhancement
+                      ? "Zoning runs automatically once you enrich this property from county records above."
+                      : "Not checked yet — this property was enriched before zoning lookup existed. Check now:"}
                   </p>
                   <Button size="sm" variant="outline" onClick={handleZoningLookup} className="shrink-0 flex items-center gap-1.5">
                     <Search className="size-3.5" /> Look up

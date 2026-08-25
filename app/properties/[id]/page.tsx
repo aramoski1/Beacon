@@ -37,6 +37,7 @@ import { LeaseCompsSection } from "./lease-comps";
 import { loadContactIdsForProperty } from "@/lib/contact-properties";
 import { listDocuments } from "@/lib/documents";
 import { DocumentsSection } from "@/components/documents-section";
+import type { ZoningInfo } from "@/lib/zoning";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,10 @@ type Property = {
     previous_sale_date: string | null;
     new_sale_date: string | null;
   } | null;
+  zoning_source: string | null;
+  zoning_checked_at: string | null;
+  zoning_data: ZoningInfo | null;
+  zoning_geocoded: boolean | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -476,6 +481,11 @@ export default async function PropertyPage({
         initialOwnerContacts={storedOwnerContacts}
         costarEnabled={userSettings.costar_enabled}
         supportsEntityLookup={!p.source_url?.startsWith("magis:")}
+        initialZoning={
+          p.zoning_data
+            ? { zone: p.zoning_data, source: p.zoning_source ?? "", geocoded: !!p.zoning_geocoded }
+            : null
+        }
       />
 
       <Suspense

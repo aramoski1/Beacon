@@ -26,6 +26,7 @@ import { fetchFieldDefs } from "@/lib/custom-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { searchAndExtractSunbiz, type SunbizResult, type SunbizPerson } from "@/lib/sunbiz";
 import { storedOwnerContactsFromSunbiz, mdpaIndividualOwnerContact } from "@/lib/owner-contacts";
+import { runAndPersistZoning } from "@/lib/zoning-persist";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -593,6 +594,21 @@ export async function saveIngestedProperty(
       error_message: msg,
     });
     return { error: msg };
+  }
+
+  // Zoning is just part of adding a property now — run it automatically
+  // instead of requiring a separate manual step. Best-effort: the property
+  // is already saved above, so a zoning failure (or an honest "unavailable"
+  // for an incorporated FL city) shouldn't fail property creation.
+  try {
+    await runAndPersistZoning(supabase, user.id, id, {
+      county: preview.county,
+      address: preview.address,
+      city: preview.city,
+      strap: preview.strap,
+    });
+  } catch {
+    // Non-fatal — the property was saved; zoning can be re-checked later.
   }
 
   return { id };

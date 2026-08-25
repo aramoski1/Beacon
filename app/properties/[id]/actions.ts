@@ -35,7 +35,8 @@ import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
 import { fetchFieldDefs, fieldSlug } from "@/lib/custom-fields";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
-import { getZoningInfo, type ZoningResult } from "@/lib/zoning";
+import type { ZoningResult } from "@/lib/zoning";
+import { runAndPersistZoning } from "@/lib/zoning-persist";
 export type { ZoningResult } from "@/lib/zoning";
 
 export async function createOwnerContact(
@@ -957,14 +958,14 @@ export async function applyCountyEnhancement(
   strap: string,
   mdpaData: MdpaEnhancementData,
   sunbizPersons?: SunbizPerson[] | null,
-): Promise<{ ok: true; owner_contacts_saved: number } | { error: string }> {
+): Promise<{ ok: true; owner_contacts_saved: number; zoning: ZoningResult } | { error: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
   const { data: existing } = await supabase
     .from("properties")
-    .select("id, confidence_flags, custom_fields, field_sources")
+    .select("id, address, city, confidence_flags, custom_fields, field_sources")
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
@@ -1054,7 +1055,23 @@ export async function applyCountyEnhancement(
     owner_contacts_saved = owner_contacts.length;
   }
 
-  return { ok: true, owner_contacts_saved };
+  // Zoning is just part of county enrichment now — run it automatically
+  // instead of requiring a separate manual step. Best-effort: county
+  // enrichment has already succeeded above, so a zoning failure (or an
+  // honest "unavailable" for an incorporated FL city) shouldn't fail this call.
+  let zoning: ZoningResult;
+  try {
+    zoning = await runAndPersistZoning(supabase, user.id, propertyId, {
+      county: countyFromStrap(strap),
+      address: existing.address ?? "",
+      city: existing.city,
+      strap,
+    });
+  } catch (e) {
+    zoning = { kind: "error", message: e instanceof Error ? e.message : String(e) };
+  }
+
+  return { ok: true, owner_contacts_saved, zoning };
 }
 
 // ─── Document / pasted-text / URL enhancement ─────────────────────────────────
@@ -1326,24 +1343,9 @@ export async function getPropertyZoning(
   }
   const strap = stripCountyPrefix(prop.source_url);
 
-  const result = await getZoningInfo({ county, address: prop.address, city: prop.city, strap });
-
-  // Persist a successful lookup so the dashboard's zoning-opportunity signal
-  // (lib/action-item-signals.ts) can use it without re-querying external GIS
-  // services on every dashboard load. Best-effort — a write failure here
-  // shouldn't hide the lookup result the broker just successfully got back.
-  if (result.kind === "ok") {
-    await supabase
-      .from("properties")
-      .update({
-        zoning_code: result.zone.code,
-        zoning_far: result.zone.farEffective,
-        zoning_source: result.source,
-        zoning_checked_at: new Date().toISOString(),
-      })
-      .eq("id", propertyId)
-      .eq("owner_id", user.id);
-  }
+  const result = await runAndPersistZoning(supabase, user.id, propertyId, {
+    county, address: prop.address, city: prop.city, strap,
+  });
 
   return { result };
 }

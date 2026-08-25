@@ -257,6 +257,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-zoning-fields.ts",
     description: "Properties — zoning_code/zoning_far/zoning_source/zoning_checked_at columns, persisting a broker-run zoning lookup (lib/zoning.ts) so the dashboard's zoning-opportunity signal doesn't re-query external GIS on every load",
   },
+  {
+    file: "migrate-zoning-data-json.ts",
+    description: "Properties — zoning_data JSONB (full ZoningInfo) + zoning_geocoded boolean, so the property page shows the complete last zoning result (district name, FAR/height/density, geocoded caveat) on load, not just code+FAR",
+  },
 ];
 
 const hr = "─".repeat(60);
