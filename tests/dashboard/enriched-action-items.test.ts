@@ -23,6 +23,38 @@ const PROP_MIAMI: EnrichedProperty = {
   size_sqft: 15000,
 };
 
+// Boston Proper-style lot: 3,000 SF land, FAR 8 → 24,000 SF allowed,
+// currently built at only 6,000 SF (25% utilized) — a real opportunity.
+const PROP_UNDERBUILT: EnrichedProperty = {
+  id: "prop-3",
+  address: "700 Boylston St, Boston",
+  size_sqft: 6000,
+  land_sqft: 3000,
+  zoning_far: 8,
+  zoning_code: "35B-8-120c (BP)",
+};
+
+// Ordinary single-family lot with a low FAR — utilization looks "low" by the
+// same math, but should NOT fire (FAR below the meaningful-density floor).
+const PROP_SINGLE_FAMILY: EnrichedProperty = {
+  id: "prop-4",
+  address: "12 Elm St, Newton",
+  size_sqft: 1800,
+  land_sqft: 10000,
+  zoning_far: 0.35,
+  zoning_code: "SR-3",
+};
+
+// Built out close to what zoning allows — should not fire.
+const PROP_BUILT_OUT: EnrichedProperty = {
+  id: "prop-5",
+  address: "1 Main St, Cambridge",
+  size_sqft: 18000,
+  land_sqft: 3000,
+  zoning_far: 6,
+  zoning_code: "C-2",
+};
+
 const CONTACT_TIER1 = {
   contact_tier: 1 as number | null,
   last_contacted_at: new Date(Date.now() - 93 * 86_400_000).toISOString(),
@@ -123,6 +155,62 @@ describe("buildSignals", () => {
     expect(leases[1].daysUntilExpiry).toBe(300);
   });
 
+  it("adds zoning_opportunity when built well below what zoning (FAR) allows", () => {
+    const signals = buildSignals({
+      contact: CONTACT_TIER1,
+      resolvedProperties: [PROP_UNDERBUILT],
+      expiringLeases: [],
+      changedProperties: NO_CHANGES,
+      daysOverdue: 5,
+      daysSinceContact: 50,
+    });
+    const zo = signals.find((s) => s.kind === "zoning_opportunity");
+    expect(zo).toBeDefined();
+    if (zo?.kind === "zoning_opportunity") {
+      expect(zo.farEffective).toBe(8);
+      expect(zo.builtSqft).toBe(6000);
+      expect(zo.allowedSqft).toBe(24000);
+      expect(zo.utilizationPct).toBe(25);
+      expect(zo.zoningCode).toBe("35B-8-120c (BP)");
+    }
+  });
+
+  it("does not fire zoning_opportunity below the meaningful-density FAR floor (ordinary single-family lot)", () => {
+    const signals = buildSignals({
+      contact: CONTACT_TIER1,
+      resolvedProperties: [PROP_SINGLE_FAMILY],
+      expiringLeases: [],
+      changedProperties: NO_CHANGES,
+      daysOverdue: 5,
+      daysSinceContact: 50,
+    });
+    expect(signals.some((s) => s.kind === "zoning_opportunity")).toBe(false);
+  });
+
+  it("does not fire zoning_opportunity when already built close to the zoning limit", () => {
+    const signals = buildSignals({
+      contact: CONTACT_TIER1,
+      resolvedProperties: [PROP_BUILT_OUT],
+      expiringLeases: [],
+      changedProperties: NO_CHANGES,
+      daysOverdue: 5,
+      daysSinceContact: 50,
+    });
+    expect(signals.some((s) => s.kind === "zoning_opportunity")).toBe(false);
+  });
+
+  it("does not fire zoning_opportunity when no zoning lookup has ever been run (zoning_far null)", () => {
+    const signals = buildSignals({
+      contact: CONTACT_TIER1,
+      resolvedProperties: [PROP_DORAL], // no zoning_far/land_sqft set
+      expiringLeases: [],
+      changedProperties: NO_CHANGES,
+      daysOverdue: 5,
+      daysSinceContact: 50,
+    });
+    expect(signals.some((s) => s.kind === "zoning_opportunity")).toBe(false);
+  });
+
   it("produces no signals when contact is on-cadence with no special properties", () => {
     const signals = buildSignals({
       contact: { contact_tier: 2, last_contacted_at: new Date().toISOString() },
@@ -159,6 +247,15 @@ describe("formatWhyNow", () => {
     ];
     const result = formatWhyNow(signals, "Alice", 30);
     expect(result).toContain("14 days");
+  });
+
+  it("includes the zoning opportunity utilization/FAR", () => {
+    const signals: ActionSignal[] = [
+      { kind: "zoning_opportunity", address: "700 Boylston St", zoningCode: "BP", farEffective: 8, builtSqft: 6000, allowedSqft: 24000, utilizationPct: 25 },
+    ];
+    const result = formatWhyNow(signals, "Erin", 50);
+    expect(result).toContain("25%");
+    expect(result).toContain("FAR 8");
   });
 
   it("uses 'months' for durations ~1–11 months", () => {
@@ -230,6 +327,16 @@ describe("formatComposeContext", () => {
     const ctx = formatComposeContext(signals, 30);
     expect(ctx).toContain("new owner: New Owner LLC");
   });
+
+  it("includes zoning opportunity context with built/allowed SF and a hedge, not a certainty", () => {
+    const signals: ActionSignal[] = [
+      { kind: "zoning_opportunity", address: "700 Boylston St", zoningCode: "BP", farEffective: 8, builtSqft: 6000, allowedSqft: 24000, utilizationPct: 25 },
+    ];
+    const ctx = formatComposeContext(signals, 30);
+    expect(ctx).toContain("6,000 SF");
+    expect(ctx).toContain("24,000 SF");
+    expect(ctx).toContain("not a certainty");
+  });
 });
 
 // ─── signalPriorityScore ──────────────────────────────────────────────────────
@@ -259,6 +366,13 @@ describe("signalPriorityScore", () => {
   it("scores never_contacted at 10", () => {
     const signals: ActionSignal[] = [{ kind: "never_contacted", tier: 1 }];
     expect(signalPriorityScore(signals)).toBe(10);
+  });
+
+  it("scores zoning_opportunity (no lease/ownership change) at 20 — below ownership change, above plain cadence", () => {
+    const signals: ActionSignal[] = [
+      { kind: "zoning_opportunity", address: null, zoningCode: null, farEffective: 8, builtSqft: 6000, allowedSqft: 24000, utilizationPct: 25 },
+    ];
+    expect(signalPriorityScore(signals)).toBe(20);
   });
 
   it("uses most-urgent lease when multiple present", () => {

@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Clock,
   Building2,
+  Landmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -50,8 +51,9 @@ function SignalChips({ signals }: { signals: ActionSignal[] }) {
     (s): s is LeaseExpiringSignal => s.kind === "lease_expiring"
   );
   const hasOwnerChange = signals.some((s) => s.kind === "ownership_changed");
+  const zoningOpp = signals.find((s) => s.kind === "zoning_opportunity");
 
-  if (leases.length === 0 && !hasOwnerChange) return null;
+  if (leases.length === 0 && !hasOwnerChange && !zoningOpp) return null;
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -79,6 +81,12 @@ function SignalChips({ signals }: { signals: ActionSignal[] }) {
         <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-500/10 text-violet-700 dark:text-violet-400">
           <Building2 className="size-2.5" />
           Owner changed
+        </span>
+      )}
+      {zoningOpp && zoningOpp.kind === "zoning_opportunity" && (
+        <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium bg-teal-500/10 text-teal-700 dark:text-teal-400">
+          <Landmark className="size-2.5" />
+          Zoning {zoningOpp.utilizationPct}% used
         </span>
       )}
     </div>

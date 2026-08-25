@@ -38,7 +38,7 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
     getUserSettings(),
     supabase
       .from("properties")
-      .select("id, address, size_sqft, ownership_change_detected_at, ownership_change_data"),
+      .select("id, address, size_sqft, land_sqft, zoning_far, zoning_code, ownership_change_detected_at, ownership_change_data"),
     supabase
       .from("lease_abstracts")
       .select("id, expiration_date, linked_property, properties(id, address, size_sqft)")
@@ -63,6 +63,9 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
     id: string;
     address: string | null;
     size_sqft: number | null;
+    land_sqft: number | null;
+    zoning_far: number | null;
+    zoning_code: string | null;
     ownership_change_detected_at: string | null;
     ownership_change_data: unknown;
   };
@@ -130,7 +133,14 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
       const resolvedProperties: EnrichedProperty[] = linkedPropIds
         .map((pid) => propMap.get(pid))
         .filter(Boolean)
-        .map((p) => ({ id: p!.id, address: p!.address, size_sqft: p!.size_sqft }));
+        .map((p) => ({
+          id: p!.id,
+          address: p!.address,
+          size_sqft: p!.size_sqft,
+          land_sqft: p!.land_sqft,
+          zoning_far: p!.zoning_far,
+          zoning_code: p!.zoning_code,
+        }));
 
       const expiringLeases = linkedPropIds.flatMap(
         (pid) => leasesByProperty.get(pid) ?? []

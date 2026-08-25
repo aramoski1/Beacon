@@ -31,11 +31,30 @@ export type NeverContactedSignal = {
   tier: number | null;
 };
 
+// Flags a property built well below what its zoning currently allows — a
+// highest-and-best-use / redevelopment conversation starter. Only computed
+// when a broker has actually run the Zoning lookup (lib/zoning.ts) on the
+// property and it persisted a numeric FAR — today that's Massachusetts only
+// (the MAPC Zoning Atlas is the only region with real numeric FAR data; the
+// Florida GIS layers only expose a zoning code/description, no buildable-area
+// math), so this signal simply never fires for FL properties rather than
+// guessing a FAR that isn't in any real record.
+export type ZoningOpportunitySignal = {
+  kind: "zoning_opportunity";
+  address: string | null;
+  zoningCode: string | null;
+  farEffective: number;
+  builtSqft: number;
+  allowedSqft: number;
+  utilizationPct: number; // 0–100, rounded
+};
+
 export type ActionSignal =
   | LeaseExpiringSignal
   | OwnershipChangedSignal
   | CadenceOverdueSignal
-  | NeverContactedSignal;
+  | NeverContactedSignal
+  | ZoningOpportunitySignal;
 
 // ─── Enriched item type ────────────────────────────────────────────────────────
 
@@ -43,7 +62,20 @@ export type EnrichedProperty = {
   id: string;
   address: string | null;
   size_sqft: number | null;
+  /** Land area in sqft — needed alongside zoning_far to compute allowed buildable area. */
+  land_sqft?: number | null;
+  /** Persisted from a prior broker-run zoning lookup (lib/zoning.ts) — null until run, and null everywhere outside Massachusetts today. */
+  zoning_far?: number | null;
+  zoning_code?: string | null;
 };
+
+// A utilization ratio below this (built ÷ zoning-allowed) is flagged as a
+// meaningful gap — well short of "basically built out." The farEffective
+// floor below avoids flagging ordinary single-family lots, where zoned FAR is
+// often already close to 1 and low utilization is just a normal-sized house,
+// not a real redevelopment opportunity.
+const ZONING_OPPORTUNITY_MAX_UTILIZATION = 0.5;
+const ZONING_OPPORTUNITY_MIN_FAR = 1;
 
 export type EnrichedActionItem = {
   id: string;
@@ -109,6 +141,27 @@ export function buildSignals({
     }
   }
 
+  // Zoning opportunity — built well below what's currently zoned (see
+  // ZoningOpportunitySignal doc comment for why this only ever fires when a
+  // real farEffective is on file).
+  for (const p of resolvedProperties) {
+    if (!p.zoning_far || !p.land_sqft || !p.size_sqft) continue;
+    if (p.zoning_far < ZONING_OPPORTUNITY_MIN_FAR) continue;
+    const allowedSqft = p.zoning_far * p.land_sqft;
+    if (allowedSqft <= 0) continue;
+    const utilization = p.size_sqft / allowedSqft;
+    if (utilization >= ZONING_OPPORTUNITY_MAX_UTILIZATION) continue;
+    signals.push({
+      kind: "zoning_opportunity",
+      address: p.address,
+      zoningCode: p.zoning_code ?? null,
+      farEffective: p.zoning_far,
+      builtSqft: p.size_sqft,
+      allowedSqft: Math.round(allowedSqft),
+      utilizationPct: Math.round(utilization * 100),
+    });
+  }
+
   // Cadence / recency
   if (!contact.last_contacted_at) {
     signals.push({ kind: "never_contacted", tier: contact.contact_tier });
@@ -165,10 +218,17 @@ export function formatWhyNow(
     parts.push("ownership changed recently");
   }
 
-  // Priority 3: contact recency — "last contacted" only shown when there's a
-  // primary signal (lease/ownership) to give it context; alone it's redundant
-  // because daysOverdue already covers that.
-  const hasPrimarySignal = leases.length > 0 || signals.some((s) => s.kind === "ownership_changed");
+  // Priority 3: zoning opportunity (only ever present alongside, never instead
+  // of, the above — see ZoningOpportunitySignal)
+  const zoningOpp = signals.find((s): s is ZoningOpportunitySignal => s.kind === "zoning_opportunity");
+  if (zoningOpp) {
+    parts.push(`built at ${zoningOpp.utilizationPct}% of what its zoning (FAR ${zoningOpp.farEffective}) allows`);
+  }
+
+  // Priority 4: contact recency — "last contacted" only shown when there's a
+  // primary signal (lease/ownership/zoning) to give it context; alone it's
+  // redundant because daysOverdue already covers that.
+  const hasPrimarySignal = leases.length > 0 || signals.some((s) => s.kind === "ownership_changed") || !!zoningOpp;
   if (signals.some((s) => s.kind === "never_contacted")) {
     parts.push("never contacted");
   } else if (hasPrimarySignal && daysSinceContact > 0) {
@@ -216,6 +276,15 @@ export function formatComposeContext(
     );
   }
 
+  const zoningOpp = signals.find((s): s is ZoningOpportunitySignal => s.kind === "zoning_opportunity");
+  if (zoningOpp) {
+    const prop = zoningOpp.address ?? "the linked property";
+    const zoneStr = zoningOpp.zoningCode ? ` (zoned ${zoningOpp.zoningCode}, FAR ${zoningOpp.farEffective})` : ` (FAR ${zoningOpp.farEffective})`;
+    lines.push(
+      `${prop}${zoneStr} is built at ${zoningOpp.builtSqft.toLocaleString()} SF against ~${zoningOpp.allowedSqft.toLocaleString()} SF allowed by zoning (${zoningOpp.utilizationPct}% utilized) — a potential redevelopment/expansion angle worth raising, not a certainty.`
+    );
+  }
+
   if (signals.some((s) => s.kind === "never_contacted")) {
     lines.push("This is a first contact — introduce yourself and your specialty.");
   } else if (daysSinceContact > 0) {
@@ -242,6 +311,10 @@ export function signalPriorityScore(signals: ActionSignal[]): number {
   }
 
   if (signals.some((s) => s.kind === "ownership_changed")) return 30;
+
+  // Below ownership change (a discrete, timely event) but above plain cadence
+  // overdue — a real opportunity, but not time-sensitive the way the above are.
+  if (signals.some((s) => s.kind === "zoning_opportunity")) return 20;
 
   const overdue = signals.find((s): s is CadenceOverdueSignal => s.kind === "cadence_overdue");
   if (overdue) return Math.min(25, overdue.daysOverdue / 2);

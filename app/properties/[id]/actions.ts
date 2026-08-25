@@ -35,6 +35,8 @@ import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
 import { fetchFieldDefs, fieldSlug } from "@/lib/custom-fields";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
+import { getZoningInfo, type ZoningResult } from "@/lib/zoning";
+export type { ZoningResult } from "@/lib/zoning";
 
 export async function createOwnerContact(
   propertyId: string
@@ -1278,4 +1280,70 @@ export async function applyDocumentEnhancement(
   }
 
   return { ok: true, fieldsApplied: toApply.length };
+}
+
+// ─── Zoning ───────────────────────────────────────────────────────────────────
+
+function countyFromSourceUrl(sourceUrl: string | null): SupportedCounty | null {
+  if (sourceUrl?.startsWith("mdpa:")) return "miami-dade";
+  if (sourceUrl?.startsWith("bcpa:")) return "broward";
+  if (sourceUrl?.startsWith("pbcpa:")) return "palm-beach";
+  if (sourceUrl?.startsWith("magis:")) return "massachusetts";
+  return null;
+}
+
+function stripCountyPrefix(sourceUrl: string | null): string | null {
+  const m = sourceUrl?.match(/^(mdpa|bcpa|pbcpa|magis):(.+)$/);
+  return m ? m[2] : null;
+}
+
+export async function getPropertyZoning(
+  propertyId: string
+): Promise<{ result: ZoningResult } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("address, city, source_url")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!prop) return { error: "Property not found." };
+  if (!prop.address?.trim()) return { error: "This property has no address to look up." };
+
+  // Prefer the county already recorded from a prior county-enhancement run
+  // (source_url's mdpa:/bcpa:/pbcpa:/magis: prefix) — it also carries the
+  // exact strap/folio, which lets Miami-Dade and Broward skip geocoding
+  // entirely. Fall back to city-based detection for properties that haven't
+  // been through county enhancement yet.
+  const county = countyFromSourceUrl(prop.source_url) ?? detectCounty(prop.city ?? "");
+  if (!county) {
+    return {
+      error: "This address appears to be outside our current coverage (Miami-Dade, Broward, and Palm Beach counties; Boston-metro Massachusetts).",
+    };
+  }
+  const strap = stripCountyPrefix(prop.source_url);
+
+  const result = await getZoningInfo({ county, address: prop.address, city: prop.city, strap });
+
+  // Persist a successful lookup so the dashboard's zoning-opportunity signal
+  // (lib/action-item-signals.ts) can use it without re-querying external GIS
+  // services on every dashboard load. Best-effort — a write failure here
+  // shouldn't hide the lookup result the broker just successfully got back.
+  if (result.kind === "ok") {
+    await supabase
+      .from("properties")
+      .update({
+        zoning_code: result.zone.code,
+        zoning_far: result.zone.farEffective,
+        zoning_source: result.source,
+        zoning_checked_at: new Date().toISOString(),
+      })
+      .eq("id", propertyId)
+      .eq("owner_id", user.id);
+  }
+
+  return { result };
 }

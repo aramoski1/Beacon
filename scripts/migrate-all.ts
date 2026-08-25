@@ -253,6 +253,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-record-shares.ts",
     description: "Per-teammate sharing Phase 1 (Beacon_Per_User_Sharing_Plan.md) — record_shares table + RLS, is_record_shared_with_me()/owns_shared_record(); adds a SELECT-only shared-with-me OR-clause to properties/contacts/deals (read-only, not co-editable — UPDATE/DELETE untouched)",
   },
+  {
+    file: "migrate-zoning-fields.ts",
+    description: "Properties — zoning_code/zoning_far/zoning_source/zoning_checked_at columns, persisting a broker-run zoning lookup (lib/zoning.ts) so the dashboard's zoning-opportunity signal doesn't re-query external GIS on every load",
+  },
 ];
 
 const hr = "─".repeat(60);
