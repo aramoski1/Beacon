@@ -14,7 +14,6 @@ import {
   ExternalLink,
   FileText,
   Globe,
-  Landmark,
   Loader2,
   MapPin,
   Search,
@@ -43,13 +42,10 @@ import {
   createCoStarContacts,
   previewDocumentEnhancement,
   applyDocumentEnhancement,
-  getPropertyZoning,
   type EnhancementPreview,
   type SunbizLookupAction,
   type DocumentEnhancementPreview,
-  type ZoningResult,
 } from "./actions";
-import type { ZoningInfo } from "@/lib/zoning";
 
 const COUNTY_SOURCE_LABEL: Record<string, string> = {
   broward: "BCPA",
@@ -121,14 +117,6 @@ type DocPhase =
 
 const DOC_ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.txt";
 
-// ── Zoning phase ──────────────────────────────────────────────────────────────
-
-type ZoningPhase =
-  | { tag: "idle" }
-  | { tag: "loading" }
-  | { tag: "error"; message: string }
-  | { tag: "result"; result: ZoningResult };
-
 // Human-readable noun for "Enriched from ___" status copy.
 function docSourceNoun(kind: DocumentEnhancementPreview["sourceKind"]): string {
   return kind === "document" ? "document" : kind === "url" ? "URL" : "pasted text";
@@ -190,7 +178,6 @@ export function EnrichPanel({
   initialOwnerContacts,
   costarEnabled,
   supportsEntityLookup,
-  initialZoning,
 }: {
   propertyId: string;
   address: string | null;
@@ -209,12 +196,6 @@ export function EnrichPanel({
    * guard in app/properties/[id]/actions.ts (the actual enforcement point —
    * this prop only controls what the UI offers). */
   supportsEntityLookup: boolean;
-  /** Persisted result of the last zoning lookup (lib/zoning-persist.ts) —
-   * zoning now runs automatically as part of county enrichment / adding a
-   * property, so this is what a page load shows without any click. Null
-   * means zoning hasn't been checked yet (e.g. a property enriched before
-   * this feature existed) — the section falls back to a manual "Look up". */
-  initialZoning: { zone: ZoningInfo; source: string; geocoded: boolean } | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -254,17 +235,6 @@ export function EnrichPanel({
   const [docUrl, setDocUrl] = useState("");
   const [docConflictSel, setDocConflictSel] = useState<Set<string>>(new Set());
   const docFileRef = useRef<HTMLInputElement>(null);
-
-  // Zoning — runs automatically as part of county enrichment now (see
-  // handleCountyApply and app/properties/new/actions.ts's saveIngestedProperty),
-  // so a page load already shows the last result via initialZoning rather than
-  // requiring a manual "Look up" click.
-  const [zoningOpen, setZoningOpen] = useState(false);
-  const [zoning, setZoning] = useState<ZoningPhase>(
-    initialZoning
-      ? { tag: "result", result: { kind: "ok", zone: initialZoning.zone, source: initialZoning.source, geocoded: initialZoning.geocoded } }
-      : { tag: "idle" }
-  );
 
   // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar) ──
 
@@ -326,9 +296,9 @@ export function EnrichPanel({
       const res = await applyCountyEnhancement(propertyId, preview.strap, preview.mdpaData, sunbizPersons);
       if ("error" in res) { setCounty({ tag: "error", message: res.error }); return; }
       setCounty({ tag: "done", changesCount: preview.changes.length, ownerContactsSaved: res.owner_contacts_saved });
-      // Zoning ran automatically as part of this enrichment — show its
-      // result immediately instead of requiring a separate "Look up" click.
-      setZoning({ tag: "result", result: res.zoning });
+      // Zoning ran automatically as part of this enrichment too (see
+      // app/properties/[id]/zoning-section.tsx) — router.refresh() below
+      // picks up the persisted result.
       // Update owner contacts locally so the promote section shows immediately
       if (sunbizPersons.length > 0) {
         setOwnerContacts(sunbizPersons.map((p) => ({ name: p.name, title: p.title ?? "", address: p.address ?? null })));
@@ -489,17 +459,6 @@ export function EnrichPanel({
     setDocPasteText("");
     setDocUrl("");
     if (docFileRef.current) docFileRef.current.value = "";
-  }
-
-  // ── Zoning handlers ──────────────────────────────────────────────────────────
-
-  function handleZoningLookup() {
-    setZoning({ tag: "loading" });
-    startTransition(async () => {
-      const res = await getPropertyZoning(propertyId);
-      if ("error" in res) { setZoning({ tag: "error", message: res.error }); return; }
-      setZoning({ tag: "result", result: res.result });
-    });
   }
 
   // ── Collapsed trigger ────────────────────────────────────────────────────────
@@ -1277,114 +1236,6 @@ export function EnrichPanel({
                   </button>
                 </div>
               )}
-            </div>
-          )}
-        </section>
-
-        {/* ── Zoning (collapsible) ───────────────────────────────────────── */}
-        <section>
-          <button
-            onClick={() => setZoningOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {zoningOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-            <Landmark className="size-3.5" />
-            Zoning
-          </button>
-
-          {zoningOpen && (
-            <div className="mt-3 space-y-3">
-              {zoning.tag === "idle" && (
-                <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm text-muted-foreground">
-                    {needsCountyEnhancement
-                      ? "Zoning runs automatically once you enrich this property from county records above."
-                      : "Not checked yet — this property was enriched before zoning lookup existed. Check now:"}
-                  </p>
-                  <Button size="sm" variant="outline" onClick={handleZoningLookup} className="shrink-0 flex items-center gap-1.5">
-                    <Search className="size-3.5" /> Look up
-                  </Button>
-                </div>
-              )}
-
-              {zoning.tag === "loading" && <Spinner label="Looking up zoning…" />}
-
-              {zoning.tag === "error" && (
-                <ErrorBox message={zoning.message} onBack={() => setZoning({ tag: "idle" })} backLabel="Try again" />
-              )}
-
-              {zoning.tag === "result" && zoning.result.kind === "unavailable" && (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground flex items-start gap-1.5">
-                    <AlertTriangle className="size-3.5 text-yellow-500 shrink-0 mt-0.5" />
-                    {zoning.result.reason}
-                  </p>
-                  <button
-                    onClick={() => setZoning({ tag: "idle" })}
-                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                  >
-                    Back
-                  </button>
-                </div>
-              )}
-
-              {zoning.tag === "result" && zoning.result.kind === "error" && (
-                <ErrorBox message={zoning.result.message} onBack={() => setZoning({ tag: "idle" })} backLabel="Try again" />
-              )}
-
-              {zoning.tag === "result" && zoning.result.kind === "ok" && (() => {
-                const { zone, source, geocoded } = zoning.result;
-                const metrics = (
-                  [
-                    ["FAR", zone.farEffective != null ? String(zone.farEffective) : null],
-                    ["Max height", zone.maxHeightFt != null ? `${zone.maxHeightFt} ft` : null],
-                    ["Max dwelling units", zone.maxDwellingUnits != null ? String(zone.maxDwellingUnits) : null],
-                    ["Density", zone.dwellingUnitsPerAcre != null ? `${zone.dwellingUnitsPerAcre} du/acre` : null],
-                    ["Min lot size", zone.minLotSizeSqft != null ? `${zone.minLotSizeSqft.toLocaleString()} sqft` : null],
-                  ] as [string, string | null][]
-                ).filter((pair): pair is [string, string] => pair[1] != null);
-
-                return (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-sm font-semibold">
-                        {zone.code ?? "—"}
-                      </span>
-                      {zone.name && <span className="text-sm font-medium">{zone.name}</span>}
-                    </div>
-                    {zone.municipality && <p className="text-xs text-muted-foreground">{zone.municipality}</p>}
-                    {zone.useDescription && <p className="text-sm">{zone.useDescription}</p>}
-                    {zone.overlay && (
-                      <p className="text-xs text-muted-foreground">Overlay: <span className="font-medium">{zone.overlay}</span></p>
-                    )}
-                    {metrics.length > 0 && (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {metrics.map(([label, value]) => (
-                          <div key={label} className="rounded-lg border bg-muted/20 px-3 py-2">
-                            <p className="text-xs text-muted-foreground">{label}</p>
-                            <p className="text-sm font-medium">{value}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-xs text-muted-foreground">Source: {source}</p>
-                    {geocoded && (
-                      <p className="text-xs text-muted-foreground flex items-start gap-1.5">
-                        <AlertTriangle className="size-3.5 text-yellow-500 shrink-0 mt-0.5" />
-                        Located by geocoding the address, not an exact parcel match — double-check this
-                        against the county/MAPC zoning map if the property sits near a district boundary
-                        or on a street name that repeats elsewhere in the same city.
-                      </p>
-                    )}
-                    <button
-                      onClick={() => setZoning({ tag: "idle" })}
-                      className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-                    >
-                      Look up again
-                    </button>
-                  </div>
-                );
-              })()}
             </div>
           )}
         </section>

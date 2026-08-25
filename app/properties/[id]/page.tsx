@@ -25,6 +25,7 @@ import { PropertyContactsSection, type LinkedContact } from "./contacts-section"
 import { PropertyActivitySection, type ActivityContact, type PropertyFollowUpInput } from "./activity-section";
 import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
 import { EnrichPanel } from "./enrich-panel";
+import { ZoningSection } from "./zoning-section";
 import { OwnershipCheckPanel } from "./ownership-check-panel";
 import { parseStoredOwnerContacts, resolvePropertyOwnerContacts, isEntityOwnerName, normalizeOwnerName, type StoredOwnerContact } from "@/lib/owner-contacts";
 import { OwnerPortfolioLink } from "@/components/owner-portfolio-link";
@@ -468,6 +469,17 @@ export default async function PropertyPage({
         </CardContent>
       </Card>
 
+      {/* Zoning — runs automatically as part of county enrichment / adding a property */}
+      <ZoningSection
+        propertyId={id}
+        needsCountyEnhancement={p.source !== "tax_roll" && !existingFolio}
+        initialZoning={
+          p.zoning_data
+            ? { zone: p.zoning_data, source: p.zoning_source ?? "", geocoded: !!p.zoning_geocoded }
+            : null
+        }
+      />
+
       {/* Enrich property — county records, Sunbiz owner discovery, document/URL, CoStar export */}
       <EnrichPanel
         propertyId={id}
@@ -481,11 +493,6 @@ export default async function PropertyPage({
         initialOwnerContacts={storedOwnerContacts}
         costarEnabled={userSettings.costar_enabled}
         supportsEntityLookup={!p.source_url?.startsWith("magis:")}
-        initialZoning={
-          p.zoning_data
-            ? { zone: p.zoning_data, source: p.zoning_source ?? "", geocoded: !!p.zoning_geocoded }
-            : null
-        }
       />
 
       <Suspense
