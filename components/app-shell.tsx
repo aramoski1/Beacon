@@ -8,7 +8,7 @@ import {
   Briefcase, CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
   CheckSquare, Settings2, LogOut, Menu, X,
-  ShieldAlert, AlertCircle, MapPinned,
+  ShieldAlert, AlertCircle, MapPinned, Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
@@ -30,6 +30,7 @@ const NAV: NavEntry[] = [
   { href: "/dashboard",       icon: LayoutDashboard, label: "Dashboard" },
   { href: "/crm",             icon: LayoutGrid,      label: "Workspace" },
   { href: "/deals",           icon: Briefcase,       label: "Deals" },
+  { href: "/prospect",        icon: Target,          label: "Prospect" },
   { href: "/lease-radar",     icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
   { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
   { href: "/settings",        icon: Settings2,       label: "Settings" },

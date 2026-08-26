@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   folioToStrap,
   parseAddressForGIS,
@@ -7,6 +7,8 @@ import {
   extractOwnerMailing,
   searchParcelsByOwnerName,
   searchParcelsByOwnerQueries,
+  buildBcpaCriteriaWhere,
+  searchByCriteria,
   type BCPAParcel,
   type BCPARecord,
   type GISSearchResult,
@@ -831,5 +833,141 @@ describe("parseCityFromAddress", () => {
 
   it("strips hyphenated ZIP extension", () => {
     expect(parseCityFromAddress("200 W Broward Blvd, Fort Lauderdale FL 33301-1234")).toBe("Fort Lauderdale");
+  });
+});
+
+// ─── buildBcpaCriteriaWhere ───────────────────────────────────────────────────
+
+describe("buildBcpaCriteriaWhere", () => {
+  it("returns 1=1 when no criteria given", () => {
+    expect(buildBcpaCriteriaWhere({})).toBe("1=1");
+  });
+
+  it("builds a building-SF BETWEEN clause on TOT_LVG_AREA", () => {
+    const where = buildBcpaCriteriaWhere({ buildingSqftMin: 5000, buildingSqftMax: 20000 });
+    expect(where).toContain("TOT_LVG_AREA BETWEEN 5000 AND 20000");
+  });
+
+  it("builds a land-SF BETWEEN clause on LND_SQFOOT", () => {
+    const where = buildBcpaCriteriaWhere({ landSqftMin: 1000, landSqftMax: 50000 });
+    expect(where).toContain("LND_SQFOOT BETWEEN 1000 AND 50000");
+  });
+
+  it("builds an assessed-value BETWEEN clause on JV", () => {
+    const where = buildBcpaCriteriaWhere({ assessedValueMin: 100000, assessedValueMax: 900000 });
+    expect(where).toContain("JV BETWEEN 100000 AND 900000");
+  });
+
+  it("builds a year-built BETWEEN clause on ACT_YR_BLT", () => {
+    const where = buildBcpaCriteriaWhere({ yearBuiltMin: 1990, yearBuiltMax: 2010 });
+    expect(where).toContain("ACT_YR_BLT BETWEEN 1990 AND 2010");
+  });
+
+  it("maps industrial property type to zero-padded 3-digit DOR_UC/PA_UC codes 040-049, with PA_UC as a null-DOR_UC fallback", () => {
+    const where = buildBcpaCriteriaWhere({ propertyType: "industrial" });
+    expect(where).toContain("DOR_UC IN ('040','041','042','043','044','045','046','047','048','049')");
+    expect(where).toContain("DOR_UC IS NULL AND PA_UC IN ('040','041','042','043','044','045','046','047','048','049')");
+  });
+
+  it("maps residential property type to the single zero-padded code 001", () => {
+    const where = buildBcpaCriteriaWhere({ propertyType: "residential" });
+    expect(where).toContain("DOR_UC IN ('001')");
+  });
+
+  it("uppercases and quotes city filters, escaping embedded quotes", () => {
+    const where = buildBcpaCriteriaWhere({ cities: ["fort lauderdale", "o'brien"] });
+    expect(where).toContain("UPPER(PHY_CITY) IN ('FORT LAUDERDALE','O''BRIEN')");
+  });
+
+  describe("sale-year signals", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-06-15T00:00:00Z"));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("builds a soldWithinYears clause as SALE_YR1 >= this year minus N", () => {
+      const where = buildBcpaCriteriaWhere({ soldWithinYears: 2 });
+      expect(where).toContain("SALE_YR1 >= 2024");
+    });
+
+    it("builds a heldAtLeastYears clause as SALE_YR1 <= this year minus N", () => {
+      const where = buildBcpaCriteriaWhere({ heldAtLeastYears: 10 });
+      expect(where).toContain("SALE_YR1 <= 2016");
+    });
+  });
+});
+
+// ─── searchByCriteria (Broward) ───────────────────────────────────────────────
+
+describe("searchByCriteria (Broward)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns too_many with the real count when it exceeds maxResults, without fetching records", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetchCalls += 1;
+      expect(new URL(url).searchParams.get("returnCountOnly")).toBe("true");
+      return { ok: true, json: async () => ({ count: 17269 }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ buildingSqftMin: 5000, buildingSqftMax: 20000 }, 200);
+    expect(result).toEqual({ kind: "too_many", count: 17269 });
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("returns ok with zero matches when the count is zero", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ count: 0 }) }) as unknown as Response);
+    const result = await searchByCriteria({ buildingSqftMin: 999_999 }, 200);
+    expect(result).toEqual({ kind: "ok", matches: [], totalCount: 0 });
+  });
+
+  it("paginates across a full first page into a second page", async () => {
+    const PAGE_SIZE = 200;
+    const totalCount = PAGE_SIZE + 1;
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: totalCount }) } as unknown as Response;
+      }
+      const offset = Number(params.get("resultOffset"));
+      if (offset === 0) {
+        const features = Array.from({ length: PAGE_SIZE }, (_, i) => ({
+          attributes: { PARCELNO: String(i + 1).padStart(12, "0"), PHY_ADDR1: `${i} TEST ST` },
+        }));
+        return { ok: true, json: async () => ({ features }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ features: [{ attributes: { PARCELNO: "999999999999", PHY_ADDR1: "LAST ST" } }] }),
+      } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 500);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.totalCount).toBe(totalCount);
+    expect(result.matches).toHaveLength(totalCount);
+    expect(result.matches[PAGE_SIZE].folio).toBe("999999999999");
+    expect(result.matches[0].strap).toBe(folioToStrap("000000000001"));
+  });
+
+  it("falls back to PA_UC as useCode when DOR_UC is null", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: 1 }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          features: [{ attributes: { PARCELNO: "494101070090", DOR_UC: null, PA_UC: "048" } }],
+        }),
+      } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 200);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.matches[0].useCode).toBe("048");
   });
 });

@@ -578,3 +578,209 @@ export async function searchParcelsByOwnerQueries(
     (a.address ?? a.folio).localeCompare(b.address ?? b.folio),
   );
 }
+
+// ─── Criteria search (lead finder) ────────────────────────────────────────────
+//
+// Reuses BCPA_URL and the same offset-loop pagination shape as
+// fetchOwnerParcelsPage above. DOR_UC / PA_UC are confirmed live to be
+// zero-padded 3-character STRING fields (e.g. "001", "048"), not numeric —
+// a plain numeric BETWEEN would sort lexicographically and silently miss or
+// include the wrong rows, so codes are matched via an explicit IN-list of
+// zero-padded string literals instead. Category ranges mirror
+// dorCodeToPropertyType exactly (see app/properties/[id]/actions.ts /
+// lib/bcpa-folio-ingest.ts).
+
+const CRITERIA_PAGE_SIZE = 200;
+
+export type PropertyTypeFilter =
+  | "residential" | "multifamily" | "retail" | "office" | "industrial" | "land";
+
+function intRange(start: number, end: number): number[] {
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
+const DOR_CATEGORY_CODES: Record<PropertyTypeFilter, number[]> = {
+  residential: [1],
+  multifamily: [3, 4, 8],
+  retail: intRange(20, 28),
+  office: intRange(30, 39),
+  industrial: intRange(40, 49),
+  land: intRange(11, 18),
+};
+
+// ArcGIS sometimes returns an error object with an empty message (confirmed
+// live on Massachusetts's service — see lib/magis.ts) — falls back to
+// `details` so the broker never sees a blank error badge.
+function extractArcgisErrorMessage(err: { message: string; details?: string[] }): string {
+  if (err.message) return err.message;
+  if (err.details && err.details.length > 0) return err.details.join("; ");
+  return "Unknown error from the county service.";
+}
+
+function dorInListClause(field: string, type: PropertyTypeFilter): string {
+  const codes = DOR_CATEGORY_CODES[type].map((c) => `'${String(c).padStart(3, "0")}'`).join(",");
+  return `${field} IN (${codes})`;
+}
+
+const CRITERIA_FIELDS = [
+  "PARCELNO", "PHY_ADDR1", "PHY_CITY", "OWN_NAME",
+  "DOR_UC", "PA_UC", "TOT_LVG_AREA", "LND_SQFOOT",
+  "ACT_YR_BLT", "JV", "SALE_YR1",
+].join(",");
+
+export type BcpaCriteria = {
+  buildingSqftMin?: number;
+  buildingSqftMax?: number;
+  landSqftMin?: number;
+  landSqftMax?: number;
+  propertyType?: PropertyTypeFilter;
+  assessedValueMin?: number;
+  assessedValueMax?: number;
+  yearBuiltMin?: number;
+  yearBuiltMax?: number;
+  /** Matched against PHY_CITY (uppercased, exact match per city). */
+  cities?: string[];
+  /** Last sale within the last N years — a live "ownership recently changed" signal. */
+  soldWithinYears?: number;
+  /** Last sale at least N years ago — a "long-held" signal. */
+  heldAtLeastYears?: number;
+};
+
+export type BcpaCriteriaMatch = {
+  folio: string;
+  strap: string;
+  address: string | null;
+  city: string | null;
+  ownerName: string | null;
+  buildingSqft: number | null;
+  landSqft: number | null;
+  useCode: string | null;
+  assessedValue: number | null;
+  yearBuilt: number | null;
+  lastSaleYear: number | null;
+};
+
+export type CriteriaSearchResult =
+  | { kind: "ok"; matches: BcpaCriteriaMatch[]; totalCount: number }
+  | { kind: "too_many"; count: number }
+  | { kind: "error"; message: string };
+
+/** Exported for testing — builds the ArcGIS WHERE clause from broker criteria. */
+export function buildBcpaCriteriaWhere(criteria: BcpaCriteria): string {
+  const clauses: string[] = [];
+
+  if (criteria.buildingSqftMin != null || criteria.buildingSqftMax != null) {
+    clauses.push(`TOT_LVG_AREA BETWEEN ${criteria.buildingSqftMin ?? 0} AND ${criteria.buildingSqftMax ?? 999_999_999}`);
+  }
+  if (criteria.landSqftMin != null || criteria.landSqftMax != null) {
+    clauses.push(`LND_SQFOOT BETWEEN ${criteria.landSqftMin ?? 0} AND ${criteria.landSqftMax ?? 999_999_999}`);
+  }
+  if (criteria.assessedValueMin != null || criteria.assessedValueMax != null) {
+    clauses.push(`JV BETWEEN ${criteria.assessedValueMin ?? 0} AND ${criteria.assessedValueMax ?? 999_999_999_999}`);
+  }
+  if (criteria.yearBuiltMin != null || criteria.yearBuiltMax != null) {
+    clauses.push(`ACT_YR_BLT BETWEEN ${criteria.yearBuiltMin ?? 1800} AND ${criteria.yearBuiltMax ?? 2100}`);
+  }
+  if (criteria.propertyType) {
+    // Matches on DOR_UC primarily, falling back to PA_UC only when DOR_UC is
+    // null — mirrors the same DOR_UC ?? PA_UC fallback dorCodeToPropertyType
+    // callers use elsewhere in this codebase.
+    clauses.push(
+      `(${dorInListClause("DOR_UC", criteria.propertyType)} OR (DOR_UC IS NULL AND ${dorInListClause("PA_UC", criteria.propertyType)}))`,
+    );
+  }
+  if (criteria.cities && criteria.cities.length > 0) {
+    const cityList = criteria.cities.map((c) => `'${c.replace(/'/g, "''").toUpperCase()}'`).join(",");
+    clauses.push(`UPPER(PHY_CITY) IN (${cityList})`);
+  }
+  // SALE_YR1 is year-only granularity (no month/day on this field) — cutoffs
+  // are whole years accordingly.
+  if (criteria.soldWithinYears != null) {
+    clauses.push(`SALE_YR1 >= ${new Date().getUTCFullYear() - criteria.soldWithinYears}`);
+  }
+  if (criteria.heldAtLeastYears != null) {
+    clauses.push(`SALE_YR1 <= ${new Date().getUTCFullYear() - criteria.heldAtLeastYears}`);
+  }
+
+  return clauses.length > 0 ? clauses.join(" AND ") : "1=1";
+}
+
+function bcpaCriteriaMatchFromAttrs(a: Record<string, unknown>): BcpaCriteriaMatch | null {
+  const folio = String(a.PARCELNO ?? "").trim();
+  if (!folio) return null;
+  const useCode = (a.DOR_UC as string | null) ?? (a.PA_UC as string | null) ?? null;
+  return {
+    folio,
+    strap: folioToStrap(folio),
+    address: (a.PHY_ADDR1 as string | null)?.trim() || null,
+    city: (a.PHY_CITY as string | null)?.trim() || null,
+    ownerName: (a.OWN_NAME as string | null)?.trim() || null,
+    buildingSqft: (a.TOT_LVG_AREA as number | null) ?? null,
+    landSqft: (a.LND_SQFOOT as number | null) ?? null,
+    useCode,
+    assessedValue: (a.JV as number | null) ?? null,
+    yearBuilt: (a.ACT_YR_BLT as number | null) ?? null,
+    lastSaleYear: (a.SALE_YR1 as number | null) ?? null,
+  };
+}
+
+/**
+ * Criteria-based parcel search for the lead finder (see lib/lead-finder.ts).
+ * Counts matches first (returnCountOnly) so a too-broad search returns the
+ * real total instead of silently truncating.
+ */
+export async function searchByCriteria(
+  criteria: BcpaCriteria,
+  maxResults = 200,
+): Promise<CriteriaSearchResult> {
+  const where = buildBcpaCriteriaWhere(criteria);
+
+  const countUrl = new URL(BCPA_URL);
+  countUrl.searchParams.set("where", where);
+  countUrl.searchParams.set("returnCountOnly", "true");
+  countUrl.searchParams.set("f", "json");
+
+  const countRes = await fetch(countUrl.toString(), { next: { revalidate: 0 } });
+  if (!countRes.ok) return { kind: "error", message: `Broward criteria search failed: HTTP ${countRes.status}` };
+  const countData = (await countRes.json()) as { count?: number; error?: { message: string; details?: string[] } };
+  if (countData.error) return { kind: "error", message: extractArcgisErrorMessage(countData.error) };
+
+  const totalCount = countData.count ?? 0;
+  if (totalCount === 0) return { kind: "ok", matches: [], totalCount: 0 };
+  if (totalCount > maxResults) return { kind: "too_many", count: totalCount };
+
+  const matches: BcpaCriteriaMatch[] = [];
+  let offset = 0;
+  while (matches.length < totalCount) {
+    const url = new URL(BCPA_URL);
+    url.searchParams.set("where", where);
+    url.searchParams.set("outFields", CRITERIA_FIELDS);
+    url.searchParams.set("returnGeometry", "false");
+    url.searchParams.set("resultRecordCount", String(CRITERIA_PAGE_SIZE));
+    url.searchParams.set("resultOffset", String(offset));
+    url.searchParams.set("f", "json");
+
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return { kind: "error", message: `Broward criteria search failed: HTTP ${res.status}` };
+    const data = (await res.json()) as {
+      features?: { attributes: Record<string, unknown> }[];
+      error?: { message: string; details?: string[] };
+    };
+    if (data.error) return { kind: "error", message: extractArcgisErrorMessage(data.error) };
+
+    const features = data.features ?? [];
+    if (features.length === 0) break;
+    for (const f of features) {
+      const match = bcpaCriteriaMatchFromAttrs(f.attributes);
+      if (match) matches.push(match);
+    }
+    offset += features.length;
+    if (features.length < CRITERIA_PAGE_SIZE) break;
+  }
+
+  return { kind: "ok", matches, totalCount };
+}

@@ -1,5 +1,11 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { folioToStrap, parseAddressForGIS, searchByAddressGIS } from "../../lib/mdpa";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import {
+  folioToStrap,
+  parseAddressForGIS,
+  searchByAddressGIS,
+  buildMdpaCriteriaWhere,
+  searchByCriteria,
+} from "../../lib/mdpa";
 
 // ─── folioToStrap ─────────────────────────────────────────────────────────────
 
@@ -452,5 +458,156 @@ describe("regression — previously-failing GIS cases", () => {
     await searchByAddressGIS("8811 NW 93RD ST");
     const where = whereFrom(urls[0]);
     expect(where).toContain("sname LIKE 'NW %'");
+  });
+});
+
+// ─── buildMdpaCriteriaWhere ───────────────────────────────────────────────────
+
+describe("buildMdpaCriteriaWhere", () => {
+  it("always includes the standing reference/cancel exclusion flags, even with no criteria", () => {
+    const where = buildMdpaCriteriaWhere({});
+    expect(where).toContain("REFERENCE_ONLY_FLAG");
+    expect(where).toContain("CANCEL_FLAG");
+  });
+
+  it("builds a building-SF BETWEEN clause", () => {
+    const where = buildMdpaCriteriaWhere({ buildingSqftMin: 5000, buildingSqftMax: 20000 });
+    expect(where).toContain("BUILDING_ACTUAL_AREA BETWEEN 5000 AND 20000");
+  });
+
+  it("builds a land-SF BETWEEN clause", () => {
+    const where = buildMdpaCriteriaWhere({ landSqftMin: 1000, landSqftMax: 50000 });
+    expect(where).toContain("LOT_SIZE BETWEEN 1000 AND 50000");
+  });
+
+  it("builds an assessed-value BETWEEN clause", () => {
+    const where = buildMdpaCriteriaWhere({ assessedValueMin: 100000, assessedValueMax: 900000 });
+    expect(where).toContain("ASSESSED_VAL_CUR BETWEEN 100000 AND 900000");
+  });
+
+  it("builds a year-built BETWEEN clause", () => {
+    const where = buildMdpaCriteriaWhere({ yearBuiltMin: 1990, yearBuiltMax: 2010 });
+    expect(where).toContain("YEAR_BUILT BETWEEN 1990 AND 2010");
+  });
+
+  it("maps industrial property type to zero-padded 2-digit DOR_CODE_CUR prefixes 40-49", () => {
+    const where = buildMdpaCriteriaWhere({ propertyType: "industrial" });
+    expect(where).toContain("DOR_CODE_CUR LIKE '40%'");
+    expect(where).toContain("DOR_CODE_CUR LIKE '49%'");
+    expect(where).not.toContain("DOR_CODE_CUR LIKE '39%'");
+    expect(where).not.toContain("DOR_CODE_CUR LIKE '50%'");
+  });
+
+  it("maps residential property type to the single code 01", () => {
+    const where = buildMdpaCriteriaWhere({ propertyType: "residential" });
+    expect(where).toContain("DOR_CODE_CUR LIKE '01%'");
+  });
+
+  it("maps multifamily property type to codes 03, 04, 08", () => {
+    const where = buildMdpaCriteriaWhere({ propertyType: "multifamily" });
+    expect(where).toContain("DOR_CODE_CUR LIKE '03%'");
+    expect(where).toContain("DOR_CODE_CUR LIKE '04%'");
+    expect(where).toContain("DOR_CODE_CUR LIKE '08%'");
+  });
+
+  it("uppercases and quotes city filters, escaping embedded quotes", () => {
+    const where = buildMdpaCriteriaWhere({ cities: ["miami", "o'brien city"] });
+    expect(where).toContain("UPPER(TRUE_SITE_CITY) IN ('MIAMI','O''BRIEN CITY')");
+  });
+
+  describe("sale-date signals", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-06-15T00:00:00Z"));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("builds a soldWithinYears clause as DOS_1 >= N years before today", () => {
+      const where = buildMdpaCriteriaWhere({ soldWithinYears: 2 });
+      expect(where).toContain("DOS_1 >= '20240615'");
+    });
+
+    it("builds a heldAtLeastYears clause as DOS_1 <= N years before today", () => {
+      const where = buildMdpaCriteriaWhere({ heldAtLeastYears: 10 });
+      expect(where).toContain("DOS_1 <= '20160615'");
+    });
+  });
+});
+
+// ─── searchByCriteria (Miami-Dade) ────────────────────────────────────────────
+
+describe("searchByCriteria (Miami-Dade)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns a too_many outcome with the real count when the count exceeds maxResults, without fetching records", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetchCalls += 1;
+      expect(new URL(url).searchParams.get("returnCountOnly")).toBe("true");
+      return { ok: true, json: async () => ({ count: 5000 }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ buildingSqftMin: 1000 }, 200);
+    expect(result).toEqual({ kind: "too_many", count: 5000 });
+    expect(fetchCalls).toBe(1); // only the count call, never paginates
+  });
+
+  it("returns ok with zero matches when the count is zero, without fetching records", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalls += 1;
+      return { ok: true, json: async () => ({ count: 0 }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ buildingSqftMin: 999_999 }, 200);
+    expect(result).toEqual({ kind: "ok", matches: [], totalCount: 0 });
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("paginates through multiple pages until all matches are collected", async () => {
+    const PAGE_SIZE = 200;
+    const totalCount = PAGE_SIZE + 1; // forces exactly one full page, then a second partial page
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: totalCount }) } as unknown as Response;
+      }
+      const offset = Number(params.get("resultOffset"));
+      if (offset === 0) {
+        const features = Array.from({ length: PAGE_SIZE }, (_, i) => ({
+          attributes: { FOLIO: String(i + 1).padStart(13, "0"), TRUE_SITE_ADDR: `${i} TEST ST` },
+        }));
+        return { ok: true, json: async () => ({ features }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ features: [{ attributes: { FOLIO: "9999999999999", TRUE_SITE_ADDR: "LAST ST" } }] }),
+      } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 500);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.totalCount).toBe(totalCount);
+    expect(result.matches).toHaveLength(totalCount);
+    expect(result.matches[0].folio).toBe("0000000000001");
+    expect(result.matches[PAGE_SIZE].folio).toBe("9999999999999");
+    expect(result.matches[0].strap).toBe(folioToStrap("0000000000001"));
+  });
+
+  it("skips a feature with a blank/missing FOLIO", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: 1 }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ features: [{ attributes: { FOLIO: "" } }] }),
+      } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 200);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.matches).toEqual([]);
   });
 });

@@ -430,3 +430,253 @@ export function propertyTypeFromUseDesc(desc: string | null | undefined): string
 
   return "other";
 }
+
+// ─── Criteria search (lead finder) ────────────────────────────────────────────
+//
+// Reuses MAGIS_URL and the same PAGE_SIZE/orderByFields=OBJECTID pagination
+// shape as lib/magis-owner-search.ts. Two honesty-critical quirks of this
+// statewide dataset, both confirmed live:
+//
+// 1. LOT_SIZE is stored in MIXED units per record — LOT_UNITS is "Acres" for
+//    the large majority of parcels (~2.28M) and "Sq. Ft." for a real minority
+//    (~264K), confirmed via a groupByFieldsForStatistics(LOT_UNITS) query.
+//    Treating LOT_SIZE as always-square-feet would silently misfilter most
+//    of the state, so any land-SF range is expressed as an OR'd clause: one
+//    branch matching Sq. Ft. rows directly, the other matching Acres rows
+//    converted to the same SF bounds.
+// 2. USE_DESC/USE_CODE are inconsistent town-to-town (see file header) and
+//    BLD_AREA is likewise less reliable than the Florida counties' building
+//    fields — per the product requirement, lib/lead-finder.ts surfaces this
+//    as an explicit caveat on Massachusetts results rather than presenting
+//    them with the same confidence as Florida matches.
+
+const CRITERIA_PAGE_SIZE = 1000;
+const ACRE_TO_SQFT = 43_560;
+
+export type PropertyTypeFilter =
+  | "residential" | "multifamily" | "retail" | "office" | "industrial" | "land";
+
+function buildUseDescClause(type: PropertyTypeFilter): string {
+  // Mirrors propertyTypeFromUseDesc's keyword groups above (kept in sync
+  // manually — ArcGIS WHERE has no regex, only LIKE).
+  switch (type) {
+    case "land":
+      return `(USE_DESC LIKE '%DEVELOPABLE%' OR USE_DESC LIKE '%VACANT%' OR USE_DESC LIKE '%AGRICULTURAL%' OR USE_DESC LIKE '%HORTICULTURAL%' OR USE_DESC LIKE '%CRANBERRY BOG%' OR USE_DESC LIKE '%CHAPTER 61%')`;
+    case "office":
+      return `(USE_DESC LIKE '%OFFICE%' OR USE_DESC LIKE '%BANK BUILDING%')`;
+    case "retail":
+      return `(USE_DESC LIKE '%DISCOUNT STORE%' OR USE_DESC LIKE '%DEPARTMENT STORE%' OR USE_DESC LIKE '%EATING AND DRINKING%' OR USE_DESC LIKE '%RESTAURANT%' OR USE_DESC LIKE '%AUTOMOTIVE%' OR USE_DESC LIKE '%AUTO REPAIR%' OR USE_DESC LIKE '%GASOLINE%' OR USE_DESC LIKE '%FUEL SERVICE%' OR USE_DESC LIKE '%CAR WASH%')`;
+    case "industrial":
+      return `(USE_DESC LIKE '%DEVELOPABLE INDUSTRIAL%' OR USE_DESC LIKE '%MANUFACTURING%')`;
+    case "multifamily":
+      return `(USE_DESC LIKE '%APARTMENT%' OR USE_DESC LIKE '%CONDO%' OR USE_DESC LIKE '%COOPERATIVE%' OR USE_DESC LIKE '%AFFORDABLE HOUSING%')`;
+    case "residential":
+      return `(USE_DESC LIKE '%SINGLE FAMILY%' OR USE_DESC LIKE '%TWO-FAMILY%' OR USE_DESC LIKE '%THREE-FAMILY%' OR USE_DESC LIKE '%BUNGALOW%')`;
+  }
+}
+
+const CRITERIA_FIELDS = [
+  "LOC_ID", "SITE_ADDR", "CITY", "OWNER1",
+  "LOT_SIZE", "LOT_UNITS", "USE_CODE", "USE_DESC",
+  "TOTAL_VAL", "YEAR_BUILT", "BLD_AREA", "LS_DATE",
+].join(",");
+
+// LS_DATE is a YYYYMMDD STRING field (see file header) — a plain string
+// comparison against another zero-padded YYYYMMDD string sorts correctly,
+// same approach as Miami-Dade's DOS_1.
+function yyyymmddYearsAgo(years: number): string {
+  const d = new Date();
+  d.setUTCFullYear(d.getUTCFullYear() - years);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+export type MagisCriteria = {
+  buildingSqftMin?: number;
+  buildingSqftMax?: number;
+  landSqftMin?: number;
+  landSqftMax?: number;
+  propertyType?: PropertyTypeFilter;
+  assessedValueMin?: number;
+  assessedValueMax?: number;
+  yearBuiltMin?: number;
+  yearBuiltMax?: number;
+  /** Matched against CITY (uppercased, exact match per city/town). */
+  cities?: string[];
+  /** Last sale within the last N years — a live "ownership recently changed" signal. */
+  soldWithinYears?: number;
+  /** Last sale at least N years ago — a "long-held" signal. */
+  heldAtLeastYears?: number;
+};
+
+export type MagisCriteriaMatch = {
+  folio: string;
+  strap: string;
+  address: string | null;
+  city: string | null;
+  ownerName: string | null;
+  buildingSqft: number | null;
+  landSqft: number | null;
+  useCode: string | null;
+  useDescription: string | null;
+  assessedValue: number | null;
+  yearBuilt: number | null;
+  lastSaleDate: string | null;
+};
+
+export type CriteriaSearchResult =
+  | { kind: "ok"; matches: MagisCriteriaMatch[]; totalCount: number }
+  | { kind: "too_many"; count: number }
+  | { kind: "error"; message: string };
+
+/** Exported for testing — builds the ArcGIS WHERE clause from broker criteria. */
+export function buildMagisCriteriaWhere(criteria: MagisCriteria): string {
+  const clauses: string[] = [];
+
+  if (criteria.buildingSqftMin != null || criteria.buildingSqftMax != null) {
+    clauses.push(`BLD_AREA BETWEEN ${criteria.buildingSqftMin ?? 0} AND ${criteria.buildingSqftMax ?? 999_999_999}`);
+  }
+  if (criteria.landSqftMin != null || criteria.landSqftMax != null) {
+    const sfMin = criteria.landSqftMin ?? 0;
+    const sfMax = criteria.landSqftMax ?? 999_999_999;
+    const acresMin = sfMin / ACRE_TO_SQFT;
+    const acresMax = sfMax / ACRE_TO_SQFT;
+    clauses.push(
+      `((LOT_UNITS = 'Sq. Ft.' AND LOT_SIZE BETWEEN ${sfMin} AND ${sfMax}) OR (LOT_UNITS = 'Acres' AND LOT_SIZE BETWEEN ${acresMin} AND ${acresMax}))`,
+    );
+  }
+  if (criteria.assessedValueMin != null || criteria.assessedValueMax != null) {
+    clauses.push(`TOTAL_VAL BETWEEN ${criteria.assessedValueMin ?? 0} AND ${criteria.assessedValueMax ?? 999_999_999_999}`);
+  }
+  if (criteria.yearBuiltMin != null || criteria.yearBuiltMax != null) {
+    clauses.push(`YEAR_BUILT BETWEEN ${criteria.yearBuiltMin ?? 1800} AND ${criteria.yearBuiltMax ?? 2100}`);
+  }
+  if (criteria.propertyType) {
+    clauses.push(buildUseDescClause(criteria.propertyType));
+  }
+  if (criteria.cities && criteria.cities.length > 0) {
+    const cityList = criteria.cities.map((c) => `'${c.replace(/'/g, "''").toUpperCase()}'`).join(",");
+    clauses.push(`UPPER(CITY) IN (${cityList})`);
+  }
+  if (criteria.soldWithinYears != null) {
+    clauses.push(`LS_DATE >= '${yyyymmddYearsAgo(criteria.soldWithinYears)}'`);
+  }
+  if (criteria.heldAtLeastYears != null) {
+    clauses.push(`LS_DATE <= '${yyyymmddYearsAgo(criteria.heldAtLeastYears)}'`);
+  }
+
+  return clauses.length > 0 ? clauses.join(" AND ") : "1=1";
+}
+
+function magisCriteriaMatchFromAttrs(a: Record<string, unknown>): MagisCriteriaMatch | null {
+  const locId = String(a.LOC_ID ?? "").trim();
+  if (!locId) return null;
+  return {
+    folio: locId,
+    strap: locId,
+    address: (a.SITE_ADDR as string | null)?.trim() || null,
+    city: (a.CITY as string | null)?.trim() || null,
+    ownerName: (a.OWNER1 as string | null)?.trim() || null,
+    buildingSqft: (a.BLD_AREA as number | null) ?? null,
+    landSqft: (a.LOT_SIZE as number | null) ?? null,
+    useCode: (a.USE_CODE as string | null) ?? null,
+    useDescription: (a.USE_DESC as string | null) ?? null,
+    assessedValue: (a.TOTAL_VAL as number | null) ?? null,
+    yearBuilt: (a.YEAR_BUILT as number | null) ?? null,
+    lastSaleDate: (a.LS_DATE as string | null) ?? null,
+  };
+}
+
+// Confirmed live: this hosted layer flatly REJECTS (HTTP 400, empty message)
+// any query where a USE_DESC LIKE clause is the only predicate — apparently
+// a query-planner guard against an unindexed full-table free-text scan
+// across 2.5M+ rows. Pairing it with another SELECTIVE field succeeds fast;
+// pairing it with a non-selective one (e.g. a wide tautological range) just
+// trades the 400 for a many-second full scan. Rather than silently work
+// around a real service limitation with a fake filter, property-type alone
+// is refused honestly for Massachusetts with an actionable message — every
+// other market has no such requirement.
+function hasNonPropertyTypeFilter(criteria: MagisCriteria): boolean {
+  return (
+    criteria.buildingSqftMin != null || criteria.buildingSqftMax != null ||
+    criteria.landSqftMin != null || criteria.landSqftMax != null ||
+    criteria.assessedValueMin != null || criteria.assessedValueMax != null ||
+    criteria.yearBuiltMin != null || criteria.yearBuiltMax != null ||
+    (criteria.cities != null && criteria.cities.length > 0) ||
+    criteria.soldWithinYears != null || criteria.heldAtLeastYears != null
+  );
+}
+
+function extractArcgisErrorMessage(err: { message: string; details?: string[] }): string {
+  if (err.message) return err.message;
+  if (err.details && err.details.length > 0) return err.details.join("; ");
+  return "Unknown error from the county/state service.";
+}
+
+/**
+ * Criteria-based parcel search for the lead finder (see lib/lead-finder.ts).
+ * Counts matches first (returnCountOnly) so a too-broad search returns the
+ * real total instead of silently truncating.
+ */
+export async function searchByCriteria(
+  criteria: MagisCriteria,
+  maxResults = 200,
+): Promise<CriteriaSearchResult> {
+  if (criteria.propertyType && !hasNonPropertyTypeFilter(criteria)) {
+    return {
+      kind: "error",
+      message: "Massachusetts requires at least one more filter alongside property type (building/land size, assessed value, year built, city, or last sale) — a property-type-only search isn't supported for this market.",
+    };
+  }
+
+  const where = buildMagisCriteriaWhere(criteria);
+
+  const countUrl = new URL(MAGIS_URL);
+  countUrl.searchParams.set("where", where);
+  countUrl.searchParams.set("returnCountOnly", "true");
+  countUrl.searchParams.set("f", "json");
+
+  const countRes = await fetch(countUrl.toString(), { next: { revalidate: 0 } });
+  if (!countRes.ok) return { kind: "error", message: `Massachusetts criteria search failed: HTTP ${countRes.status}` };
+  const countData = (await countRes.json()) as { count?: number; error?: { message: string; details?: string[] } };
+  if (countData.error) return { kind: "error", message: extractArcgisErrorMessage(countData.error) };
+
+  const totalCount = countData.count ?? 0;
+  if (totalCount === 0) return { kind: "ok", matches: [], totalCount: 0 };
+  if (totalCount > maxResults) return { kind: "too_many", count: totalCount };
+
+  const matches: MagisCriteriaMatch[] = [];
+  let offset = 0;
+  while (matches.length < totalCount) {
+    const url = new URL(MAGIS_URL);
+    url.searchParams.set("where", where);
+    url.searchParams.set("outFields", CRITERIA_FIELDS);
+    url.searchParams.set("returnGeometry", "false");
+    url.searchParams.set("orderByFields", "OBJECTID");
+    url.searchParams.set("resultRecordCount", String(CRITERIA_PAGE_SIZE));
+    url.searchParams.set("resultOffset", String(offset));
+    url.searchParams.set("f", "json");
+
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return { kind: "error", message: `Massachusetts criteria search failed: HTTP ${res.status}` };
+    const data = (await res.json()) as {
+      features?: { attributes: Record<string, unknown> }[];
+      error?: { message: string; details?: string[] };
+    };
+    if (data.error) return { kind: "error", message: extractArcgisErrorMessage(data.error) };
+
+    const features = data.features ?? [];
+    if (features.length === 0) break;
+    for (const f of features) {
+      const match = magisCriteriaMatchFromAttrs(f.attributes);
+      if (match) matches.push(match);
+    }
+    offset += features.length;
+    if (features.length < CRITERIA_PAGE_SIZE) break;
+  }
+
+  return { kind: "ok", matches, totalCount };
+}

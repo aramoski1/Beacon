@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   searchByAddressGIS,
   getPropertyDetail,
@@ -6,6 +6,8 @@ import {
   primaryOwnerName,
   propertyTypeFromUseDesc,
   maSaleDate,
+  buildMagisCriteriaWhere,
+  searchByCriteria,
   type MAParcel,
   type MARecord,
   type GISSearchResult,
@@ -563,4 +565,168 @@ describe("live Massachusetts parcel service", () => {
     // (confirmed live) — every returned candidate should resolve to it.
     expect(parcels.every((p) => p.folio === "F_755909_2914790")).toBe(true);
   }, 30_000);
+});
+
+// ─── buildMagisCriteriaWhere ──────────────────────────────────────────────────
+
+describe("buildMagisCriteriaWhere", () => {
+  it("returns 1=1 when no criteria given", () => {
+    expect(buildMagisCriteriaWhere({})).toBe("1=1");
+  });
+
+  it("builds a building-SF BETWEEN clause on BLD_AREA", () => {
+    const where = buildMagisCriteriaWhere({ buildingSqftMin: 5000, buildingSqftMax: 20000 });
+    expect(where).toContain("BLD_AREA BETWEEN 5000 AND 20000");
+  });
+
+  it("builds a dual-unit land-SF clause covering both Sq. Ft. and Acres rows", () => {
+    const where = buildMagisCriteriaWhere({ landSqftMin: 10000, landSqftMax: 87120 });
+    expect(where).toContain("LOT_UNITS = 'Sq. Ft.' AND LOT_SIZE BETWEEN 10000 AND 87120");
+    expect(where).toContain("LOT_UNITS = 'Acres' AND LOT_SIZE BETWEEN");
+    // 10000 sqft / 43560 and 87120 sqft / 43560 = 2 acres exactly
+    expect(where).toContain("LOT_SIZE BETWEEN 0.2295684113865932 AND 2");
+  });
+
+  it("builds an assessed-value BETWEEN clause on TOTAL_VAL", () => {
+    const where = buildMagisCriteriaWhere({ assessedValueMin: 100000, assessedValueMax: 900000 });
+    expect(where).toContain("TOTAL_VAL BETWEEN 100000 AND 900000");
+  });
+
+  it("builds a year-built BETWEEN clause on YEAR_BUILT", () => {
+    const where = buildMagisCriteriaWhere({ yearBuiltMin: 1990, yearBuiltMax: 2010 });
+    expect(where).toContain("YEAR_BUILT BETWEEN 1990 AND 2010");
+  });
+
+  it("maps industrial property type to a LIKE-OR clause over the same keywords as propertyTypeFromUseDesc", () => {
+    const where = buildMagisCriteriaWhere({ propertyType: "industrial" });
+    expect(where).toContain("USE_DESC LIKE '%MANUFACTURING%'");
+    expect(where).toContain("USE_DESC LIKE '%DEVELOPABLE INDUSTRIAL%'");
+  });
+
+  it("uppercases and quotes city/town filters against CITY", () => {
+    const where = buildMagisCriteriaWhere({ cities: ["boston"] });
+    expect(where).toContain("UPPER(CITY) IN ('BOSTON')");
+  });
+
+  describe("sale-date signals", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-06-15T00:00:00Z"));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("builds a soldWithinYears clause as LS_DATE >= N years before today", () => {
+      const where = buildMagisCriteriaWhere({ soldWithinYears: 2 });
+      expect(where).toContain("LS_DATE >= '20240615'");
+    });
+
+    it("builds a heldAtLeastYears clause as LS_DATE <= N years before today", () => {
+      const where = buildMagisCriteriaWhere({ heldAtLeastYears: 10 });
+      expect(where).toContain("LS_DATE <= '20160615'");
+    });
+  });
+});
+
+// ─── searchByCriteria (Massachusetts) ─────────────────────────────────────────
+
+describe("searchByCriteria (Massachusetts)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses a property-type-only search without ever calling fetch (confirmed live: this service 400s on a lone USE_DESC LIKE predicate)", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalls += 1;
+      return { ok: true, json: async () => ({ count: 0 }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ propertyType: "industrial" }, 200);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("requires at least one more filter");
+    expect(fetchCalls).toBe(0);
+  });
+
+  it("proceeds to a real query when property type is paired with any other filter", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetchCalls += 1;
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: 42 }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({ features: [] }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ propertyType: "industrial", buildingSqftMin: 5000 }, 200);
+    expect(result).toEqual({ kind: "ok", matches: [], totalCount: 42 });
+    expect(fetchCalls).toBe(2);
+  });
+
+  it("surfaces ArcGIS's details array when the error message itself is empty", async () => {
+    vi.stubGlobal("fetch", async () =>
+      ({ ok: true, json: async () => ({ error: { message: "", details: ["Unable to perform query. Please check your parameters."] } }) }) as unknown as Response,
+    );
+    const result = await searchByCriteria({ propertyType: "industrial", cities: ["Boston"] }, 200);
+    expect(result).toEqual({ kind: "error", message: "Unable to perform query. Please check your parameters." });
+  });
+
+  it("returns too_many with the real count when it exceeds maxResults, without fetching records", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetchCalls += 1;
+      expect(new URL(url).searchParams.get("returnCountOnly")).toBe("true");
+      return { ok: true, json: async () => ({ count: 270720 }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ buildingSqftMin: 5000, buildingSqftMax: 20000 }, 200);
+    expect(result).toEqual({ kind: "too_many", count: 270720 });
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("returns ok with zero matches when count is zero", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ count: 0 }) }) as unknown as Response);
+    const result = await searchByCriteria({ buildingSqftMin: 999_999_999 }, 200);
+    expect(result).toEqual({ kind: "ok", matches: [], totalCount: 0 });
+  });
+
+  it("paginates across a full first page (page size 1000) into a second page", async () => {
+    const PAGE_SIZE = 1000;
+    const totalCount = PAGE_SIZE + 1;
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: totalCount }) } as unknown as Response;
+      }
+      const offset = Number(params.get("resultOffset"));
+      if (offset === 0) {
+        const features = Array.from({ length: PAGE_SIZE }, (_, i) => ({
+          attributes: { LOC_ID: `F_${i}`, SITE_ADDR: `${i} TEST ST` },
+        }));
+        return { ok: true, json: async () => ({ features }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ features: [{ attributes: { LOC_ID: "F_LAST", SITE_ADDR: "LAST ST" } }] }),
+      } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 1500);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.totalCount).toBe(totalCount);
+    expect(result.matches).toHaveLength(totalCount);
+    expect(result.matches[PAGE_SIZE].folio).toBe("F_LAST");
+    expect(result.matches[0].strap).toBe("F_0"); // LOC_ID doubles as strap for MA
+  });
+
+  it("skips a feature with a blank/missing LOC_ID", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: 1 }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({ features: [{ attributes: { LOC_ID: "" } }] }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 200);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.matches).toEqual([]);
+  });
 });

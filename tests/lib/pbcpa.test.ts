@@ -9,6 +9,8 @@ import {
   pbSaleDate,
   searchParcelsByOwnerName,
   searchParcelsByOwnerQueries,
+  buildPbcpaCriteriaWhere,
+  searchByCriteria,
   type PBParcel,
   type PBRecord,
   type GISSearchResult,
@@ -641,4 +643,135 @@ describe("live Palm Beach parcel service", () => {
     expect(hits.every((h) => h.ownerName === "SAINTE GEORGE INVESTMENTS LLC")).toBe(true);
     expect(hits.every((h) => h.address?.startsWith("2701 NW 2ND AVE"))).toBe(true);
   }, 30_000);
+});
+
+// ─── buildPbcpaCriteriaWhere ──────────────────────────────────────────────────
+
+describe("buildPbcpaCriteriaWhere", () => {
+  it("returns 1=1 when no criteria given", () => {
+    expect(buildPbcpaCriteriaWhere({})).toBe("1=1");
+  });
+
+  it("ignores buildingSqftMin/Max and yearBuiltMin/Max entirely (no such fields exist for Palm Beach)", () => {
+    const where = buildPbcpaCriteriaWhere({
+      buildingSqftMin: 5000,
+      buildingSqftMax: 20000,
+      yearBuiltMin: 1990,
+      yearBuiltMax: 2010,
+    });
+    expect(where).toBe("1=1");
+  });
+
+  it("converts a land-SF range to an ACRES BETWEEN clause", () => {
+    const where = buildPbcpaCriteriaWhere({ landSqftMin: 43560, landSqftMax: 87120 });
+    expect(where).toBe("ACRES BETWEEN 1 AND 2");
+  });
+
+  it("builds an assessed-value BETWEEN clause on ASSESSED_VAL", () => {
+    const where = buildPbcpaCriteriaWhere({ assessedValueMin: 100000, assessedValueMax: 900000 });
+    expect(where).toContain("ASSESSED_VAL BETWEEN 100000 AND 900000");
+  });
+
+  it("maps industrial property type to a LIKE-OR clause over the same keywords as propertyUseToType", () => {
+    const where = buildPbcpaCriteriaWhere({ propertyType: "industrial" });
+    expect(where).toContain("PROPERTY_USE LIKE '%WAREH%'");
+    expect(where).toContain("PROPERTY_USE LIKE '%MARINA%'");
+  });
+
+  it("maps land property type to VACANT-but-not-INDUS plus AG prefix", () => {
+    const where = buildPbcpaCriteriaWhere({ propertyType: "land" });
+    expect(where).toContain("PROPERTY_USE LIKE 'VACANT%'");
+    expect(where).toContain("PROPERTY_USE NOT LIKE '%INDUS%'");
+    expect(where).toContain("PROPERTY_USE LIKE 'AG %'");
+  });
+
+  it("uppercases and quotes city filters against MUNICIPALITY", () => {
+    const where = buildPbcpaCriteriaWhere({ cities: ["west palm beach"] });
+    expect(where).toContain("UPPER(MUNICIPALITY) IN ('WEST PALM BEACH')");
+  });
+
+  it("builds a soldWithinYears clause as MONTHS_SINCE_SALE <= N*12 (the precomputed field this layer exposes)", () => {
+    const where = buildPbcpaCriteriaWhere({ soldWithinYears: 2 });
+    expect(where).toContain("MONTHS_SINCE_SALE <= 24");
+  });
+
+  it("builds a heldAtLeastYears clause as MONTHS_SINCE_SALE >= N*12", () => {
+    const where = buildPbcpaCriteriaWhere({ heldAtLeastYears: 10 });
+    expect(where).toContain("MONTHS_SINCE_SALE >= 120");
+  });
+});
+
+// ─── searchByCriteria (Palm Beach) ────────────────────────────────────────────
+
+describe("searchByCriteria (Palm Beach)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns too_many with the real count when it exceeds maxResults, without fetching records", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetchCalls += 1;
+      expect(new URL(url).searchParams.get("returnCountOnly")).toBe("true");
+      return { ok: true, json: async () => ({ count: 180260 }) } as unknown as Response;
+    });
+    const result = await searchByCriteria({ landSqftMin: 21780, landSqftMax: 87120 }, 200);
+    expect(result).toEqual({ kind: "too_many", count: 180260 });
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("returns ok with zero matches when count is zero", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ count: 0 }) }) as unknown as Response);
+    const result = await searchByCriteria({ landSqftMin: 999_999_999 }, 200);
+    expect(result).toEqual({ kind: "ok", matches: [], totalCount: 0 });
+  });
+
+  it("always requests orderByFields=OBJECTID (required by this service for paginated queries)", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      urls.push(url);
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: 1 }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ features: [{ attributes: { PARCEL_NUMBER: "00434230000003014" } }] }),
+      } as unknown as Response;
+    });
+    await searchByCriteria({}, 200);
+    const pageUrl = urls.find((u) => new URL(u).searchParams.get("returnCountOnly") !== "true");
+    expect(pageUrl && new URL(pageUrl).searchParams.get("orderByFields")).toBe("OBJECTID");
+  });
+
+  it("paginates across a full first page into a second page", async () => {
+    const PAGE_SIZE = 200;
+    const totalCount = PAGE_SIZE + 1;
+    vi.stubGlobal("fetch", async (url: string) => {
+      const params = new URL(url).searchParams;
+      if (params.get("returnCountOnly") === "true") {
+        return { ok: true, json: async () => ({ count: totalCount }) } as unknown as Response;
+      }
+      const offset = Number(params.get("resultOffset"));
+      if (offset === 0) {
+        const features = Array.from({ length: PAGE_SIZE }, (_, i) => ({
+          attributes: { PARCEL_NUMBER: String(i + 1).padStart(17, "0"), ACRES: 1.5 },
+        }));
+        return { ok: true, json: async () => ({ features }) } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ features: [{ attributes: { PARCEL_NUMBER: "99999999999999999", ACRES: 2 } }] }),
+      } as unknown as Response;
+    });
+    const result = await searchByCriteria({}, 500);
+    if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+    expect(result.totalCount).toBe(totalCount);
+    expect(result.matches).toHaveLength(totalCount);
+    expect(result.matches[PAGE_SIZE].folio).toBe("99999999999999999");
+    // ACRES converted to landSqft: 1.5 * 43560 = 65340
+    expect(result.matches[0].landSqft).toBe(65340);
+    expect(result.matches[0].buildingSqft).toBeNull();
+    expect(result.matches[0].yearBuilt).toBeNull();
+  });
 });

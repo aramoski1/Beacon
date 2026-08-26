@@ -265,6 +265,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-dashboard-layout.ts",
     description: "User settings — nullable dashboard_layout JSONB for dashboard show/hide customization (lib/dashboard-layout.ts); null/missing keys resolve to visible, so existing accounts render identically to today's fixed layout",
   },
+  {
+    file: "migrate-lead-buy-boxes.ts",
+    description: "lead_buy_boxes table — saved lead-finder criteria presets (lib/lead-finder.ts), owner-scoped RLS",
+  },
 ];
 
 const hr = "─".repeat(60);

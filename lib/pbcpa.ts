@@ -624,6 +624,215 @@ export async function searchParcelsByOwnerName(
   );
 }
 
+// ─── Criteria search (lead finder) ────────────────────────────────────────────
+//
+// Reuses PBCPA_URL and the same offset-loop pagination shape used above.
+// Palm Beach has NO building-square-footage field and NO year-built field in
+// this table at all (see file header) — buildingSqftMin/Max and
+// yearBuiltMin/Max are therefore not applicable here and simply have nothing
+// to filter on; the caller (lib/lead-finder.ts) is responsible for telling
+// the broker those two criteria weren't applied to Palm Beach results,
+// rather than this module silently pretending they were honored.
+//
+// PROPERTY_USE is free text, not a numeric code, so property-type filtering
+// uses a LIKE-based OR clause built from the SAME keyword groups
+// propertyUseToType (above) checks by regex — kept in sync manually since
+// ArcGIS's WHERE dialect has no regex support, only LIKE.
+
+const CRITERIA_PAGE_SIZE = 200;
+
+export type PropertyTypeFilter =
+  | "residential" | "multifamily" | "retail" | "office" | "industrial" | "land";
+
+const PROPERTY_USE_KEYWORDS: Record<Exclude<PropertyTypeFilter, "land">, string[]> = {
+  residential: ["SINGLE FAMILY", "TOWNHOUSE", "MOBILE HOME", "MISC RESIDENCE", "ZERO LOT LINE"],
+  multifamily: ["MULTIFAMILY", "CONDOMINIUM", "COOPERATIVE", "APARTMENT"],
+  retail: ["STORE", "SHOPPING", "SH CTR", "SUPERMARKET", "RESTAURANT", "AUTO SALES", "SERVICE STATION", "SERVICE SHOPS", "NIGHT CLUB", "THTR", "THEATER", "DEPARTMENT STORE"],
+  office: ["OFFICE", "OFF BLDG", "MEDIC", "FINANCIAL", "INSURANCE"],
+  industrial: ["WAREH", "MFG", "SELF STORAGE", "OPEN STORAGE", "LUMBER", "PROCESSING", "BOTTLER", "PACKING", "AIRPORT", "MARINA", "WORKING WATERFRONT"],
+};
+
+function propertyTypeClause(type: PropertyTypeFilter): string {
+  if (type === "land") {
+    // Mirrors propertyUseToType: VACANT is land unless it's VACANT INDUS
+    // (industrial), and "AG " (agricultural) also counts as land.
+    return `((PROPERTY_USE LIKE 'VACANT%' AND PROPERTY_USE NOT LIKE '%INDUS%') OR PROPERTY_USE LIKE 'AG %')`;
+  }
+  const keywords = PROPERTY_USE_KEYWORDS[type];
+  return "(" + keywords.map((k) => `PROPERTY_USE LIKE '%${k.replace(/'/g, "''")}%'`).join(" OR ") + ")";
+}
+
+const CRITERIA_FIELDS = [
+  "PARCEL_NUMBER", "SITE_ADDR_STR", "MUNICIPALITY", "OWNER_NAME1",
+  "ACRES", "ASSESSED_VAL", "PROPERTY_USE", "MONTHS_SINCE_SALE", "SALE_DATE",
+].join(",");
+
+export type PbcpaCriteria = {
+  // Not applicable for Palm Beach (no building-SF field) — accepted only so
+  // callers can pass a shared criteria shape; ignored here.
+  buildingSqftMin?: number;
+  buildingSqftMax?: number;
+  landSqftMin?: number;
+  landSqftMax?: number;
+  propertyType?: PropertyTypeFilter;
+  assessedValueMin?: number;
+  assessedValueMax?: number;
+  // Not applicable for Palm Beach (no year-built field) — ignored here.
+  yearBuiltMin?: number;
+  yearBuiltMax?: number;
+  /** Matched against MUNICIPALITY (uppercased, exact match per city). */
+  cities?: string[];
+  /** Last sale within the last N years — a live "ownership recently changed" signal. */
+  soldWithinYears?: number;
+  /** Last sale at least N years ago — a "long-held" signal. */
+  heldAtLeastYears?: number;
+};
+
+export type PbcpaCriteriaMatch = {
+  folio: string;
+  strap: string;
+  address: string | null;
+  city: string | null;
+  ownerName: string | null;
+  buildingSqft: null;
+  landSqft: number | null;
+  useDescription: string | null;
+  assessedValue: number | null;
+  yearBuilt: null;
+  monthsSinceSale: number | null;
+  lastSaleDate: string | null;
+};
+
+export type CriteriaSearchResult =
+  | { kind: "ok"; matches: PbcpaCriteriaMatch[]; totalCount: number }
+  | { kind: "too_many"; count: number }
+  | { kind: "error"; message: string };
+
+// ArcGIS sometimes returns an error object with an empty message (confirmed
+// live on Massachusetts's service — see lib/magis.ts) — falls back to
+// `details` so the broker never sees a blank error badge.
+function extractArcgisErrorMessage(err: { message: string; details?: string[] }): string {
+  if (err.message) return err.message;
+  if (err.details && err.details.length > 0) return err.details.join("; ");
+  return "Unknown error from the county service.";
+}
+
+const ACRE_TO_SQFT = 43_560;
+
+/** Exported for testing — builds the ArcGIS WHERE clause from broker criteria. */
+export function buildPbcpaCriteriaWhere(criteria: PbcpaCriteria): string {
+  const clauses: string[] = [];
+
+  if (criteria.landSqftMin != null || criteria.landSqftMax != null) {
+    const minAcres = (criteria.landSqftMin ?? 0) / ACRE_TO_SQFT;
+    const maxAcres = (criteria.landSqftMax ?? 999_999_999) / ACRE_TO_SQFT;
+    clauses.push(`ACRES BETWEEN ${minAcres} AND ${maxAcres}`);
+  }
+  if (criteria.assessedValueMin != null || criteria.assessedValueMax != null) {
+    clauses.push(`ASSESSED_VAL BETWEEN ${criteria.assessedValueMin ?? 0} AND ${criteria.assessedValueMax ?? 999_999_999_999}`);
+  }
+  if (criteria.propertyType) {
+    clauses.push(propertyTypeClause(criteria.propertyType));
+  }
+  if (criteria.cities && criteria.cities.length > 0) {
+    const cityList = criteria.cities.map((c) => `'${c.replace(/'/g, "''").toUpperCase()}'`).join(",");
+    clauses.push(`UPPER(MUNICIPALITY) IN (${cityList})`);
+  }
+  // MONTHS_SINCE_SALE is a precomputed field on this layer (confirmed live) —
+  // used directly rather than date arithmetic, since Palm Beach exposes it
+  // ready-made.
+  if (criteria.soldWithinYears != null) {
+    clauses.push(`MONTHS_SINCE_SALE <= ${criteria.soldWithinYears * 12}`);
+  }
+  if (criteria.heldAtLeastYears != null) {
+    clauses.push(`MONTHS_SINCE_SALE >= ${criteria.heldAtLeastYears * 12}`);
+  }
+
+  return clauses.length > 0 ? clauses.join(" AND ") : "1=1";
+}
+
+function pbcpaCriteriaMatchFromAttrs(a: Record<string, unknown>): PbcpaCriteriaMatch | null {
+  const folio = String(a.PARCEL_NUMBER ?? "").trim();
+  if (!folio) return null;
+  const acres = a.ACRES as number | null;
+  return {
+    folio,
+    strap: folioToStrap(folio),
+    address: (a.SITE_ADDR_STR as string | null)?.trim() || null,
+    city: (a.MUNICIPALITY as string | null)?.trim() || null,
+    ownerName: (a.OWNER_NAME1 as string | null)?.trim() || null,
+    buildingSqft: null,
+    landSqft: typeof acres === "number" ? Math.round(acres * ACRE_TO_SQFT) : null,
+    useDescription: (a.PROPERTY_USE as string | null) ?? null,
+    assessedValue: (a.ASSESSED_VAL as number | null) ?? null,
+    yearBuilt: null,
+    monthsSinceSale: (a.MONTHS_SINCE_SALE as number | null) ?? null,
+    lastSaleDate: pbSaleDate(a.SALE_DATE as number | null),
+  };
+}
+
+/**
+ * Criteria-based parcel search for the lead finder (see lib/lead-finder.ts).
+ * Counts matches first (returnCountOnly) so a too-broad search returns the
+ * real total instead of silently truncating.
+ */
+export async function searchByCriteria(
+  criteria: PbcpaCriteria,
+  maxResults = 200,
+): Promise<CriteriaSearchResult> {
+  const where = buildPbcpaCriteriaWhere(criteria);
+
+  const countUrl = new URL(PBCPA_URL);
+  countUrl.searchParams.set("where", where);
+  countUrl.searchParams.set("returnCountOnly", "true");
+  countUrl.searchParams.set("f", "json");
+
+  const countRes = await fetch(countUrl.toString(), { next: { revalidate: 0 } });
+  if (!countRes.ok) return { kind: "error", message: `Palm Beach criteria search failed: HTTP ${countRes.status}` };
+  const countData = (await countRes.json()) as { count?: number; error?: { message: string; details?: string[] } };
+  if (countData.error) return { kind: "error", message: extractArcgisErrorMessage(countData.error) };
+
+  const totalCount = countData.count ?? 0;
+  if (totalCount === 0) return { kind: "ok", matches: [], totalCount: 0 };
+  if (totalCount > maxResults) return { kind: "too_many", count: totalCount };
+
+  const matches: PbcpaCriteriaMatch[] = [];
+  let offset = 0;
+  while (matches.length < totalCount) {
+    const url = new URL(PBCPA_URL);
+    url.searchParams.set("where", where);
+    url.searchParams.set("outFields", CRITERIA_FIELDS);
+    url.searchParams.set("returnGeometry", "false");
+    url.searchParams.set("orderByFields", "OBJECTID");
+    url.searchParams.set("resultRecordCount", String(CRITERIA_PAGE_SIZE));
+    url.searchParams.set("resultOffset", String(offset));
+    url.searchParams.set("f", "json");
+
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return { kind: "error", message: `Palm Beach criteria search failed: HTTP ${res.status}` };
+    const data = (await res.json()) as {
+      features?: { attributes: Record<string, unknown> }[];
+      error?: { message: string; details?: string[] };
+    };
+    if (data.error) return { kind: "error", message: extractArcgisErrorMessage(data.error) };
+
+    const features = data.features ?? [];
+    if (features.length === 0) break;
+    for (const f of features) {
+      const match = pbcpaCriteriaMatchFromAttrs(f.attributes);
+      if (match) matches.push(match);
+    }
+    offset += features.length;
+    if (features.length < CRITERIA_PAGE_SIZE) break;
+  }
+
+  return { kind: "ok", matches, totalCount };
+}
+
 /** Run multiple tax roll owner searches and merge by folio. */
 export async function searchParcelsByOwnerQueries(
   queries: { query: string; mode: PbcpaSearchMode }[],

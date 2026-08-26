@@ -252,3 +252,237 @@ export function extractOwnerMailing(raw: unknown): string | null {
   if (cityState) parts.push(cityState);
   return parts.length > 0 ? parts.join(", ") : null;
 }
+
+// ─── Criteria search (lead finder) ────────────────────────────────────────────
+//
+// Uses MDC.PaGis (MD_ComparableSales/MapServer/5) — Miami-Dade's own Property
+// Appraiser GIS attribute layer, the same one that backs the county's public
+// "Comparable Sales" tool. This is a DIFFERENT service from the
+// AddressSearchMap_PropertiesWithZip layer used by searchByAddressGIS above,
+// which only exposes FOLIO/SNAME/HSE_NUM — confirmed live it has no
+// building/land/value/use/year fields at all, so it cannot support criteria
+// search. FOLIO format here is identical to address search's (13-digit,
+// convertible via folioToStrap), so matches plug directly into the existing
+// enrichment pipeline.
+//
+// DOR_CODE_CUR is a 4-character code (e.g. "4837", "8940") — confirmed live
+// its first two digits are the standard statewide Florida DOR use-code
+// category (48 = warehousing, 89 = municipal), the same category ranges
+// dorCodeToPropertyType already uses elsewhere in this codebase (see
+// app/properties/[id]/actions.ts, lib/bcpa-folio-ingest.ts). Filtered here by
+// 2-digit prefix (LIKE 'NN%') rather than an exact 4-digit match, since the
+// trailing two digits are a finer county-specific sub-code, not part of the
+// standard scheme.
+
+export type PropertyTypeFilter =
+  | "residential" | "multifamily" | "retail" | "office" | "industrial" | "land";
+
+function intRange(start: number, end: number): number[] {
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
+// Mirrors dorCodeToPropertyType's category ranges exactly (see
+// app/properties/[id]/actions.ts) — duplicated as a literal table here rather
+// than imported, since that function lives in a page-scoped actions file,
+// not a shared lib module.
+const DOR_CATEGORY_CODES: Record<PropertyTypeFilter, number[]> = {
+  residential: [1],
+  multifamily: [3, 4, 8],
+  retail: intRange(20, 28),
+  office: intRange(30, 39),
+  industrial: intRange(40, 49),
+  land: intRange(11, 18),
+};
+
+function dorPrefixClause(field: string, type: PropertyTypeFilter): string {
+  const prefixes = DOR_CATEGORY_CODES[type].map((c) => String(c).padStart(2, "0"));
+  return "(" + prefixes.map((p) => `${field} LIKE '${p}%'`).join(" OR ") + ")";
+}
+
+const MDPA_CRITERIA_URL =
+  "https://gis.miamidade.gov/arcgis/rest/services/MD_ComparableSales/MapServer/5/query";
+
+const CRITERIA_FIELDS = [
+  "FOLIO", "TRUE_SITE_ADDR", "TRUE_SITE_CITY", "TRUE_OWNER1",
+  "DOR_CODE_CUR", "DOR_DESC", "BUILDING_ACTUAL_AREA", "LOT_SIZE",
+  "YEAR_BUILT", "ASSESSED_VAL_CUR", "DOS_1",
+].join(",");
+
+const CRITERIA_PAGE_SIZE = 200;
+
+// DOS_1 ("date of sale", most recent) is a YYYYMMDD string (confirmed live,
+// e.g. "20210623") — zero-padded so a plain string comparison against another
+// YYYYMMDD string sorts correctly, no date parsing needed in the WHERE clause.
+function yyyymmddYearsAgo(years: number): string {
+  const d = new Date();
+  d.setUTCFullYear(d.getUTCFullYear() - years);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+export type MdpaCriteria = {
+  buildingSqftMin?: number;
+  buildingSqftMax?: number;
+  landSqftMin?: number;
+  landSqftMax?: number;
+  propertyType?: PropertyTypeFilter;
+  assessedValueMin?: number;
+  assessedValueMax?: number;
+  yearBuiltMin?: number;
+  yearBuiltMax?: number;
+  /** Matched against TRUE_SITE_CITY (uppercased, exact match per city). */
+  cities?: string[];
+  /** Last sale within the last N years — a live "ownership recently changed" signal. */
+  soldWithinYears?: number;
+  /** Last sale at least N years ago — a "long-held" signal. */
+  heldAtLeastYears?: number;
+};
+
+export type MdpaCriteriaMatch = {
+  folio: string;
+  strap: string;
+  address: string | null;
+  city: string | null;
+  ownerName: string | null;
+  buildingSqft: number | null;
+  landSqft: number | null;
+  useCode: string | null;
+  useDescription: string | null;
+  assessedValue: number | null;
+  yearBuilt: number | null;
+  lastSaleDate: string | null;
+};
+
+export type CriteriaSearchResult =
+  | { kind: "ok"; matches: MdpaCriteriaMatch[]; totalCount: number }
+  | { kind: "too_many"; count: number }
+  | { kind: "error"; message: string };
+
+/** Exported for testing — builds the ArcGIS WHERE clause from broker criteria. */
+export function buildMdpaCriteriaWhere(criteria: MdpaCriteria): string {
+  const clauses: string[] = [];
+
+  if (criteria.buildingSqftMin != null || criteria.buildingSqftMax != null) {
+    clauses.push(`BUILDING_ACTUAL_AREA BETWEEN ${criteria.buildingSqftMin ?? 0} AND ${criteria.buildingSqftMax ?? 999_999_999}`);
+  }
+  if (criteria.landSqftMin != null || criteria.landSqftMax != null) {
+    clauses.push(`LOT_SIZE BETWEEN ${criteria.landSqftMin ?? 0} AND ${criteria.landSqftMax ?? 999_999_999}`);
+  }
+  if (criteria.assessedValueMin != null || criteria.assessedValueMax != null) {
+    clauses.push(`ASSESSED_VAL_CUR BETWEEN ${criteria.assessedValueMin ?? 0} AND ${criteria.assessedValueMax ?? 999_999_999_999}`);
+  }
+  if (criteria.yearBuiltMin != null || criteria.yearBuiltMax != null) {
+    clauses.push(`YEAR_BUILT BETWEEN ${criteria.yearBuiltMin ?? 1800} AND ${criteria.yearBuiltMax ?? 2100}`);
+  }
+  if (criteria.propertyType) {
+    clauses.push(dorPrefixClause("DOR_CODE_CUR", criteria.propertyType));
+  }
+  if (criteria.cities && criteria.cities.length > 0) {
+    const cityList = criteria.cities.map((c) => `'${c.replace(/'/g, "''").toUpperCase()}'`).join(",");
+    clauses.push(`UPPER(TRUE_SITE_CITY) IN (${cityList})`);
+  }
+  if (criteria.soldWithinYears != null) {
+    clauses.push(`DOS_1 >= '${yyyymmddYearsAgo(criteria.soldWithinYears)}'`);
+  }
+  if (criteria.heldAtLeastYears != null) {
+    clauses.push(`DOS_1 <= '${yyyymmddYearsAgo(criteria.heldAtLeastYears)}'`);
+  }
+  // Excludes rows this layer itself flags as not real standalone parcels
+  // (e.g. reference-only condo master records, cancelled folios) — confirmed
+  // live these flags exist on this layer; without this a lead list could
+  // include a non-addressable record.
+  clauses.push(`(REFERENCE_ONLY_FLAG IS NULL OR REFERENCE_ONLY_FLAG <> 'Y')`);
+  clauses.push(`(CANCEL_FLAG IS NULL OR CANCEL_FLAG <> 'Y')`);
+
+  return clauses.length > 0 ? clauses.join(" AND ") : "1=1";
+}
+
+function mdpaCriteriaMatchFromAttrs(a: Record<string, unknown>): MdpaCriteriaMatch | null {
+  const folio = String(a.FOLIO ?? "").trim();
+  if (!folio) return null;
+  return {
+    folio,
+    strap: folioToStrap(folio),
+    address: (a.TRUE_SITE_ADDR as string | null)?.trim() || null,
+    city: (a.TRUE_SITE_CITY as string | null)?.trim() || null,
+    ownerName: (a.TRUE_OWNER1 as string | null)?.trim() || null,
+    buildingSqft: (a.BUILDING_ACTUAL_AREA as number | null) ?? null,
+    landSqft: (a.LOT_SIZE as number | null) ?? null,
+    useCode: (a.DOR_CODE_CUR as string | null) ?? null,
+    useDescription: (a.DOR_DESC as string | null) ?? null,
+    assessedValue: (a.ASSESSED_VAL_CUR as number | null) ?? null,
+    yearBuilt: (a.YEAR_BUILT as number | null) ?? null,
+    lastSaleDate: (a.DOS_1 as string | null) ?? null,
+  };
+}
+
+/**
+ * Criteria-based parcel search for the lead finder (see lib/lead-finder.ts).
+ * Counts matches first (returnCountOnly — instant, no record transfer) so a
+ * too-broad search returns the real total instead of silently truncating;
+ * only paginates through actual records when the count is within maxResults.
+ */
+// ArcGIS sometimes returns an error object with an empty message (confirmed
+// live on Massachusetts's service — see lib/magis.ts) — falls back to
+// `details` so the broker never sees a blank error badge.
+function extractArcgisErrorMessage(err: { message: string; details?: string[] }): string {
+  if (err.message) return err.message;
+  if (err.details && err.details.length > 0) return err.details.join("; ");
+  return "Unknown error from the county service.";
+}
+
+export async function searchByCriteria(
+  criteria: MdpaCriteria,
+  maxResults = 200,
+): Promise<CriteriaSearchResult> {
+  const where = buildMdpaCriteriaWhere(criteria);
+
+  const countUrl = new URL(MDPA_CRITERIA_URL);
+  countUrl.searchParams.set("where", where);
+  countUrl.searchParams.set("returnCountOnly", "true");
+  countUrl.searchParams.set("f", "json");
+
+  const countRes = await fetch(countUrl.toString(), { next: { revalidate: 0 } });
+  if (!countRes.ok) return { kind: "error", message: `Miami-Dade criteria search failed: HTTP ${countRes.status}` };
+  const countData = (await countRes.json()) as { count?: number; error?: { message: string; details?: string[] } };
+  if (countData.error) return { kind: "error", message: extractArcgisErrorMessage(countData.error) };
+
+  const totalCount = countData.count ?? 0;
+  if (totalCount === 0) return { kind: "ok", matches: [], totalCount: 0 };
+  if (totalCount > maxResults) return { kind: "too_many", count: totalCount };
+
+  const matches: MdpaCriteriaMatch[] = [];
+  let offset = 0;
+  while (matches.length < totalCount) {
+    const url = new URL(MDPA_CRITERIA_URL);
+    url.searchParams.set("where", where);
+    url.searchParams.set("outFields", CRITERIA_FIELDS);
+    url.searchParams.set("returnGeometry", "false");
+    url.searchParams.set("orderByFields", "FOLIO");
+    url.searchParams.set("resultRecordCount", String(CRITERIA_PAGE_SIZE));
+    url.searchParams.set("resultOffset", String(offset));
+    url.searchParams.set("f", "json");
+
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return { kind: "error", message: `Miami-Dade criteria search failed: HTTP ${res.status}` };
+    const data = (await res.json()) as {
+      features?: { attributes: Record<string, unknown> }[];
+      error?: { message: string; details?: string[] };
+    };
+    if (data.error) return { kind: "error", message: extractArcgisErrorMessage(data.error) };
+
+    const features = data.features ?? [];
+    if (features.length === 0) break;
+    for (const f of features) {
+      const match = mdpaCriteriaMatchFromAttrs(f.attributes);
+      if (match) matches.push(match);
+    }
+    offset += features.length;
+    if (features.length < CRITERIA_PAGE_SIZE) break;
+  }
+
+  return { kind: "ok", matches, totalCount };
+}
