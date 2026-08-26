@@ -8,6 +8,9 @@ import { importPbcpaFolio } from "@/lib/pbcpa-folio-ingest";
 import { importMagisFolio } from "@/lib/magis-folio-ingest";
 import { normalizeAddress } from "@/lib/property-ingest";
 import { daysUntilExpiry } from "@/lib/lease-radar";
+import { searchAndExtractSunbiz } from "@/lib/sunbiz";
+import { storedOwnerContactsFromSunbiz } from "@/lib/owner-contacts";
+import { runAndPersistZoning } from "@/lib/zoning-persist";
 
 export type BuyBox = {
   id: string;
@@ -196,6 +199,7 @@ export type LeadToAccept = {
   folio: string;
   address: string | null;
   city: string | null;
+  ownerName: string | null;
 };
 
 export type AcceptLeadsResult = {
@@ -213,11 +217,70 @@ function importForMarket(market: SupportedMarket, folio: string, address: string
   }
 }
 
+// Same heuristic used everywhere else in this codebase (app/properties/new/
+// actions.ts, app/properties/[id]/actions.ts) to decide whether an owner name
+// is Sunbiz-eligible (a registered entity) vs. an individual.
+const ENTITY_NAME_RE = /\b(LLC|INC|CORP|LP|LLP|LLLP|PA|PL|PLLC|LTD|CO)\b/i;
+
+/**
+ * Runs the SAME post-save enrichment a manually-added property gets
+ * (app/properties/new/actions.ts's saveIngestedProperty): an auto Sunbiz
+ * owner lookup (Florida only — Sunbiz is Florida's Division of Corporations
+ * registry, so Massachusetts is skipped exactly like every other Sunbiz call
+ * site in this codebase) that overwrites the individual-owner-mailing
+ * fallback contact already saved at import time, plus zoning, which applies
+ * to all four markets. Unlike the single-property Enrich flow, there is no
+ * per-lead broker review step here — accepting leads is a bulk action, so
+ * Sunbiz's auto-picked best match is saved directly rather than staged for
+ * confirmation. Both steps are best-effort: the property is already saved
+ * before this runs, so a Sunbiz or zoning failure never undoes the accept.
+ */
+async function enrichAcceptedLead(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  propertyId: string,
+  lead: LeadToAccept,
+): Promise<void> {
+  if (lead.market !== "massachusetts" && lead.ownerName && ENTITY_NAME_RE.test(lead.ownerName.replace(/\./g, ""))) {
+    try {
+      const lookup = await searchAndExtractSunbiz(lead.ownerName);
+      if (lookup.result && lookup.result.persons.length > 0) {
+        const owner_contacts = storedOwnerContactsFromSunbiz(lookup.result.persons);
+        await supabase.from("properties").update({ owner_contacts }).eq("id", propertyId).eq("owner_id", userId);
+      }
+    } catch {
+      // Best-effort — the property is already saved; Sunbiz can be re-run later from the property page.
+    }
+  }
+
+  try {
+    await runAndPersistZoning(supabase, userId, propertyId, {
+      county: lead.market,
+      address: lead.address ?? "",
+      city: lead.city,
+      strap: lead.folio,
+    });
+  } catch {
+    // Best-effort — non-fatal, same as every other zoning call site.
+  }
+}
+
 /** Accepts one or more lead-finder matches into the broker's book, individually or in bulk. */
 export async function acceptLeads(leads: LeadToAccept[]): Promise<AcceptLeadsResult> {
   const enrichedIds: string[] = [];
   let skippedDuplicates = 0;
   const failed: { market: SupportedMarket; folio: string; message: string }[] = [];
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      enrichedIds: [],
+      skippedDuplicates: 0,
+      failed: leads.map((l) => ({ market: l.market, folio: l.folio, message: "Not authenticated." })),
+    };
+  }
 
   for (const lead of leads) {
     if (!(SUPPORTED_MARKETS as string[]).includes(lead.market)) {
@@ -233,6 +296,7 @@ export async function acceptLeads(leads: LeadToAccept[]): Promise<AcceptLeadsRes
       const res = await importForMarket(lead.market, lead.folio, address, lead.city);
       if ("id" in res) {
         enrichedIds.push(res.id);
+        await enrichAcceptedLead(supabase, user.id, res.id, lead);
       } else if (res.existingId) {
         skippedDuplicates += 1;
       } else {

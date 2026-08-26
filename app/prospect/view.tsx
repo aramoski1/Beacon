@@ -2,16 +2,10 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Loader2, Save, Trash2, AlertTriangle, Target, CheckCircle2, Inbox } from "lucide-react";
+import { Search, Loader2, AlertTriangle, Target, CheckCircle2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  runLeadSearch,
-  saveBuyBox,
-  deleteBuyBox,
-  acceptLeads,
-  type BuyBox,
-  type AcceptLeadsResult,
-} from "./actions";
+import { runLeadSearch, acceptLeads, type BuyBox, type AcceptLeadsResult } from "./actions";
+import { BuyBoxPicker, SaveBuyBoxAction } from "./buy-box-bar";
 import {
   MARKET_LABELS,
   SUPPORTED_MARKETS,
@@ -180,22 +174,21 @@ function fmtMoney(n: number | null): string {
 export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: BuyBox[] }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [buyBoxes, setBuyBoxes] = useState<BuyBox[]>(initialBuyBoxes);
+  const [activeBuyBoxId, setActiveBuyBoxId] = useState<string | null>(null);
   const [result, setResult] = useState<LeadSearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isSearching, startSearch] = useTransition();
-  const [isSaving, startSaving] = useTransition();
-  const [saveName, setSaveName] = useState("");
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAccepting, startAccepting] = useTransition();
   const [acceptResult, setAcceptResult] = useState<AcceptLeadsResult | null>(null);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setActiveBuyBoxId(null);
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function toggleMarket(market: SupportedMarket) {
+    setActiveBuyBoxId(null);
     setForm((prev) => {
       const next = new Set(prev.markets);
       if (next.has(market)) next.delete(market);
@@ -244,7 +237,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
   function handleAccept() {
     const toAccept = matches
       .filter((m) => selected.has(matchKey(m)))
-      .map((m) => ({ market: m.market, folio: m.folio, address: m.address, city: m.city }));
+      .map((m) => ({ market: m.market, folio: m.folio, address: m.address, city: m.city, ownerName: m.ownerName }));
     if (toAccept.length === 0) return;
     setAcceptResult(null);
     startAccepting(async () => {
@@ -254,39 +247,10 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
     });
   }
 
-  function handleSave() {
-    setSaveError(null);
-    const trimmed = saveName.trim();
-    if (!trimmed) {
-      setSaveError("Give this buy box a name.");
-      return;
-    }
-    const criteria = formToCriteria(form);
-    startSaving(async () => {
-      const res = await saveBuyBox(trimmed, criteria);
-      if ("error" in res) {
-        setSaveError(res.error);
-        return;
-      }
-      setBuyBoxes((prev) => [
-        { id: res.id, name: trimmed, criteria, updatedAt: new Date().toISOString() },
-        ...prev,
-      ]);
-      setSaveName("");
-      setShowSavePrompt(false);
-    });
-  }
-
   function handleLoad(box: BuyBox) {
+    setActiveBuyBoxId(box.id);
     setForm(criteriaToForm(box.criteria));
     runSearch(box.criteria);
-  }
-
-  function handleDelete(id: string) {
-    setBuyBoxes((prev) => prev.filter((b) => b.id !== id));
-    startSaving(async () => {
-      await deleteBuyBox(id);
-    });
   }
 
   const matches = result?.matches ?? [];
@@ -306,33 +270,24 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 space-y-6">
           {/* ── Saved buy boxes ─────────────────────────────────────────────── */}
-          {buyBoxes.length > 0 && (
-            <div className="rounded-lg border bg-card p-4 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Saved buy boxes
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {buyBoxes.map((box) => (
-                  <div
-                    key={box.id}
-                    className="inline-flex items-center gap-1.5 rounded-md border bg-muted/30 pl-3 pr-1.5 py-1 text-xs"
-                  >
-                    <button type="button" onClick={() => handleLoad(box)} className="hover:underline">
-                      {box.name}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(box.id)}
-                      className="text-muted-foreground hover:text-destructive p-1"
-                      title="Delete buy box"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <BuyBoxPicker
+              buyBoxes={buyBoxes}
+              activeBuyBoxId={activeBuyBoxId}
+              onSelect={handleLoad}
+              onDeleted={(id) => {
+                setBuyBoxes((prev) => prev.filter((b) => b.id !== id));
+                if (activeBuyBoxId === id) setActiveBuyBoxId(null);
+              }}
+            />
+            <SaveBuyBoxAction
+              criteria={formToCriteria(form)}
+              onSaved={(box) => {
+                setBuyBoxes((prev) => [box, ...prev]);
+                setActiveBuyBoxId(box.id);
+              }}
+            />
+          </div>
 
           {/* ── Criteria form ───────────────────────────────────────────────── */}
           <div className="rounded-lg border bg-card p-5 space-y-5">
@@ -468,45 +423,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
                 {isSearching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
                 Search
               </button>
-
-              {!showSavePrompt ? (
-                <button
-                  type="button"
-                  onClick={() => setShowSavePrompt(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-md border hover:bg-muted/50 transition-colors text-muted-foreground"
-                >
-                  <Save className="size-3.5" />
-                  Save as buy box
-                </button>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    autoFocus
-                    className="rounded-md border px-2.5 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background"
-                    placeholder="Buy box name"
-                    value={saveName}
-                    onChange={(e) => setSaveName(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setShowSavePrompt(false); setSaveError(null); }}
-                    className="px-3 py-1.5 text-sm rounded-md border hover:bg-muted/50 transition-colors text-muted-foreground"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
             </div>
-            {saveError && <p className="text-xs text-destructive">{saveError}</p>}
           </div>
 
           {/* ── Caveats ──────────────────────────────────────────────────────── */}
