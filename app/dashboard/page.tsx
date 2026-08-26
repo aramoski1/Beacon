@@ -262,7 +262,7 @@ export default async function DashboardPage() {
         search={<BeaconCopilot />}
       />
 
-      <div className="flex justify-end -mb-2">
+      <div className="flex justify-end">
         <DashboardCustomize initialVisible={visible} />
       </div>
 
