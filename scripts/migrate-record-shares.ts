@@ -135,6 +135,7 @@ END $$;
 -- are read-only in v1, unlike whole-firm 'team' visibility, which stays
 -- co-editable exactly as it already is).
 DROP POLICY IF EXISTS properties_owner_or_teammate_select ON properties;
+DROP POLICY IF EXISTS properties_owner_or_teammate_or_shared_select ON properties;
 CREATE POLICY properties_owner_or_teammate_or_shared_select ON properties
   FOR SELECT USING (
     auth.uid() = owner_id
@@ -143,6 +144,7 @@ CREATE POLICY properties_owner_or_teammate_or_shared_select ON properties
   );
 
 DROP POLICY IF EXISTS contacts_owner_or_teammate_select ON contacts;
+DROP POLICY IF EXISTS contacts_owner_or_teammate_or_shared_select ON contacts;
 CREATE POLICY contacts_owner_or_teammate_or_shared_select ON contacts
   FOR SELECT USING (
     auth.uid() = owner_id
@@ -151,6 +153,7 @@ CREATE POLICY contacts_owner_or_teammate_or_shared_select ON contacts
   );
 
 DROP POLICY IF EXISTS deals_owner_or_teammate_select ON deals;
+DROP POLICY IF EXISTS deals_owner_or_teammate_or_shared_select ON deals;
 CREATE POLICY deals_owner_or_teammate_or_shared_select ON deals
   FOR SELECT USING (
     auth.uid() = owner_id

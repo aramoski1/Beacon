@@ -269,6 +269,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-lead-buy-boxes.ts",
     description: "lead_buy_boxes table — saved lead-finder criteria presets (lib/lead-finder.ts), owner-scoped RLS",
   },
+  {
+    file: "migrate-invite-only.ts",
+    description: "Invite-only signup — approved_emails/access_requests tables (admin-only RLS via is_admin()), is_email_approved()/record_access_request() SECURITY DEFINER helpers for the pre-auth signup check, admin_list_accounts() for the admin accounts view, user_settings.is_admin flag seeded for the admin account",
+  },
 ];
 
 const hr = "─".repeat(60);

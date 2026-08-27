@@ -8,7 +8,7 @@ import {
   Briefcase, CalendarClock, Plus,
   LayoutDashboard, LayoutGrid, Zap,
   CheckSquare, Settings2, LogOut, Menu, X,
-  ShieldAlert, AlertCircle, MapPinned, Target,
+  ShieldAlert, AlertCircle, MapPinned, Target, Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
@@ -107,6 +107,7 @@ const NEW_MENU_ITEMS = [
 
 function Sidebar({
   user,
+  isAdmin,
   overdueCount,
   followUpsDueCount,
   leaseRadarUrgentCount,
@@ -114,6 +115,7 @@ function Sidebar({
   onClose,
 }: {
   user: User | null;
+  isAdmin: boolean;
   overdueCount: number;
   followUpsDueCount: number;
   leaseRadarUrgentCount: number;
@@ -280,6 +282,21 @@ function Sidebar({
             <AlertCircle className="size-3.5 shrink-0 text-muted-foreground/70" />
             Ingestion errors
           </Link>
+          {isAdmin && (
+            <Link
+              href="/admin"
+              onClick={onClose}
+              className={cn(
+                "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs transition-colors",
+                pathname.startsWith("/admin")
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              )}
+            >
+              <Shield className="size-3.5 shrink-0 text-muted-foreground/70" />
+              Admin
+            </Link>
+          )}
         </div>
       </nav>
 
@@ -309,6 +326,7 @@ function Sidebar({
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0);
   const [followUpsDueCount, setFollowUpsDueCount] = useState(0);
   const [leaseRadarUrgentCount, setLeaseRadarUrgentCount] = useState(0);
@@ -335,9 +353,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .lte("expiration_date", ninetyDays),
       supabase
         .from("user_settings")
-        .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days")
+        .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days, is_admin")
         .maybeSingle(),
     ]);
+
+    setIsAdmin(settingsData?.is_admin ?? false);
 
     const cadence: Record<number, number> = {
       1: settingsData?.cadence_tier1_days ?? DEFAULT_CADENCE_TIER_DAYS[1],
@@ -369,7 +389,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setUser(session?.user ?? null);
       if (session?.user?.email) localStorage.setItem(LS_USER_EMAIL, session.user.email);
       if (session?.user) fetchCounts();
-      else { setOverdueCount(0); setFollowUpsDueCount(0); setLeaseRadarUrgentCount(0); }
+      else { setOverdueCount(0); setFollowUpsDueCount(0); setLeaseRadarUrgentCount(0); setIsAdmin(false); }
     });
     return () => subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -405,6 +425,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <Sidebar
         user={user}
+        isAdmin={isAdmin}
         overdueCount={overdueCount}
         followUpsDueCount={followUpsDueCount}
         leaseRadarUrgentCount={leaseRadarUrgentCount}

@@ -67,6 +67,23 @@ export async function signUp(
   const password = formData.get("password") as string;
   const origin = siteOrigin();
 
+  // Invite-only gate — checked via a SECURITY DEFINER function (not a direct
+  // table read) since this runs pre-auth, as the anon role. Fails closed: any
+  // error checking the allowlist is treated as "not approved" rather than
+  // silently letting signup through.
+  const { data: approved, error: approvedError } = await supabase.rpc("is_email_approved", {
+    check_email: email,
+  });
+  if (approvedError || !approved) {
+    // Best-effort — never blocks the rejection message on logging failure.
+    try {
+      await supabase.rpc("record_access_request", { requested_email: email });
+    } catch {
+      // Non-fatal — the rejection message below still applies.
+    }
+    return { error: "Beacon is currently invite-only — contact us for access." };
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
