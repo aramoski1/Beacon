@@ -12,7 +12,7 @@ describe("folioFromPbcpaSourceUrl", () => {
 
 // ─── Live Palm Beach tax-roll comps ───────────────────────────────────────────
 
-describe("live Palm Beach tax-roll comps", () => {
+describe.skipIf(!!process.env.CI)("live Palm Beach tax-roll comps", () => {
   it("627 SW 4th Ave, Boynton Beach (08434529010190251) returns real, priced same-class comps", async () => {
     const result = await fetchPbcpaTaxRollComps("08434529010190251");
     expect(result.subjectFolio).toBe("08434529010190251");

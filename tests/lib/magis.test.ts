@@ -533,7 +533,7 @@ describe("detectCounty / resolveMassachusettsCity — Boston neighborhoods", () 
 // matcher resolves it unambiguously (see the parseAddressForGIS note above
 // on why "1 City Hall Sq" was NOT used here).
 
-describe("live Massachusetts parcel service", () => {
+describe.skipIf(!!process.env.CI)("live Massachusetts parcel service", () => {
   it("24 Beacon St, Boston resolves to LOC_ID F_774077_2955940, owned by the Commonwealth of Massachusetts", async () => {
     const result = await searchByAddressGIS("24 Beacon St", "Boston");
     const parcels = okParcels(result);

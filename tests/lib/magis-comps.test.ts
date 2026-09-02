@@ -14,7 +14,7 @@ describe("folioFromMagisSourceUrl", () => {
 
 // ─── Live Massachusetts tax-roll comps ────────────────────────────────────────
 
-describe("live Massachusetts tax-roll comps", () => {
+describe.skipIf(!!process.env.CI)("live Massachusetts tax-roll comps", () => {
   it("1105 Saratoga St, Boston (F_790618_2965662) returns real, priced comps in the same city", async () => {
     const result = await fetchMagisTaxRollComps("F_790618_2965662");
     expect(result.subjectFolio).toBe("F_790618_2965662");

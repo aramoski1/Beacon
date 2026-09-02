@@ -12,7 +12,7 @@ describe("folioFromBcpaSourceUrl", () => {
 
 // ─── Live Broward tax-roll comps ──────────────────────────────────────────────
 
-describe("live Broward tax-roll comps", () => {
+describe.skipIf(!!process.env.CI)("live Broward tax-roll comps", () => {
   it("2116 Sherman St, Hollywood (514209051449) returns real, priced comps in the same city", async () => {
     const result = await fetchBcpaTaxRollComps("514209051449");
     expect(result.subjectFolio).toBe("514209051449");

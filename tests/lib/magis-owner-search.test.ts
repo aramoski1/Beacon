@@ -152,7 +152,7 @@ describe("folioStrapKey", () => {
 
 // ─── Live Massachusetts owner search ──────────────────────────────────────────
 
-describe("live Massachusetts tax roll owner search", () => {
+describe.skipIf(!!process.env.CI)("live Massachusetts tax roll owner search", () => {
   it("CITY OF BOSTON resolves to multiple real Boston-owned parcels", async () => {
     const hits = await searchParcelsByOwnerName("City of Boston", "entity");
     expect(hits.length).toBeGreaterThanOrEqual(2);

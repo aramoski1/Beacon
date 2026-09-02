@@ -464,7 +464,7 @@ describe("searchByAddressGIS — retries before giving up", () => {
 
 // ─── Live Broward parcel service — the two example addresses from the report ─
 
-describe("live Broward parcel service — real-world address formats", () => {
+describe.skipIf(!!process.env.CI)("live Broward parcel service — real-world address formats", () => {
   it("2317-2321 Stirling Rd (hyphenated range) resolves to a real Broward parcel", async () => {
     const result = await searchByAddressGIS("2317-2321 Stirling Rd");
     const parcels = okParcels(result);
@@ -728,7 +728,7 @@ describe("searchParcelsByOwnerQueries (Broward)", () => {
 
 // ─── Live Broward parcel service ──────────────────────────────────────────────
 
-describe("live Broward parcel service", () => {
+describe.skipIf(!!process.env.CI)("live Broward parcel service", () => {
   it("2116 Sherman St resolves to PARCELNO 514209051449 / PB2 REAL ESTATE LLC", async () => {
     const result = await searchByAddressGIS("2116 Sherman St");
     const parcels = okParcels(result);

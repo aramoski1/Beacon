@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, "feature/**"]
+    branches: [main]
 
 jobs:
   check:
@@ -19,4 +19,5 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       # Live security tests need a dedicated Supabase project — skip in default CI.
+      # Live GIS describes (MassGIS / BCPA / PBCPA) skip when CI=true (set by Actions).
       - run: npm test -- --exclude tests/security/**

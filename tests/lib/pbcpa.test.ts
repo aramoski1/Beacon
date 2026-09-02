@@ -622,7 +622,7 @@ describe("detectCounty — Palm Beach cities", () => {
 
 // ─── Live Palm Beach parcel service ───────────────────────────────────────────
 
-describe("live Palm Beach parcel service", () => {
+describe.skipIf(!!process.env.CI)("live Palm Beach parcel service", () => {
   it("627 SW 4th Ave, Boynton Beach resolves to PCN 08434529010190251", async () => {
     const result = await searchByAddressGIS("627 SW 4th Ave");
     const parcels = okParcels(result);
