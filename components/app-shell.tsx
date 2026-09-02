@@ -258,6 +258,19 @@ function Sidebar({
             )}
           </Link>
           <Link
+            href="/tours"
+            onClick={onClose}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs transition-colors",
+              pathname.startsWith("/tours")
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <CalendarClock className="size-3.5 shrink-0 text-muted-foreground/70" />
+            Tours
+          </Link>
+          <Link
             href="/properties/audit"
             onClick={onClose}
             className={cn(

@@ -52,6 +52,14 @@ const EXPECTED: TableSpec[] = [
       { col: "ownership_last_checked_at",   from: "migrate-ownership-watch.ts" },
       { col: "field_sources",         from: "migrate-field-sources.ts" },
       { col: "visibility",            from: "migrate-firms-visibility.ts" },
+      { col: "clear_height_ft",       from: "migrate-industrial-cre.ts" },
+      { col: "dock_doors",            from: "migrate-industrial-cre.ts" },
+      { col: "drive_in_doors",        from: "migrate-industrial-cre.ts" },
+      { col: "asking_rent_psf",       from: "migrate-industrial-cre.ts" },
+      { col: "availability_status",   from: "migrate-industrial-cre.ts" },
+      { col: "latitude",              from: "migrate-industrial-cre.ts" },
+      { col: "longitude",             from: "migrate-industrial-cre.ts" },
+      { col: "geocoded_at",           from: "migrate-industrial-cre.ts" },
     ],
   },
   {
@@ -82,6 +90,12 @@ const EXPECTED: TableSpec[] = [
       // migrate-custom-fields.ts
       { col: "custom_fields",       from: "migrate-custom-fields.ts" },
       { col: "visibility",          from: "migrate-firms-visibility.ts" },
+      { col: "cap_rate_target",     from: "migrate-industrial-cre.ts" },
+      { col: "preferred_markets",   from: "migrate-industrial-cre.ts" },
+      { col: "preferred_min_sf",    from: "migrate-industrial-cre.ts" },
+      { col: "preferred_max_sf",    from: "migrate-industrial-cre.ts" },
+      { col: "exchange_1031_deadline", from: "migrate-industrial-cre.ts" },
+      { col: "buyer_criteria_notes", from: "migrate-industrial-cre.ts" },
     ],
   },
   {
@@ -321,6 +335,50 @@ const EXPECTED: TableSpec[] = [
       { col: "shared_with_user_id", from: "migrate-record-shares.ts" },
       { col: "shared_by_user_id",   from: "migrate-record-shares.ts" },
       { col: "created_at",          from: "migrate-record-shares.ts" },
+    ],
+  },
+  {
+    table: "rent_comps",
+    cols: [
+      { col: "id", from: "migrate-industrial-cre.ts" },
+      { col: "owner_id", from: "migrate-industrial-cre.ts" },
+      { col: "property_id", from: "migrate-industrial-cre.ts" },
+      { col: "rent_psf", from: "migrate-industrial-cre.ts" },
+    ],
+  },
+  {
+    table: "background_jobs",
+    cols: [
+      { col: "id", from: "migrate-jobs-tours-cache.ts" },
+      { col: "owner_id", from: "migrate-jobs-tours-cache.ts" },
+      { col: "job_type", from: "migrate-jobs-tours-cache.ts" },
+      { col: "status", from: "migrate-jobs-tours-cache.ts" },
+    ],
+  },
+  {
+    table: "dashboard_kpi_cache",
+    cols: [
+      { col: "owner_id", from: "migrate-jobs-tours-cache.ts" },
+      { col: "payload", from: "migrate-jobs-tours-cache.ts" },
+      { col: "computed_at", from: "migrate-jobs-tours-cache.ts" },
+    ],
+  },
+  {
+    table: "tours",
+    cols: [
+      { col: "id", from: "migrate-jobs-tours-cache.ts" },
+      { col: "owner_id", from: "migrate-jobs-tours-cache.ts" },
+      { col: "scheduled_at", from: "migrate-jobs-tours-cache.ts" },
+      { col: "status", from: "migrate-jobs-tours-cache.ts" },
+    ],
+  },
+  {
+    table: "oauth_connections",
+    cols: [
+      { col: "id", from: "migrate-oauth-connections.ts" },
+      { col: "owner_id", from: "migrate-oauth-connections.ts" },
+      { col: "provider", from: "migrate-oauth-connections.ts" },
+      { col: "status", from: "migrate-oauth-connections.ts" },
     ],
   },
 ];

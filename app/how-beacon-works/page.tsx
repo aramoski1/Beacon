@@ -223,9 +223,12 @@ export default async function HowBeaconWorksPage({
             County enrichment covers South Florida (Miami-Dade, Broward, Palm Beach) and the Boston
             metro area (Massachusetts).
           </li>
-          <li>Comps come from tax-roll sales and your own lease abstracts — not CoStar market data.</li>
+          <li>Comps come from tax-roll sales, your lease abstracts, and the rent notebook — not live CoStar market data.</li>
           <li>
             Entity/LLC lookup (Sunbiz) is Florida-only — Massachusetts has no equivalent wired up yet.
+          </li>
+          <li>
+            Gmail, Outlook, calendar, and DocuSign connections are stubs until OAuth env vars are set.
           </li>
           <li>
             Stuck on where something lives? Ask Copilot on the Dashboard — or use the page guides

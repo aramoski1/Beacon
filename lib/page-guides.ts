@@ -187,7 +187,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Edit name, stage, type, estimated commission, expected close, next action + due date, and notes.",
       "Link or view the associated **contact** and **property**.",
       "Toggle **Share with firm** if teammates should see this pursuit.",
-      "Upload documents (LOIs, leases, OMs) in the Documents section.",
+      "Upload documents or click **Download LOI** for a Word draft from deal + property fields.",
       "Log calls, emails, meetings, and notes in Activity.",
       "Add follow-ups with due dates tied to this deal.",
       "Delete the pursuit when closed or abandoned (confirmation required).",
@@ -306,23 +306,40 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
   },
   {
+    id: "tours",
+    route: "/tours",
+    title: "Tours",
+    category: "Advanced",
+    purpose: "Schedule property tours with attendees and prep notes.",
+    walkthrough: [
+      "Pick date/time, optional property and contact, attendees, and prep notes.",
+      "Click **Save tour**. Upcoming tours show at the top.",
+      "**Mark done** after the visit, or **Cancel** if it does not happen.",
+      "Calendar sync stays off until you connect Google or Outlook under Settings → Connections.",
+    ],
+    features: [
+      "Scheduled / completed / cancelled statuses",
+      "Links to property and contact",
+      "Prep notes and post-tour notes field",
+    ],
+  },
+  {
     id: "book-map",
     route: "/book-map",
     title: "Book map",
     category: "Advanced",
-    purpose: "Corridor view of your book grouped by submarket/city — not a pin map.",
+    purpose: "Corridor view plus a pin map of geocoded properties.",
     walkthrough: [
-      "Filter by minimum/maximum SF and property type.",
-      "Browse corridor buckets — each shows property count and total SF.",
-      "Expand a corridor to see individual properties.",
-      "Click a property to open its detail page.",
-      "Use **Open in OpenStreetMap** for an external map view of an address.",
+      "Open **Pin map** to see geocoded assets on OpenStreetMap.",
+      "Click **Geocode missing pins** to store lat/lng (Nominatim, ~1s per address).",
+      "Switch to **Corridors** for submarket/city buckets with SF and type filters.",
+      "Click a pin or corridor row to open the property.",
     ],
     features: [
+      "Pin map (Leaflet + OSM tiles)",
+      "Nominatim geocode stored on the property",
       "Submarket/city corridor aggregation",
       "SF and type filters",
-      "Property list per corridor with links",
-      "OSM deep links (no stored geocodes)",
     ],
   },
   {
@@ -442,9 +459,9 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Review core fields: address, type, SF, land, sale history, assessed value, folio source.",
       "Use **Enrich** to re-run county data, Sunbiz lookup, CoStar file parse, or URL re-ingest.",
       "Enroll on **ownership watch** and run **Check ownership now** for flip detection.",
-      "Read **Zoning** section after enrichment.",
+      "Read **Zoning** and **Industrial / flex specs** (clear height, docks, asking rent).",
       "Promote Sunbiz people to CRM contacts; open **owner portfolio** for sibling parcels.",
-      "View **tax-roll comps** and **lease comps** from your abstracts.",
+      "View **tax-roll comps**, **lease comps**, and the **rent notebook** (seed bands + your comps).",
       "Link/unlink contacts; upload documents; log activity and follow-ups.",
       "Toggle **Share with firm** or **Create pursuit** from the header.",
     ],
@@ -473,7 +490,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Pick a call outcome: Connected, Left VM, No answer — bumps last-contacted.",
       "Read the **relationship briefing** (AI summary) when available.",
       "Manage **linked properties** — view, add, remove links.",
-      "Edit CRE profile: tier, stage, asset focus, notes, action tags.",
+      "Edit CRE profile and **Buyer / 1031 criteria** (cap rate, markets, 1031 deadline).",
       "Review outreach history and activity timeline.",
       "Open **owner portfolio** when this contact is a property owner.",
       "Create a pursuit or share with firm from the header.",
@@ -575,6 +592,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "**Brokerage** — company, license, default market, phone, website (used in email signatures).",
       "**Data & Sources** — county/Sunbiz status, CoStar toggle, links to ingestion and app error logs.",
       "**Outreach** — sender name/email, email client (Gmail/Outlook/M365), signature preview, cadence days per tier.",
+      "**Connections** — Gmail/Outlook send, calendar, DocuSign (stubs until OAuth env vars are set).",
       "**Data Management** — download full XLSX exports (properties, contacts, leases).",
       "**Appearance** — light or dark theme.",
       "**Danger Zone** — delete all CRM data (keeps login; type DELETE).",
@@ -587,6 +605,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Brokerage and signature fields",
       "Email provider preference",
       "Cadence tier day intervals",
+      "Connections (OAuth stubs until env vars are set)",
       "CoStar upload toggle",
       "Full book XLSX exports",
       "Light/dark theme",
@@ -727,6 +746,7 @@ export function getGuideForPathname(pathname: string): PageGuide | null {
   if (pathname === "/lease-radar") return g("lease-radar");
   if (pathname === "/outreach") return g("outreach");
   if (pathname === "/follow-ups") return g("follow-ups");
+  if (pathname === "/tours") return g("tours");
   if (pathname === "/book-map") return g("book-map");
   if (pathname === "/properties/audit") return g("audit");
   if (pathname === "/properties/errors") return g("ingestion-errors");

@@ -33,6 +33,7 @@ import { cadenceMapFromSettings, cadenceDaysForTier, suggestedCadenceDays } from
 import { listDocuments } from "@/lib/documents";
 import { DocumentsSection } from "@/components/documents-section";
 import { CreProfileSection } from "./cre-profile-section";
+import { BuyerCriteriaSection } from "./buyer-criteria-section";
 import { LinkPropertySection } from "./link-property-section";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -75,6 +76,12 @@ type Contact = {
   action_tags: string[] | null;
   linked_properties: string[] | null;
   custom_fields: Record<string, string | number | null> | null;
+  cap_rate_target: number | null;
+  preferred_markets: string[] | null;
+  preferred_min_sf: number | null;
+  preferred_max_sf: number | null;
+  exchange_1031_deadline: string | null;
+  buyer_criteria_notes: string | null;
 };
 
 type LinkedProperty = {
@@ -438,6 +445,17 @@ export default async function ContactPage({
           size_category: c.size_category,
           ownership_type: c.ownership_type,
           asset_focus: assetFocus,
+        }}
+      />
+      <BuyerCriteriaSection
+        contactId={c.id}
+        initial={{
+          cap_rate_target: c.cap_rate_target ?? null,
+          preferred_markets: c.preferred_markets ?? [],
+          preferred_min_sf: c.preferred_min_sf ?? null,
+          preferred_max_sf: c.preferred_max_sf ?? null,
+          exchange_1031_deadline: c.exchange_1031_deadline ?? null,
+          buyer_criteria_notes: c.buyer_criteria_notes ?? null,
         }}
       />
 

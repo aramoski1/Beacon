@@ -39,6 +39,12 @@ export function DealActions({ deal }: { deal: Deal }) {
           </button>
         }
       />
+      <a
+        href={`/api/export/loi?deal=${deal.id}`}
+        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border border-border hover:bg-muted/60 transition-colors"
+      >
+        Download LOI
+      </a>
       <button
         type="button"
         onClick={() => setConfirming(true)}

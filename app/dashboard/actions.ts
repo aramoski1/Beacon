@@ -158,6 +158,16 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { properties: 0, contacts: 0, leases: 0, errors: 0, followUpsDue: 0 };
 
+  const { data: cached } = await supabase
+    .from("dashboard_kpi_cache")
+    .select("payload, computed_at")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  const ageMs = cached?.computed_at ? Date.now() - new Date(cached.computed_at).getTime() : Infinity;
+  if (cached?.payload && ageMs < 5 * 60 * 1000) {
+    return cached.payload as DashboardStats;
+  }
+
   const today = new Date().toISOString().slice(0, 10);
 
   const [
@@ -174,13 +184,21 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     supabase.from("follow_ups").select("*", { count: "exact", head: true }).eq("owner_id", user.id).eq("done", false).lte("due_date", today),
   ]);
 
-  return {
+  const stats: DashboardStats = {
     properties:   propCount ?? 0,
     contacts:     contactCount ?? 0,
     leases:       leaseCount ?? 0,
     errors:       errorCount ?? 0,
     followUpsDue: followUpsDueCount ?? 0,
   };
+
+  await supabase.from("dashboard_kpi_cache").upsert({
+    owner_id: user.id,
+    payload: stats,
+    computed_at: new Date().toISOString(),
+  });
+
+  return stats;
 }
 
 export async function getRecentActivities(): Promise<RecentActivity[]> {

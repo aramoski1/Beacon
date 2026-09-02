@@ -325,7 +325,10 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Lease Radar** (/lease-radar) — Expiry tracker for leases within 3/6/12 months
 - **Deals** (/deals) — Pursuit pipeline (kanban or list view). Stage order: prospect → contacted → meeting → requirement → proposal → won → under_contract → closed / lost. The exact stage set shown depends on the deal's type (tenant rep, listing, or investment sale)
 - **All tasks** (/follow-ups) — Follow-up task list with due dates; found under "Advanced" in the sidebar, not the main nav row
-- **Settings** (/settings) — sections: Account (name/email/password; Delete account — type DELETE — permanently removes all data and the login), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (Delete all data — type DELETE — wipes CRM data but keeps login credentials; to remove login too use Account → Delete account). Settings header also links to **How Beacon works** (/how-beacon-works)
+- **Tours** (/tours) — Schedule property tours with attendees and prep notes (Advanced in the sidebar). Calendar sync stays off until Settings → Connections has OAuth keys.
+- **Book map** (/book-map) — Corridor buckets plus a pin map of geocoded properties. **Geocode missing pins** stores lat/lng via OpenStreetMap Nominatim (no Mapbox key).
+- **Prospect** (/prospect) — Find off-book industrial / flex owners from county tax rolls
+- **Settings** (/settings) — sections: Account (name/email/password; Delete account — type DELETE — permanently removes all data and the login), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Connections (Gmail/Outlook send, Google/Outlook calendar, DocuSign — stubs that return 501 until OAuth env vars are set on Vercel; token exchange is not wired yet), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (Delete all data — type DELETE — wipes CRM data but keeps login credentials; to remove login too use Account → Delete account). Settings header also links to **How Beacon works** (/how-beacon-works)
 - **How Beacon works** (/how-beacon-works) — product overview plus **page-by-page guides for every screen**: table of contents by category, step-by-step walkthrough and feature list per route (Dashboard, Workspace, Deals, Prospect, Lease radar, Outreach, All tasks, Book map, audit/errors, add flows, detail pages, owner portfolio, settings/team, admin, join, access-revoked). Also covers the three loops, day-1 path, redirect notes (/abstracts, /contacts, etc.), and honest limits. Linked from Settings and onboarding (Welcome / Done). Not in the main nav. When opened from onboarding, shows a Back to setup link. **Every page also has a floating ? button (bottom-right)** that opens the same guide for the current screen without leaving the page.
 
 ### Exporting data (this is a real, fully-built feature — always point here; never invent a support/API/integrations path for this)
@@ -346,6 +349,10 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact)
 - **Log an activity**: Open any contact or property page → Timeline section → Log activity
 - **Customize the dashboard**: Dashboard → Customize (top right) → check/uncheck sections → Save (or Reset to default to restore everything)
+- **Schedule a tour**: /tours → date/time, optional property/contact, Save tour
+- **Download a draft LOI**: open a deal → **Download LOI** (Word file from deal + property fields; not legal advice)
+- **Industrial specs / rent notebook**: open a property → Industrial / flex specs and Rent notebook (seed South Florida bands, not live CoStar)
+- **Buyer / 1031 criteria**: open a contact → Buyer / 1031 criteria
 - **Delete all your data (keep login)**: Settings → Danger Zone → type DELETE to confirm
 - **Delete your account (data + login)**: Settings → Account → Delete account → type DELETE to confirm
 
@@ -357,9 +364,12 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 ### What Beacon does NOT have — do not reference these under any name
 - No support team, help desk, live chat, or "contact support" channel of any kind
 - No feedback form or feedback page
-- No Settings → Integrations page, and no public/external API beyond the export routes listed above
+- No live Gmail/Outlook send, calendar sync, or DocuSign from Beacon yet — Settings → Connections shows status and required env vars; OAuth callbacks return 501 until keys are added and token exchange is wired
+- No public/external API beyond the export routes listed above
 - No email sending from Beacon itself — Outreach only drafts and opens your own mail client; you send it
 - No CSV export
+- No live CoStar rent comps (rent notebook uses static tri-county seed bands plus broker-entered comps)
+- No Mapbox — pin map uses OSM/Leaflet
 
 ## Fabrication — hard rule, not a preference
 You may ONLY reference features, pages, menu paths, settings, buttons, and processes that are explicitly listed in the "Beacon platform knowledge" section above. This applies even when a plausible-sounding answer would be more satisfying.

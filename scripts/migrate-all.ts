@@ -283,6 +283,18 @@ const SCRIPTS: { file: string; description: string }[] = [
     description:
       "User settings — nullable pilot_agreement_accepted_at; signup checkbox + /pilot-agreement gate for existing users",
   },
+  {
+    file: "migrate-industrial-cre.ts",
+    description: "Industrial listing fields on properties, 1031/buyer criteria on contacts, rent_comps table",
+  },
+  {
+    file: "migrate-jobs-tours-cache.ts",
+    description: "background_jobs, dashboard_kpi_cache, tours",
+  },
+  {
+    file: "migrate-oauth-connections.ts",
+    description: "oauth_connections flags for Gmail/Outlook/calendar/DocuSign (no tokens until env configured)",
+  },
 ];
 
 const hr = "─".repeat(60);

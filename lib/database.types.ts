@@ -122,6 +122,45 @@ export type Database = {
       }
       Relationships: []
     }
+    background_jobs: {
+      Row: {
+      id: string
+      owner_id: string
+      job_type: string
+      payload: Json
+      status: string
+      attempts: number
+      last_error: string | null
+      run_after: string
+      created_at: string
+      finished_at: string | null
+      }
+      Insert: {
+      id?: string | null
+      owner_id: string | null
+      job_type: string | null
+      payload: Json | null
+      status: string | null
+      attempts: number | null
+      last_error?: string | null
+      run_after: string | null
+      created_at?: string | null
+      finished_at?: string | null
+      }
+      Update: {
+      id?: string | null
+      owner_id?: string | null
+      job_type?: string | null
+      payload?: Json | null
+      status?: string | null
+      attempts?: number | null
+      last_error?: string | null
+      run_after?: string | null
+      created_at?: string | null
+      finished_at?: string | null
+      }
+      Relationships: []
+    }
     contact_properties: {
       Row: {
       id: string
@@ -182,6 +221,12 @@ export type Database = {
       lead_source: string | null
       notes: string | null
       visibility: string
+      cap_rate_target: number | null
+      preferred_markets: string
+      preferred_min_sf: number | null
+      preferred_max_sf: number | null
+      exchange_1031_deadline: string | null
+      buyer_criteria_notes: string | null
       }
       Insert: {
       id?: string | null
@@ -218,6 +263,12 @@ export type Database = {
       lead_source?: string | null
       notes?: string | null
       visibility: string | null
+      cap_rate_target?: number | null
+      preferred_markets: string | null
+      preferred_min_sf?: number | null
+      preferred_max_sf?: number | null
+      exchange_1031_deadline?: string | null
+      buyer_criteria_notes?: string | null
       }
       Update: {
       id?: string | null
@@ -254,6 +305,30 @@ export type Database = {
       lead_source?: string | null
       notes?: string | null
       visibility?: string | null
+      cap_rate_target?: number | null
+      preferred_markets?: string | null
+      preferred_min_sf?: number | null
+      preferred_max_sf?: number | null
+      exchange_1031_deadline?: string | null
+      buyer_criteria_notes?: string | null
+      }
+      Relationships: []
+    }
+    dashboard_kpi_cache: {
+      Row: {
+      owner_id: string
+      payload: Json
+      computed_at: string
+      }
+      Insert: {
+      owner_id: string | null
+      payload: Json | null
+      computed_at?: string | null
+      }
+      Update: {
+      owner_id?: string | null
+      payload?: Json | null
+      computed_at?: string | null
       }
       Relationships: []
     }
@@ -770,6 +845,39 @@ export type Database = {
       }
       Relationships: []
     }
+    oauth_connections: {
+      Row: {
+      id: string
+      owner_id: string
+      provider: string
+      status: string
+      connected_at: string | null
+      last_error: string | null
+      created_at: string
+      updated_at: string
+      }
+      Insert: {
+      id?: string | null
+      owner_id: string | null
+      provider: string | null
+      status: string | null
+      connected_at?: string | null
+      last_error?: string | null
+      created_at?: string | null
+      updated_at?: string | null
+      }
+      Update: {
+      id?: string | null
+      owner_id?: string | null
+      provider?: string | null
+      status?: string | null
+      connected_at?: string | null
+      last_error?: string | null
+      created_at?: string | null
+      updated_at?: string | null
+      }
+      Relationships: []
+    }
     properties: {
       Row: {
       id: string
@@ -818,6 +926,21 @@ export type Database = {
       zoning_checked_at: string | null
       zoning_data: Json | null
       zoning_geocoded: boolean | null
+      clear_height_ft: number | null
+      dock_doors: number | null
+      drive_in_doors: number | null
+      power_amps: number | null
+      power_phase: string | null
+      yard_acres: number | null
+      column_spacing: string | null
+      sprinkler_type: string | null
+      availability_status: string | null
+      asking_rent_psf: number | null
+      nnn_cam_psf: number | null
+      lease_structure: string | null
+      latitude: number | null
+      longitude: number | null
+      geocoded_at: string | null
       }
       Insert: {
       id?: string | null
@@ -866,6 +989,21 @@ export type Database = {
       zoning_checked_at?: string | null
       zoning_data?: Json | null
       zoning_geocoded?: boolean | null
+      clear_height_ft?: number | null
+      dock_doors?: number | null
+      drive_in_doors?: number | null
+      power_amps?: number | null
+      power_phase?: string | null
+      yard_acres?: number | null
+      column_spacing?: string | null
+      sprinkler_type?: string | null
+      availability_status?: string | null
+      asking_rent_psf?: number | null
+      nnn_cam_psf?: number | null
+      lease_structure?: string | null
+      latitude?: number | null
+      longitude?: number | null
+      geocoded_at?: string | null
       }
       Update: {
       id?: string | null
@@ -914,6 +1052,21 @@ export type Database = {
       zoning_checked_at?: string | null
       zoning_data?: Json | null
       zoning_geocoded?: boolean | null
+      clear_height_ft?: number | null
+      dock_doors?: number | null
+      drive_in_doors?: number | null
+      power_amps?: number | null
+      power_phase?: string | null
+      yard_acres?: number | null
+      column_spacing?: string | null
+      sprinkler_type?: string | null
+      availability_status?: string | null
+      asking_rent_psf?: number | null
+      nnn_cam_psf?: number | null
+      lease_structure?: string | null
+      latitude?: number | null
+      longitude?: number | null
+      geocoded_at?: string | null
       }
       Relationships: []
     }
@@ -940,6 +1093,54 @@ export type Database = {
       entity_id?: string | null
       shared_with_user_id?: string | null
       shared_by_user_id?: string | null
+      created_at?: string | null
+      }
+      Relationships: []
+    }
+    rent_comps: {
+      Row: {
+      id: string
+      owner_id: string
+      property_id: string | null
+      address: string | null
+      submarket: string | null
+      property_type: string | null
+      size_sqft: number | null
+      rent_psf: number | null
+      lease_structure: string | null
+      comp_date: string | null
+      notes: string | null
+      source: string
+      created_at: string
+      }
+      Insert: {
+      id?: string | null
+      owner_id: string | null
+      property_id?: string | null
+      address?: string | null
+      submarket?: string | null
+      property_type?: string | null
+      size_sqft?: number | null
+      rent_psf?: number | null
+      lease_structure?: string | null
+      comp_date?: string | null
+      notes?: string | null
+      source: string | null
+      created_at?: string | null
+      }
+      Update: {
+      id?: string | null
+      owner_id?: string | null
+      property_id?: string | null
+      address?: string | null
+      submarket?: string | null
+      property_type?: string | null
+      size_sqft?: number | null
+      rent_psf?: number | null
+      lease_structure?: string | null
+      comp_date?: string | null
+      notes?: string | null
+      source?: string | null
       created_at?: string | null
       }
       Relationships: []
@@ -974,6 +1175,51 @@ export type Database = {
       created_at?: string | null
       updated_at?: string | null
       entity_type?: string | null
+      }
+      Relationships: []
+    }
+    tours: {
+      Row: {
+      id: string
+      owner_id: string
+      scheduled_at: string
+      property_id: string | null
+      contact_id: string | null
+      deal_id: string | null
+      attendees: string | null
+      status: string
+      notes: string | null
+      post_tour_notes: string | null
+      created_at: string
+      updated_at: string
+      }
+      Insert: {
+      id?: string | null
+      owner_id: string | null
+      scheduled_at?: string | null
+      property_id?: string | null
+      contact_id?: string | null
+      deal_id?: string | null
+      attendees?: string | null
+      status: string | null
+      notes?: string | null
+      post_tour_notes?: string | null
+      created_at?: string | null
+      updated_at?: string | null
+      }
+      Update: {
+      id?: string | null
+      owner_id?: string | null
+      scheduled_at?: string | null
+      property_id?: string | null
+      contact_id?: string | null
+      deal_id?: string | null
+      attendees?: string | null
+      status?: string | null
+      notes?: string | null
+      post_tour_notes?: string | null
+      created_at?: string | null
+      updated_at?: string | null
       }
       Relationships: []
     }

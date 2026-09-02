@@ -19,7 +19,7 @@ export type GeocodePoint = { lat: number; lon: number };
 export async function geocodeAddress(
   address: string,
   city?: string | null,
-  state = "MA"
+  state = "MA",
 ): Promise<GeocodePoint | null> {
   const oneLine = city ? `${address}, ${city}, ${state}` : `${address}, ${state}`;
 
@@ -38,4 +38,32 @@ export async function geocodeAddress(
   if (!match) return null;
 
   return { lat: match.coordinates.y, lon: match.coordinates.x };
+}
+
+/** Nominatim (OSM) — used to store property lat/lng for the book pin map. No API key. */
+export type NominatimResult = { lat: number; lng: number } | { error: string };
+
+export async function geocodeNominatim(
+  address: string,
+  city?: string | null,
+): Promise<NominatimResult> {
+  const q = [address, city, "Florida", "USA"].filter(Boolean).join(", ");
+  if (!address.trim()) return { error: "No address" };
+
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", q);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "1");
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { "User-Agent": "BeaconCRM/1.0 (pilot; contact via app settings)" },
+    });
+    if (!res.ok) return { error: `Geocoder HTTP ${res.status}` };
+    const data = (await res.json()) as { lat: string; lon: string }[];
+    if (!data[0]) return { error: "No geocode match" };
+    return { lat: Number(data[0].lat), lng: Number(data[0].lon) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Geocode failed" };
+  }
 }

@@ -2,7 +2,7 @@ import { MapPinned } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth-require-user";
 import { groupBookByCorridor, type BookPropertyPin } from "@/lib/book-corridors";
-import { BookCorridorsView } from "./book-corridors-view";
+import { BookMapTabs } from "./book-map-tabs";
 
 export const metadata = { title: "Book map – Beacon" };
 
@@ -21,7 +21,7 @@ export default async function BookMapPage({
 
   const { data } = await supabase
     .from("properties")
-    .select("id, address, city, submarket, size_sqft, property_type")
+    .select("id, address, city, submarket, size_sqft, property_type, latitude, longitude")
     .eq("owner_id", user.id)
     .order("address", { ascending: true })
     .limit(2000);
@@ -51,18 +51,25 @@ export default async function BookMapPage({
           <h1 className="text-xl font-semibold tracking-tight">Book map</h1>
         </div>
         <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          Corridor view of your book by submarket / city. Pin geocoding is not stored —
-          open OpenStreetMap per address when you need a map. Filter by SF and type below.
+          Corridor view and a pin map of geocoded properties. Geocode uses OpenStreetMap Nominatim — no Mapbox key required.
         </p>
       </div>
 
-      <BookCorridorsView
+      <BookMapTabs
         corridors={corridors}
         totalProperties={pins.length}
         types={types}
         initialMin={sp.min ?? ""}
         initialMax={sp.max ?? ""}
         initialType={propertyType ?? ""}
+        pins={(data ?? [])
+          .filter((p) => p.latitude != null && p.longitude != null)
+          .map((p) => ({
+            id: p.id,
+            address: p.address,
+            lat: Number(p.latitude),
+            lng: Number(p.longitude),
+          }))}
       />
     </div>
   );

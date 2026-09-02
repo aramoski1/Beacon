@@ -18,6 +18,7 @@ import {
   Moon,
   Sun,
   Users,
+  Plug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,9 @@ import {
   getIngestionErrorCount,
   type UserSettings,
 } from "./actions";
+import { ConnectionsPanel } from "./connections-panel";
+import { getOauthStatus } from "./oauth-status";
+import type { OauthProvider } from "@/lib/oauth-providers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +46,7 @@ type Section =
   | "brokerage"
   | "data-sources"
   | "outreach"
+  | "connections"
   | "data"
   | "appearance"
   | "danger";
@@ -57,6 +62,7 @@ const SECTIONS: {
   { key: "brokerage",    label: "Brokerage",       icon: Building2 },
   { key: "data-sources", label: "Data & Sources",  icon: Database },
   { key: "outreach",     label: "Outreach",        icon: Zap },
+  { key: "connections",  label: "Connections",     icon: Plug },
   { key: "data",         label: "Data Management", icon: Download },
   { key: "appearance",   label: "Appearance",      icon: Palette },
   { key: "danger",       label: "Danger Zone",     icon: AlertTriangle },
@@ -854,11 +860,13 @@ export default function SettingsPage() {
   const [userEmail, setUserEmail] = useState("");
   const [errorCount, setErrorCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [oauthStatus, setOauthStatus] = useState<Record<OauthProvider, boolean> | null>(null);
 
   useEffect(() => {
     Promise.all([
       getUserSettings().then(setSettings),
       getIngestionErrorCount().then(setErrorCount),
+      getOauthStatus().then(setOauthStatus),
     ]).finally(() => setLoading(false));
 
     const supabase = createClient();
@@ -937,6 +945,15 @@ export default function SettingsPage() {
           )}
           {section === "outreach" && settings && (
             <OutreachSection settings={settings} onSaved={setSettings} />
+          )}
+          {section === "connections" && oauthStatus && (
+            <div>
+              <SectionHeading
+                title="Connections"
+                description="Gmail, Outlook, calendar, and DocuSign. Disabled until you add OAuth env vars — see the Phase 4 checklist."
+              />
+              <ConnectionsPanel configured={oauthStatus} />
+            </div>
           )}
           {section === "data" && <DataManagementSection />}
           {section === "appearance" && <AppearanceSection />}
