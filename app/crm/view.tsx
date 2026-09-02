@@ -27,7 +27,7 @@ import {
   fetchMatchingPropertyIdsFromClient,
 } from "@/lib/crm-search-filters";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
-import { isCustomGroup, isDefaultIndustrialName } from "@/lib/industrial-fields";
+import { isCustomGroup } from "@/lib/industrial-fields";
 import { ensureIndustrialSpecs } from "@/app/settings/fields/actions";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -73,10 +73,6 @@ type Property = {
   size_category: string | null;
   geographic_category: string | null;
   property_type: string | null;
-  clear_height_ft: number | null;
-  dock_doors: number | null;
-  asking_rent_psf: number | null;
-  availability_status: string | null;
   last_sale_date: string | null;
   last_sale_price: number | null;
   source: string | null;
@@ -247,10 +243,6 @@ const PROP_COL_DEFS: ColDef[] = [
   { id: "owner",    label: "Ownership Entity" },
   { id: "address",  label: "Property Address", alwaysOn: true },
   { id: "bsf",      label: "Building SF" },
-  { id: "clearht",  label: "Clear ht" },
-  { id: "docks",    label: "Docks" },
-  { id: "askrent",  label: "Asking rent" },
-  { id: "avail",    label: "Availability" },
   { id: "lsf",      label: "Land SF" },
   { id: "asset",    label: "Asset Description" },
   { id: "contact",  label: "Owner Contact" },
@@ -939,7 +931,6 @@ function PropertiesTable({
   rows,
   propContacts,
   customDefs,
-  industrialSlugs,
   colVis,
   onSave,
   onSaveContact,
@@ -958,7 +949,6 @@ function PropertiesTable({
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo[]>;
   customDefs: FieldDefinition[];
-  industrialSlugs: Set<string>;
   colVis: ReturnType<typeof useColVis>;
   onSave: (id: string, field: string, value: unknown) => void;
   onSaveContact: (contactId: string, field: string, value: unknown) => void;
@@ -1137,18 +1127,6 @@ function PropertiesTable({
             <th className={cn(thCls, col("owner"))} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
             <th className={thCls} style={colStyle("address")}>Property Address<RH col="address" onStart={startResize} /></th>
             <th className={cn(thR, col("bsf"))} style={colStyle("bsf")}>Building SF<RH col="bsf" onStart={startResize} /></th>
-            {industrialSlugs.has("clear_height") && (
-              <th className={cn(thR, col("clearht"))} style={colStyle("clearht")}>Clear ht<RH col="clearht" onStart={startResize} /></th>
-            )}
-            {industrialSlugs.has("dock_doors") && (
-              <th className={cn(thR, col("docks"))} style={colStyle("docks")}>Docks<RH col="docks" onStart={startResize} /></th>
-            )}
-            {industrialSlugs.has("asking_rent") && (
-              <th className={cn(thR, col("askrent"))} style={colStyle("askrent")}>Asking rent<RH col="askrent" onStart={startResize} /></th>
-            )}
-            {industrialSlugs.has("availability") && (
-              <th className={cn(thCls, col("avail"))} style={colStyle("avail")}>Availability<RH col="avail" onStart={startResize} /></th>
-            )}
             <th className={cn(thR, col("lsf"))} style={colStyle("lsf")}>Land SF<RH col="lsf" onStart={startResize} /></th>
             <th className={cn(thCls, col("asset"))} style={colStyle("asset")}>Asset Description<RH col="asset" onStart={startResize} /></th>
             <th className={cn(thCls, col("contact"))} style={colStyle("contact")}>Owner Contact<RH col="contact" onStart={startResize} /></th>
@@ -1293,58 +1271,6 @@ function PropertiesTable({
                     }}
                   />
                 </td>
-
-                {industrialSlugs.has("clear_height") && (
-                <td className={cn(tdR, "w-16", col("clearht"))}>
-                  <EditableText
-                    value={p.clear_height_ft != null ? String(p.clear_height_ft) : null}
-                    displayValue={p.clear_height_ft != null ? `${p.clear_height_ft}'` : null}
-                    placeholder="—"
-                    displayClassName="tabular-nums text-muted-foreground"
-                    onSave={(v) => {
-                      const n = v ? parseFloat(v.replace(/,/g, "")) : null;
-                      onSave(p.id, "clear_height_ft", n != null && !isNaN(n) ? n : null);
-                    }}
-                  />
-                </td>
-                )}
-                {industrialSlugs.has("dock_doors") && (
-                <td className={cn(tdR, "w-14", col("docks"))}>
-                  <EditableText
-                    value={p.dock_doors != null ? String(p.dock_doors) : null}
-                    placeholder="—"
-                    displayClassName="tabular-nums text-muted-foreground"
-                    onSave={(v) => {
-                      const n = v ? parseInt(v, 10) : null;
-                      onSave(p.id, "dock_doors", n != null && !isNaN(n) ? n : null);
-                    }}
-                  />
-                </td>
-                )}
-                {industrialSlugs.has("asking_rent") && (
-                <td className={cn(tdR, "w-20", col("askrent"))}>
-                  <EditableText
-                    value={p.asking_rent_psf != null ? String(p.asking_rent_psf) : null}
-                    displayValue={p.asking_rent_psf != null ? `$${p.asking_rent_psf}` : null}
-                    placeholder="—"
-                    displayClassName="tabular-nums text-muted-foreground"
-                    onSave={(v) => {
-                      const n = v ? parseFloat(v.replace(/[$,]/g, "")) : null;
-                      onSave(p.id, "asking_rent_psf", n != null && !isNaN(n) ? n : null);
-                    }}
-                  />
-                </td>
-                )}
-                {industrialSlugs.has("availability") && (
-                <td className={cn(tdCls, "w-24", col("avail"))}>
-                  <EditableText
-                    value={p.availability_status}
-                    placeholder="—"
-                    displayClassName="truncate block text-muted-foreground"
-                    onSave={(v) => onSave(p.id, "availability_status", v)}
-                  />
-                </td>
-                )}
 
                 {/* Land SF */}
                 <td className={cn(tdR, "w-20", col("lsf"))}>
@@ -3441,8 +3367,7 @@ export default function CRMView({
                 <PropertiesTable
                   rows={properties}
                   propContacts={propContacts}
-                  customDefs={customPropertyDefs.filter((d) => isCustomGroup(d) || !isDefaultIndustrialName(d.field_name))}
-                  industrialSlugs={new Set(customPropertyDefs.filter((d) => !isCustomGroup(d)).map((d) => fieldSlug(d.field_name)))}
+                  customDefs={customPropertyDefs.filter(isCustomGroup)}
                   colVis={propColVis}
                   onSave={saveProp}
                   onSaveContact={savePropContact}
