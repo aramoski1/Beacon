@@ -15,6 +15,7 @@ import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/login/actions";
 import { BeaconBrand } from "@/components/beacon-logo";
+import { PageHelpButton } from "@/components/page-help-button";
 import { LS_USER_EMAIL } from "@/lib/email-provider";
 
 // ─── Nav entries ──────────────────────────────────────────────────────────────
@@ -405,7 +406,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const hideSidebar = NO_SHELL.some((p) => pathname.startsWith(p));
-  if (hideSidebar) return <>{children}</>;
+  if (hideSidebar) {
+    return (
+      <>
+        {children}
+        <PageHelpButton />
+      </>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -446,6 +454,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-auto min-w-0 bg-background pt-14 lg:pt-0">
         {children}
       </main>
+      <PageHelpButton />
     </div>
   );
 }
