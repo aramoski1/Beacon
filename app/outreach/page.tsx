@@ -1,14 +1,11 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { getDueContacts } from "./actions";
 import OutreachView from "./view";
 
 export default async function OutreachPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const [initialContacts, { data: settingsRow }] = await Promise.all([
     getDueContacts(),

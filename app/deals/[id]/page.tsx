@@ -1,7 +1,8 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Briefcase, Building2, CalendarDays, DollarSign, FileText, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { isSoloFirmForUser } from "@/lib/firms";
 import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,8 +33,7 @@ export default async function DealPage({
   const { id } = await params;
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   // No .eq("owner_id", user.id) on the deal itself — RLS alone governs
   // visibility so a teammate can open a firm-shared deal (Beacon_Team_

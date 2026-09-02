@@ -174,6 +174,8 @@ export type AdminAccount = {
   displayName: string | null;
   company: string | null;
   firmName: string | null;
+  accessRevokedAt: string | null;
+  lastActiveAt: string | null;
 };
 
 export async function getAllAccounts(): Promise<AdminAccount[] | { error: string }> {
@@ -191,5 +193,75 @@ export async function getAllAccounts(): Promise<AdminAccount[] | { error: string
     displayName: (row.display_name as string | null) ?? null,
     company: (row.company as string | null) ?? null,
     firmName: (row.firm_name as string | null) ?? null,
+    accessRevokedAt: (row.access_revoked_at as string | null) ?? null,
+    lastActiveAt: (row.last_active_at as string | null) ?? null,
+  }));
+}
+
+// ─── Revoke / restore access ────────────────────────────────────────────────────
+//
+// admin_set_account_revoked() is SECURITY DEFINER and re-checks is_admin()
+// internally (same shape as admin_list_accounts()), and also rejects a
+// self-target there — the checks here are the same clean-error convenience
+// layer as requireAdmin() everywhere else in this file, not the real
+// boundary. This is an app-level soft block (no Supabase Auth ban, no
+// service-role key) — see scripts/migrate-admin-account-management.ts and
+// lib/auth-require-user.ts for where it's actually enforced.
+
+export async function revokeAccountAccess(userId: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const gate = await requireAdmin(supabase);
+  if (!gate.ok) return { error: gate.error };
+  if (gate.userId === userId) return { error: "You cannot revoke your own access." };
+
+  const { error } = await supabase.rpc("admin_set_account_revoked", { target_user: userId, revoked: true });
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+export async function restoreAccountAccess(userId: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const gate = await requireAdmin(supabase);
+  if (!gate.ok) return { error: gate.error };
+
+  const { error } = await supabase.rpc("admin_set_account_revoked", { target_user: userId, revoked: false });
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+// ─── Per-account activity ───────────────────────────────────────────────────────
+
+export type ActivityEntry = {
+  id: string;
+  path: string;
+  method: string;
+  createdAt: string;
+};
+
+const ACTIVITY_PAGE_SIZE = 50;
+
+export async function getAccountActivity(
+  userId: string,
+  before?: string,
+): Promise<ActivityEntry[] | { error: string }> {
+  const supabase = await createClient();
+  const gate = await requireAdmin(supabase);
+  if (!gate.ok) return { error: gate.error };
+
+  let query = supabase
+    .from("activity_log")
+    .select("id, path, method, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(ACTIVITY_PAGE_SIZE);
+  if (before) query = query.lt("created_at", before);
+
+  const { data, error } = await query;
+  if (error) return { error: error.message };
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    path: row.path as string,
+    method: row.method as string,
+    createdAt: row.created_at as string,
   }));
 }

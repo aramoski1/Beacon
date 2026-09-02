@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
 import { MapPinned } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { groupBookByCorridor, type BookPropertyPin } from "@/lib/book-corridors";
 import { BookCorridorsView } from "./book-corridors-view";
 
@@ -12,8 +12,7 @@ export default async function BookMapPage({
   searchParams: Promise<{ min?: string; max?: string; type?: string }>;
 }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const sp = await searchParams;
   const minSqft = sp.min ? Number(sp.min) : null;

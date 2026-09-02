@@ -273,6 +273,11 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-invite-only.ts",
     description: "Invite-only signup — approved_emails/access_requests tables (admin-only RLS via is_admin()), is_email_approved()/record_access_request() SECURITY DEFINER helpers for the pre-auth signup check, admin_list_accounts() for the admin accounts view, user_settings.is_admin flag seeded for the admin account",
   },
+  {
+    file: "migrate-admin-account-management.ts",
+    description:
+      "Admin — access_revoked_at/revoked_by/last_active_at on user_settings (trigger-guarded so only is_admin() can change the revoke columns), admin_set_account_revoked() RPC, activity_log table (write-your-own-row RLS, admin-only SELECT), admin_list_accounts() extended with the new columns",
+  },
 ];
 
 const hr = "─".repeat(60);

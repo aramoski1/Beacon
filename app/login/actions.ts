@@ -47,12 +47,26 @@ export async function signIn(
   // Pilot: confirm first so an earlier failed confirmation email doesn't block login.
   await pilotConfirmUserEmail(email);
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
 
   if (error) return { error: authErrorMessage(error) };
+
+  // Revoked accounts (app/admin — admin_set_account_revoked()) are blocked
+  // right here, same chokepoint as the invite-only check in signUp() below.
+  if (data.user) {
+    const { data: settings } = await supabase
+      .from("user_settings")
+      .select("access_revoked_at")
+      .eq("owner_id", data.user.id)
+      .maybeSingle();
+    if (settings?.access_revoked_at) {
+      await supabase.auth.signOut();
+      return { error: "Your access to Beacon has been revoked. Contact your admin." };
+    }
+  }
 
   revalidatePath("/", "layout");
   redirect("/");

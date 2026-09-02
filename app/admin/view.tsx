@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Shield, Plus, Trash2, Check, X, Loader2 } from "lucide-react";
+import { Shield, Plus, Trash2, Check, X, Loader2, ShieldAlert } from "lucide-react";
 import {
   addApprovedEmail,
   removeApprovedEmail,
@@ -11,6 +11,7 @@ import {
   type AccessRequest,
   type AdminAccount,
 } from "./actions";
+import AccountDetail from "./account-detail";
 
 const inputCls = "w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background";
 
@@ -29,7 +30,9 @@ export default function AdminView({
 }) {
   const [approvedEmails, setApprovedEmails] = useState(initialApprovedEmails);
   const [accessRequests, setAccessRequests] = useState(initialAccessRequests);
-  const [accounts] = useState(initialAccounts);
+  const [accounts, setAccounts] = useState(initialAccounts);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const selectedAccount = accounts.find((a) => a.userId === selectedAccountId) ?? null;
   const [newEmail, setNewEmail] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -71,6 +74,10 @@ export default function AdminView({
     startTransition(async () => {
       await dismissAccessRequest(id);
     });
+  }
+
+  function handleStatusChange(userId: string, revokedAt: string | null) {
+    setAccounts((prev) => prev.map((a) => (a.userId === userId ? { ...a, accessRevokedAt: revokedAt } : a)));
   }
 
   return (
@@ -190,15 +197,30 @@ export default function AdminView({
                     <th className="text-left font-medium px-5 py-2">Email</th>
                     <th className="text-left font-medium px-3 py-2">Name</th>
                     <th className="text-left font-medium px-3 py-2">Firm</th>
+                    <th className="text-left font-medium px-3 py-2">Status</th>
                     <th className="text-right font-medium px-5 py-2">Signed up</th>
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.map((a) => (
-                    <tr key={a.userId} className="border-b last:border-0">
+                    <tr
+                      key={a.userId}
+                      onClick={() => setSelectedAccountId(a.userId)}
+                      className="border-b last:border-0 cursor-pointer hover:bg-muted/40 transition-colors"
+                    >
                       <td className="px-5 py-2 truncate max-w-[220px]">{a.email}</td>
                       <td className="px-3 py-2 text-muted-foreground">{a.displayName ?? a.company ?? "—"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{a.firmName ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        {a.accessRevokedAt ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive">
+                            <ShieldAlert className="size-3" />
+                            Revoked
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Active</span>
+                        )}
+                      </td>
                       <td className="px-5 py-2 text-right tabular-nums text-muted-foreground">{fmtDate(a.createdAt)}</td>
                     </tr>
                   ))}
@@ -208,6 +230,15 @@ export default function AdminView({
           </div>
         </div>
       </div>
+
+      {selectedAccount && (
+        <AccountDetail
+          key={selectedAccount.userId}
+          account={selectedAccount}
+          onClose={() => setSelectedAccountId(null)}
+          onStatusChange={handleStatusChange}
+        />
+      )}
     </div>
   );
 }

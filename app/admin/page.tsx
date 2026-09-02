@@ -1,14 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { getApprovedEmails, getPendingAccessRequests, getAllAccounts } from "./actions";
 import AdminView from "./view";
 
 export default async function AdminPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const { data: settings } = await supabase
     .from("user_settings")

@@ -1,14 +1,13 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { CalendarClock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { getLeaseRadarData, syncLeaseFollowUps } from "./actions";
 import { LeaseRadarView } from "./lease-radar-view";
 
 export default async function LeaseRadarPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  await requireUser(supabase);
 
   const [data] = await Promise.all([
     getLeaseRadarData(),

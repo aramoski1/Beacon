@@ -60,7 +60,7 @@ function navActive(href: string, pathname: string): boolean {
   return pathname === href;
 }
 
-const NO_SHELL = ["/login", "/auth/", "/onboarding"];
+const NO_SHELL = ["/login", "/auth/", "/onboarding", "/access-revoked"];
 
 // ─── Nav item ─────────────────────────────────────────────────────────────────
 
@@ -353,9 +353,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .lte("expiration_date", ninetyDays),
       supabase
         .from("user_settings")
-        .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days, is_admin")
+        .select("cadence_tier1_days, cadence_tier2_days, cadence_tier3_days, is_admin, access_revoked_at")
         .maybeSingle(),
     ]);
+
+    // Belt-and-suspenders for a tab that's already open when access gets
+    // revoked — the authoritative check is requireUser() on the next page
+    // navigation (lib/auth-require-user.ts).
+    if (settingsData?.access_revoked_at) {
+      await supabase.auth.signOut();
+      window.location.href = "/access-revoked";
+      return;
+    }
 
     setIsAdmin(settingsData?.is_admin ?? false);
 

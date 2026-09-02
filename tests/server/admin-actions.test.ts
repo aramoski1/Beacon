@@ -23,6 +23,9 @@ import {
   approveAccessRequest,
   dismissAccessRequest,
   getAllAccounts,
+  revokeAccountAccess,
+  restoreAccountAccess,
+  getAccountActivity,
 } from "@/app/admin/actions";
 
 // A mock query-builder that ignores which chain methods were called and
@@ -79,6 +82,9 @@ describe("admin actions — unauthenticated caller", () => {
     ["approveAccessRequest", () => approveAccessRequest("req-1", "a@example.com")],
     ["dismissAccessRequest", () => dismissAccessRequest("req-1")],
     ["getAllAccounts", () => getAllAccounts()],
+    ["revokeAccountAccess", () => revokeAccountAccess("user-2")],
+    ["restoreAccountAccess", () => restoreAccountAccess("user-2")],
+    ["getAccountActivity", () => getAccountActivity("user-2")],
   ];
 
   for (const [name, run] of cases) {
@@ -101,6 +107,9 @@ describe("admin actions — authenticated non-admin caller", () => {
     ["approveAccessRequest", () => approveAccessRequest("req-1", "a@example.com")],
     ["dismissAccessRequest", () => dismissAccessRequest("req-1")],
     ["getAllAccounts", () => getAllAccounts()],
+    ["revokeAccountAccess", () => revokeAccountAccess("user-2")],
+    ["restoreAccountAccess", () => restoreAccountAccess("user-2")],
+    ["getAccountActivity", () => getAccountActivity("user-2")],
   ];
 
   for (const [name, run] of cases) {
@@ -232,6 +241,9 @@ describe("admin actions — authenticated admin caller", () => {
           display_name: "Jane Broker",
           company: "Acme Realty",
           firm_name: "Acme Firm",
+          access_revoked_at: null,
+          revoked_by: null,
+          last_active_at: "2026-01-02T00:00:00Z",
         }],
         error: null,
       },
@@ -245,7 +257,58 @@ describe("admin actions — authenticated admin caller", () => {
       displayName: "Jane Broker",
       company: "Acme Realty",
       firmName: "Acme Firm",
+      accessRevokedAt: null,
+      lastActiveAt: "2026-01-02T00:00:00Z",
     }]);
     expect(supabase.rpc).toHaveBeenCalledWith("admin_list_accounts");
+  });
+
+  it("revokeAccountAccess rejects a self-target without calling the RPC", async () => {
+    const supabase = fakeSupabase({ authUser: { id: "admin-1" }, isAdmin: true });
+    (createClient as Mock).mockResolvedValue(supabase);
+    const result = await revokeAccountAccess("admin-1");
+    expect(result).toEqual({ error: "You cannot revoke your own access." });
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("revokeAccountAccess calls admin_set_account_revoked(revoked: true) for another account", async () => {
+    const supabase = fakeSupabase({
+      authUser: { id: "admin-1" },
+      isAdmin: true,
+      rpcResult: { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+    const result = await revokeAccountAccess("user-2");
+    expect(result).toEqual({ ok: true });
+    expect(supabase.rpc).toHaveBeenCalledWith("admin_set_account_revoked", { target_user: "user-2", revoked: true });
+  });
+
+  it("restoreAccountAccess calls admin_set_account_revoked(revoked: false)", async () => {
+    const supabase = fakeSupabase({
+      authUser: { id: "admin-1" },
+      isAdmin: true,
+      rpcResult: { data: null, error: null },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+    const result = await restoreAccountAccess("user-2");
+    expect(result).toEqual({ ok: true });
+    expect(supabase.rpc).toHaveBeenCalledWith("admin_set_account_revoked", { target_user: "user-2", revoked: false });
+  });
+
+  it("getAccountActivity returns the mapped activity rows for the target user", async () => {
+    const supabase = fakeSupabase({
+      authUser: { id: "admin-1" },
+      isAdmin: true,
+      tableResults: {
+        activity_log: {
+          data: [{ id: "a1", path: "/dashboard", method: "GET", created_at: "2026-01-03T00:00:00Z" }],
+          error: null,
+        },
+      },
+    });
+    (createClient as Mock).mockResolvedValue(supabase);
+    const result = await getAccountActivity("user-2");
+    expect(result).toEqual([{ id: "a1", path: "/dashboard", method: "GET", createdAt: "2026-01-03T00:00:00Z" }]);
+    expect(supabase.from).toHaveBeenCalledWith("activity_log");
   });
 });

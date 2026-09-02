@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
   Building2,
@@ -13,6 +13,7 @@ import {
   Info,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { isSoloFirmForUser } from "@/lib/firms";
 import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -156,10 +157,7 @@ export default async function PropertyPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const { data, error } = await supabase
     .from("properties")

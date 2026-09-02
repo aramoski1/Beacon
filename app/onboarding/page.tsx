@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { OnboardingWizard } from "./wizard";
 
 export const metadata = { title: "Welcome to Beacon" };
 
 export default async function OnboardingPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const { data: settings } = await supabase
     .from("user_settings")

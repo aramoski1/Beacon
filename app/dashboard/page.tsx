@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { getEnrichedActionItems } from "./enriched-action-items";
 import { getFollowUpsDashboard, getUpcomingFollowUps } from "@/app/follow-ups/actions";
 import {
@@ -87,8 +88,7 @@ function resolveGreetingName(opts: {
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const { data: obSettings } = await supabase
     .from("user_settings")

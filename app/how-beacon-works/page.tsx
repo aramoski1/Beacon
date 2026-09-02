@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 
 export const metadata = { title: "How Beacon works – Beacon" };
 
@@ -10,10 +10,7 @@ export default async function HowBeaconWorksPage({
   searchParams: Promise<{ from?: string }>;
 }) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  await requireUser(supabase);
 
   const { from } = await searchParams;
   const fromOnboarding = from === "onboarding";

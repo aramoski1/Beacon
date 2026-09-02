@@ -1,5 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { isSoloFirmForUser } from "@/lib/firms";
 import { type FieldDefinition } from "@/lib/custom-fields";
 import { LeaseReviewView } from "./review-view";
@@ -52,10 +53,7 @@ export default async function AbstractPage({
   const { id } = await params;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const user = await requireUser(supabase);
 
   const { data, error } = await supabase
     .from("lease_abstracts")

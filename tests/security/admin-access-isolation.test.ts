@@ -173,4 +173,104 @@ d("Invite-only + admin access isolation (real RLS-enforced Supabase clients)", (
       expect(rows).toHaveLength(1);
     });
   });
+
+  describe("admin_set_account_revoked() — revoke/restore boundary", () => {
+    afterAll(async () => {
+      // Leave the regular test user usable by later describe blocks.
+      await pg.query(`UPDATE user_settings SET access_revoked_at = NULL, revoked_by = NULL WHERE owner_id = $1`, [regular.id]);
+    });
+
+    it("a non-admin cannot call admin_set_account_revoked at all", async () => {
+      const { error } = await regular.client.rpc("admin_set_account_revoked", { target_user: admin.id, revoked: true });
+      expect(error).not.toBeNull();
+
+      const { rows } = await pg.query(`SELECT access_revoked_at FROM user_settings WHERE owner_id = $1`, [admin.id]);
+      expect(rows[0]?.access_revoked_at).toBeNull();
+    });
+
+    it("a direct table UPDATE of access_revoked_at by a non-admin is neutralized by the trigger", async () => {
+      // regular has no user_settings row yet — self-upsert one first (RLS
+      // allows this, it's their own row) so the guarded UPDATE below has an
+      // actual row to touch and genuinely exercises the trigger.
+      await regular.client.from("user_settings").upsert({ owner_id: regular.id }, { onConflict: "owner_id" });
+
+      const { error } = await regular.client
+        .from("user_settings")
+        .update({ access_revoked_at: new Date().toISOString() })
+        .eq("owner_id", regular.id);
+      // RLS lets the owner update their own row, but the trigger resets the
+      // guarded columns back — so this either errors or silently no-ops the field.
+      const { rows } = await pg.query(`SELECT access_revoked_at FROM user_settings WHERE owner_id = $1`, [regular.id]);
+      expect(rows).toHaveLength(1);
+      if (!error) expect(rows[0]?.access_revoked_at).toBeNull();
+    });
+
+    it("an admin cannot revoke themself", async () => {
+      const { error } = await admin.client.rpc("admin_set_account_revoked", { target_user: admin.id, revoked: true });
+      expect(error).not.toBeNull();
+    });
+
+    it("an admin can revoke and then restore another account, reflected in admin_list_accounts()", async () => {
+      const { error: revokeError } = await admin.client.rpc("admin_set_account_revoked", {
+        target_user: regular.id,
+        revoked: true,
+      });
+      expect(revokeError).toBeNull();
+
+      const { data: afterRevoke } = await admin.client.rpc("admin_list_accounts");
+      const revokedRow = (afterRevoke as { user_id: string; access_revoked_at: string | null }[]).find(
+        (r) => r.user_id === regular.id,
+      );
+      expect(revokedRow?.access_revoked_at).not.toBeNull();
+
+      const { error: restoreError } = await admin.client.rpc("admin_set_account_revoked", {
+        target_user: regular.id,
+        revoked: false,
+      });
+      expect(restoreError).toBeNull();
+
+      const { data: afterRestore } = await admin.client.rpc("admin_list_accounts");
+      const restoredRow = (afterRestore as { user_id: string; access_revoked_at: string | null }[]).find(
+        (r) => r.user_id === regular.id,
+      );
+      expect(restoredRow?.access_revoked_at).toBeNull();
+    });
+  });
+
+  describe("activity_log — write-your-own-row, admin-only read", () => {
+    it("a user can insert their own activity_log row", async () => {
+      const { error } = await regular.client
+        .from("activity_log")
+        .insert({ user_id: regular.id, path: "/dashboard", method: "GET" });
+      expect(error).toBeNull();
+    });
+
+    it("a user cannot insert an activity_log row for someone else", async () => {
+      const { error } = await regular.client
+        .from("activity_log")
+        .insert({ user_id: admin.id, path: "/dashboard", method: "GET" });
+      expect(error).not.toBeNull();
+    });
+
+    it("a non-admin cannot read activity_log at all, including their own rows", async () => {
+      const { data, error } = await regular.client.from("activity_log").select("id");
+      expect(error).toBeNull();
+      expect(data).toEqual([]);
+    });
+
+    it("an admin can read activity_log rows", async () => {
+      const { rows } = await pg.query(
+        `SELECT id FROM activity_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [regular.id],
+      );
+      expect(rows).toHaveLength(1);
+
+      const { data, error } = await admin.client
+        .from("activity_log")
+        .select("id, path")
+        .eq("user_id", regular.id);
+      expect(error).toBeNull();
+      expect((data ?? []).some((r) => r.id === rows[0].id)).toBe(true);
+    });
+  });
 });

@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
 import { Briefcase } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { getDeals, getDealsForecast } from "./actions";
 import { DealsView } from "./deals-view";
 
@@ -10,8 +10,7 @@ export default async function DealsPage({
   searchParams: Promise<{ new?: string }>;
 }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  await requireUser(supabase);
 
   const sp = await searchParams;
   const [deals, forecast] = await Promise.all([getDeals(), getDealsForecast()]);

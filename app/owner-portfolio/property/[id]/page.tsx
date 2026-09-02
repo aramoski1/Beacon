@@ -1,5 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth-require-user";
 import { getOwnerPortfolioForProperty } from "@/app/owner-portfolio/actions";
 import { OwnerPortfolioView } from "@/app/owner-portfolio/owner-portfolio-view";
 
@@ -15,8 +16,7 @@ export default async function OwnerPortfolioPropertyPage({
   const personIndex = person != null && person !== "" ? Number(person) : undefined;
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  await requireUser(supabase);
 
   const data = await getOwnerPortfolioForProperty(
     id,
