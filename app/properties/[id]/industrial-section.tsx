@@ -187,10 +187,10 @@ export function IndustrialSection({
           <button
             type="button"
             onClick={() => setCustomize(true)}
-            className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-            title="Customize specs"
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <Settings2 className="size-4" />
+            <Settings2 className="size-3.5" />
+            Customize
           </button>
         </div>
       </CardHeader>

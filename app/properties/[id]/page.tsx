@@ -190,7 +190,11 @@ export default async function PropertyPage({
 
   const linkedContactIds = await loadContactIdsForProperty(supabase, user.id, id);
 
-  await ensureIndustrialFieldDefs(supabase, user.id);
+  try {
+    await ensureIndustrialFieldDefs(supabase, user.id);
+  } catch {
+    // Seed is best-effort — still render the page if field_group isn't available yet.
+  }
 
   const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings, propertyDocuments, isSoloFirm] = await Promise.all([
     supabase
