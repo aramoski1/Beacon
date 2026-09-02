@@ -66,3 +66,5 @@ npm run typecheck
 npm test         # Vitest (exclude tests/security in CI — those need a live Supabase)
 npm run db:verify
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs lint, typecheck, and Vitest on pull requests and on pushes to `main`. Live GIS describes skip when `CI=true`. Security isolation tests are excluded from default CI.

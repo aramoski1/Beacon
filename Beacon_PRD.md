@@ -88,7 +88,9 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - `confidence_flags jsonb` — `[{field, reason}]` — AI uncertainty flags
 - `field_sources jsonb` — per-field provenance (county / sunbiz / document / url / pasted)
 - `prospect_number integer` — auto-incremented per owner by DB trigger
-- `custom_fields jsonb` — user-defined fields keyed by slug
+- `custom_fields jsonb` — user-defined and industrial-spec fields keyed by slug
+- `clear_height_ft`, `dock_doors`, `drive_in_doors`, `power_amps`, `power_phase`, `yard_acres`, `column_spacing`, `sprinkler_type`, `availability_status`, `asking_rent_psf`, `nnn_cam_psf`, `lease_structure` — first-class industrial columns dual-written from mapped industrial-spec slugs (`lib/industrial-fields.ts`)
+- `latitude`, `longitude` — stored pin-map geocodes (Nominatim)
 - `ownership_watch_enrolled_at`, `ownership_last_checked_at`, `ownership_change_detected_at`, `ownership_change_data jsonb` — set when a re-check finds a different owner
 - `entity_id` — FK to `entities` (durable legal-entity record), backfilled from owner name matching
 
@@ -101,6 +103,7 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - `outreach_history jsonb` — `[{sent_at, subject, body, method}]` — grows unboundedly in this column
 - `ownership_role`, `relationship_stage`, `lead_source`, `asset_focus text[]`
 - `contact_type` — `'owner'` | `'tenant'` | `'other'`
+- Buyer / 1031 criteria (cap rate, markets, exchange deadline) — see `migrate-industrial-cre.ts`
 - `custom_fields jsonb`
 
 **`contact_properties`** — many-to-many join (contact_id, property_id, owner_id). Canonical for "contacts on asset" / "assets for contact."
@@ -124,11 +127,15 @@ All tables share the same pattern: `owner_id uuid FK auth.users`, RLS enforced. 
 - **`activities`** — touch-point log. Types: `letter | email | call | note | meeting`. Linked to contact and/or property, and optionally a **`deal_id`** FK (`ON DELETE CASCADE`) so a deal's timeline can show its own touches.
 - **`follow_ups`** — tasks with due dates. `source_type`: `manual` or `lease_expiry`. Also carries a **`deal_id`** FK (`ON DELETE CASCADE`) — a deal's "next action due" syncs to a real follow-up row here rather than the old description-prefix soft link. Unique constraint prevents duplicate lease-expiry follow-ups.
 - **`documents`** — generic file attachments. `entity_type`: `property | lease | contact | deal`, `entity_id`, `file_name`, `storage_path`, `content_type`, `size_bytes`. Backed by the `documents` Storage bucket (32 MB cap, signed URLs, owner-scoped RLS). Rendered via the shared `DocumentsSection` component on property, contact, lease, and deal detail pages.
-- **`field_definitions`** — schema for custom fields. `entity_type: 'property' | 'contact' | 'lease' | 'deal'`, `fill_mode: 'extract' | 'manual'`. Extract fields are dynamically added to AI extraction schemas. Has both INSERT/DELETE and **UPDATE** RLS policies, so renaming a field in place (rather than delete-and-recreate) is supported end-to-end — `lib/custom-fields.ts:renameCustomFieldValues` migrates any already-stored values to the new slug. Firm-wide by default (see above) — a teammate sees and can rename the whole firm's custom fields, not just their own.
+- **`field_definitions`** — schema for custom fields. `entity_type: 'property' | 'contact' | 'lease' | 'deal'`, `fill_mode: 'extract' | 'manual'`, `field_group: 'custom' | 'industrial'`. Extract fields are dynamically added to AI extraction schemas. Industrial-group defs power the property **Industrial / flex specs** card (Customize); Workspace **Manage fields** is `custom` only. Has both INSERT/DELETE and **UPDATE** RLS policies, so renaming a field in place (rather than delete-and-recreate) is supported end-to-end — `lib/custom-fields.ts:renameCustomFieldValues` migrates any already-stored values to the new slug. Firm-wide by default (see above) — a teammate sees and can rename the whole firm's custom fields, not just their own.
+- **`rent_comps`** — broker-entered + seed South Florida rent bands for the property rent notebook (not live CoStar).
+- **`tours`** — scheduled property tours (attendees, prep notes, status).
+- **`background_jobs`** / **`dashboard_kpi_cache`** — job queue + cached dashboard KPIs (`/api/jobs/process`).
+- **`oauth_connections`** — per-user flags for Gmail/Outlook send, calendar, DocuSign. Callbacks return 501 until env keys exist; token exchange is not wired.
 - **`entities`** / **`entity_properties`** / **`entity_contacts`** — durable legal-entity records (e.g. an LLC) decoupled from any one property, with join tables linking them to properties and contacts. Owner-only — explicitly out of scope for team-sharing in v1.
 - **`ingestion_errors`** / **`error_logs`** — error logs for property ingestion and general server-action failures. Never block the caller. Owner-only.
 - **`smart_lists`** — saved NL search filters. Schema exists; no UI to manage them yet. Owner-only — a personal saved filter can still be *run* against either Workspace scope (§5.11), it just isn't itself shared.
-- **`user_settings`** — per-broker profile, outreach preferences, cadence intervals, CoStar toggle, onboarding state, email provider preference. Owner-only; a narrow RPC (`firm_teammate_names()`) exposes just `{user_id, display_name}` to teammates for the Workspace ownership indicator — nothing else from this table.
+- **`user_settings`** — per-broker profile, outreach preferences, cadence intervals, CoStar toggle, onboarding state, email provider preference, `pilot_agreement_accepted_at`, `industrial_specs_initialized` (seed-once for default industrial field defs). Owner-only; a narrow RPC (`firm_teammate_names()`) exposes just `{user_id, display_name}` to teammates for the Workspace ownership indicator — nothing else from this table.
 - **`firms`** — a brokerage/team. Every account gets a personal one automatically (at signup going forward, backfilled once for pre-existing accounts) — "solo broker" and "firm member" are the same code path, there's no separate no-firm state. `name`, `created_by` (nullable, `ON DELETE SET NULL` — the firm survives its creator's account being deleted, since other members may remain).
 - **`firm_members`** — membership + `role` (`owner | admin | member`) + `status` (`active | removed`, never hard-deleted). A partial unique index enforces at most one *active* firm per user (v1: no multi-firm membership).
 - **`firm_invitations`** — pending link-based invites (`token`, `email`, `role`, `expires_at`, `accepted_at`, `revoked_at`). No service-role key anywhere in this feature — invite redemption is a real RLS grant (`firm_members_join_via_invitation`) plus a `SECURITY INVOKER` RPC (`redeem_firm_invitation`), not a privileged bypass.
@@ -324,14 +331,17 @@ Leaving / removal
 ```
 /login                    Auth (no app shell)
 /onboarding               First-run gate
+/pilot-agreement          Accept private-pilot terms (signup + existing users)
 /how-beacon-works         Explainer page (linked from onboarding and Settings)
 /dashboard                Broker command center — KPIs, Do these today, Ask Beacon (Copilot)
 /crm                      Workspace — properties / contacts / leases tabs
 /deals                    Pursuit pipeline — kanban / list / forecast views; /deals?new=1 opens create dialog
-/deals/[id]               Deal detail — linked contact/property, custom fields, documents, timeline
-/book-map                 Corridor book map (submarket/city + OSM links)
+/deals/[id]               Deal detail — linked contact/property, custom fields, documents, timeline, Download LOI
+/book-map                 Corridor buckets + pin map (Leaflet/OSM; Nominatim geocode)
+/tours                    Schedule property tours (Advanced)
+/prospect                 Off-book industrial / flex owner finder (tax roll)
 /properties/new           Add property (address / URL / upload)
-/properties/[id]          Property detail + enrich + tax-roll + lease comps + document attachments + Owner portfolio CTA
+/properties/[id]          Property detail + enrich + industrial specs + rent notebook + tax-roll + lease comps + documents + Owner portfolio CTA
 /contacts/new             Add contact manually
 /contacts/[id]            Contact detail + briefing + document attachments + Owner portfolio CTA
 /abstracts/new             Upload + abstract a lease (property required)
@@ -342,8 +352,8 @@ Leaving / removal
 /owner-portfolio/...       Owner portfolio (by property or contact) + MD/Broward/Palm Beach tax-roll discovery
 /properties/audit          Advanced — data audit
 /properties/errors         Advanced — ingestion errors
-/settings                  User settings (cadence, profile, email provider) + Account (delete account)
-/settings/fields           Custom field definitions
+/settings                  User settings (cadence, profile, email provider, Connections stubs) + Account (delete account)
+/settings/fields           Custom field definitions (Workspace Manage fields — not industrial specs)
 /settings/team             Firm roster, role management, pending invitations, invite form
 /settings/errors           Advanced — server-action error log
 /join/[token]              Redeem a team invitation link (§5.11)
@@ -352,16 +362,17 @@ Leaving / removal
 /api/export/leases         XLSX download (GET, auth-checked)
 ```
 
-Primary nav labels: Dashboard, Workspace, Deals, Lease radar, Outreach, Settings.
+Primary nav labels: Dashboard, Workspace, Deals, Prospect, Lease radar, Outreach, Settings. Advanced: Book map, Tours, All tasks, audit, errors.
 ---
 
 ## 8. Custom Fields System
 
-Users can define custom fields for properties, contacts, leases, and **deals** at `/settings/fields`.
+Users can define custom fields for properties, contacts, leases, and **deals** from Workspace **Manage fields** (and `/settings/fields` for the custom group).
 
-- Fields are stored in `field_definitions` with `entity_type`, `field_name`, `field_type` (text/number/date/select), `select_options`, and `fill_mode` (extract/manual).
+- Fields are stored in `field_definitions` with `entity_type`, `field_name`, `field_type` (text/number/date/select), `select_options`, `fill_mode` (extract/manual), and `field_group` (`custom` | `industrial`).
 - Field values are stored as JSONB in `custom_fields` on each entity, keyed by slug (`lib/custom-fields.ts:fieldSlug`).
-- Fields with `fill_mode='extract'` are dynamically injected into the Anthropic tool schema during ingestion, so the AI can populate them from source documents. (Deal custom fields are always `manual` — there's no AI extraction path onto a deal.)
+- **Industrial / flex specs** are a separate `industrial` group on the property detail card (**Customize**). Defaults seed once per user (`user_settings.industrial_specs_initialized`); deleting them does not re-seed. Mapped default slugs also dual-write first-class property columns. Listing/document extract fills a spec only when the source states it — county tax roll does not invent docks or clear height.
+- Fields with `fill_mode='extract'` are dynamically injected into the Anthropic tool schema during ingestion, so the AI can populate them from source documents. (Deal custom fields are always `manual` — there's no AI extraction path onto a deal.) Industrial extract-mode defs are injected the same way as custom extract fields.
 - Renaming a field is a first-class action: it updates `field_definitions` in place (an UPDATE RLS policy exists) and migrates any already-stored values from the old slug to the new one (`renameCustomFieldValues`) rather than requiring delete-and-recreate.
 
 ---
@@ -372,7 +383,7 @@ Users can define custom fields for properties, contacts, leases, and **deals** a
 1. **CoStar toggle** (`user_settings.costar_enabled`): preference UX; CoStar remains **file upload only**, not a live API.
 2. **Scale**: app shell badge counts, owner portfolio, and some dashboard aggregations favor simplicity over large-book performance.
 3. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
-4. **Industrial space fields** — Prompt B deferred; use custom fields or notes until shipped.
+4. **Industrial specs vs tax roll** — listing/document extract fills stated specs; county enrich will not invent docks/clear height. Existing properties stay empty until re-extract unless `custom_fields` already has those slugs.
 5. **Smart lists** — save, load, and delete from Workspace (`app/crm/smart-lists-bar.tsx`).
 6. **Team multi-tenancy was built ahead of pilot validation**, by explicit product decision — not because a pilot broker asked for it. The RLS/data-layer is covered by an extensive real-database test suite (`tests/security/team-firm-isolation.test.ts`), but the UI itself (Workspace scope toggle, Settings → Team, the invite flow) has not had a manual browser QA pass. Treat every pilot account as single-broker unless specifically testing this.
 7. **Related sub-collections on a shared record's detail page are a known, documented gap** — e.g. opening a teammate's shared contact still only shows *your own* linked properties/deals, not theirs; a shared deal's follow-ups list is similarly scoped to the viewer. Not fixed as part of the initial build.
@@ -399,17 +410,16 @@ See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 
 ## 10. What Does Not Exist Yet
 
-- Email **sending** (only compose via mailto / web client)
+- Email **sending** (only compose via mailto / web client; Settings → Connections OAuth is stubbed / 501 until keys + token exchange)
 - Mobile app
-- Calendar sync
-- CoStar **live** API (file upload only)
+- Live calendar sync (tours exist in-app; Google/Outlook calendar connection is a stub)
+- CoStar **live** API (file upload + static rent-notebook seed bands only)
 - Multi-firm membership (a user belongs to at most one active firm — §5.11)
 - Per-teammate (rather than whole-firm) sharing granularity — "shared" always means "visible to everyone currently in my firm," there's no "share with just Alex"
 - Owner-role transfer / co-ownership UI for a firm (a firm's `owner` role can't be reassigned through the product yet)
-- Pin map of portfolio (corridor Book map exists)
 - Drop of legacy `linked_properties` column (join is preferred; dual-write remains)
 - County coverage beyond Miami-Dade / Broward / Palm Beach / Massachusetts
-- Industrial space fields (Prompt B — deferred)
+- Wiring generated `lib/database.types.ts` into `createClient()` (types exist; client is still loosely typed)
 
 ---
 

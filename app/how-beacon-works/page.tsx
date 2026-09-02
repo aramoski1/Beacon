@@ -146,7 +146,8 @@ export default async function HowBeaconWorksPage({
           </li>
           <li>
             <span className="text-foreground">Enrich + promote</span> — county folio, Sunbiz
-            contacts, Promote to CRM, set Tier 1 on priorities.
+            contacts, Promote to CRM, set Tier 1 on priorities. On industrial assets, open the
+            property and use **Industrial / flex specs** (Customize or re-extract a listing).
           </li>
           <li>
             <span className="text-foreground">Abstract leases</span> — upload PDFs linked to a
@@ -224,6 +225,11 @@ export default async function HowBeaconWorksPage({
             metro area (Massachusetts).
           </li>
           <li>Comps come from tax-roll sales, your lease abstracts, and the rent notebook — not live CoStar market data.</li>
+          <li>
+            Industrial / flex specs are on the property page (Customize to add/remove fields). County
+            tax roll will not invent docks or clear height — re-run a listing or document extract
+            when the flyer has them.
+          </li>
           <li>
             Entity/LLC lookup (Sunbiz) is Florida-only — Massachusetts has no equivalent wired up yet.
           </li>

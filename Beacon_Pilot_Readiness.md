@@ -35,14 +35,17 @@ Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists
 | **Cadence** | Tier days from `user_settings` |
 | **Deals** | Type-aware stages; `next_action_due` syncs a soft-deduped follow-up; tenant-rep soft fields; Call/Tour/Outreach on cards |
 | **Owner portfolio** | Hero CTA; **Tax roll portfolio** discovery for Miami-Dade, Broward, Palm Beach, Massachusetts |
-| **Book map** | Corridor view by submarket/city with SF/type filters; OSM deep links (no stored geocodes) |
+| **Book map** | Corridor view by submarket/city with SF/type filters; **pin map** (Leaflet + OSM) with stored Nominatim geocodes |
+| **Industrial specs** | Property detail **Industrial / flex specs** card — Customize to add/rename/delete fields; listing extract fills stated specs; county tax roll does not invent docks/clear height |
+| **Tours / LOI** | Advanced **Tours**; deal **Download LOI** (Word draft) |
+| **Connections** | Settings → Connections stubs (Gmail/Outlook/calendar/DocuSign) — 501 until OAuth env vars |
 | **Dashboard** | KPI strip + Today + Ask Beacon Copilot + customizable modules |
-| **Nav** | Dashboard, Workspace, Deals, Prospect, Lease radar, Outreach, Settings; Advanced: Book map, All tasks, audit, errors |
+| **Nav** | Dashboard, Workspace, Deals, Prospect, Lease radar, Outreach, Settings; Advanced: Book map, Tours, All tasks, audit, errors |
 | **Copilot** | Kept on dashboard; page-by-page help via floating **?** and `/how-beacon-works` |
 | **Onboarding** | Gate on Dashboard + Workspace; signup requires pilot agreement checkbox |
 | **Exports** | Properties / contacts / leases XLSX — lease export uses real columns (`base_rate`, linked property address, etc.) |
 
-**Not shipped (deliberately skipped):** Prompt B industrial space fields on property detail / Workspace — Workspace columns left unchanged.
+**Not shipped (deliberately skipped):** live email send, live calendar, live CoStar API, real OAuth token exchange. Industrial specs are on the **property card**, not as built-in Workspace grid columns — add a custom field if you want one on the grid.
 
 ---
 
@@ -53,8 +56,8 @@ Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists
 | **Email** | Drafts + `mailto:` / web compose. Broker sends. No SMTP / Gmail API send. |
 | **Tax roll** | Miami-Dade, Broward, Palm Beach, Massachusetts ingest + portfolio discovery. Not statewide FL. Broward owner match is single `OWN_NAME` field (shallower than MDPA). |
 | **Comps** | Tax-roll sales + **your** lease abstracts. **Not CoStar** market data. |
-| **Book map** | Corridor aggregation + OSM links — **not** a stored pin map / GIS product. |
-| **Industrial specs** | No dedicated clear-height / docks / availability model yet (Prompt B deferred). |
+| **Book map** | Pin map uses OSM/Leaflet + Nominatim — **not** Mapbox. Geocode missing pins stores lat/lng. |
+| **Industrial specs** | Customizable on the property page. County tax roll will **not** invent docks or clear height — re-run listing/document extract when the flyer has them. |
 | **CoStar** | File upload/parse only — no live API. |
 | **Teams** | Team support now exists in code (invite a teammate, share specific records) but is unvalidated with a real broker and was built ahead of pilot — treat every pilot account as single-broker unless you're specifically testing this. Nothing about it changes solo behavior; see `Beacon_Team_Multitenancy_Plan.md`. |
 | **Mobile** | Responsive web only. |
@@ -97,7 +100,7 @@ Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists
 4. **AI non-determinism** — verify abstracts/drafts against PDF / tax roll.
 5. **GIS coupling** — MDPA/BCPA field changes can break county magic.
 6. **No calendar sync** — tasks live in Beacon.
-7. **Industrial space model deferred** — leasing brokers still need docks/clear height manually / custom fields.
+7. **Industrial specs empty until extract** — tax-roll-only properties will not show docks/clear height until a listing or document extract (or manual Customize/entry).
 
 ---
 

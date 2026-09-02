@@ -55,7 +55,16 @@ Scripts run in this order:
 | ... | `scripts/migrate-firm-email-lookup-fix.ts` | Fixes `auth.users` permission errors via a narrow `my_email()` helper; adds `mark_invitation_accepted()` |
 | ... | `scripts/migrate-firm-invited-by-cascade.ts` | Fixes `invited_by` FKs to `ON DELETE SET NULL` — was blocking deletion of any user who'd ever invited a teammate |
 | ... | `scripts/migrate-firms-created-by-set-null.ts` | Fixes `firms.created_by` from `ON DELETE CASCADE` to `ON DELETE SET NULL` — CASCADE meant deleting a firm's owner deleted the whole firm |
-| latest | `scripts/migrate-record-shares.ts` | Per-teammate sharing Phase 1 (see `Beacon_Per_User_Sharing_Plan.md`): `record_shares` table + RLS, `is_record_shared_with_me()`/`owns_shared_record()`; adds a SELECT-only shared-with-me OR-clause to `properties`/`contacts`/`deals` (read-only, not co-editable) |
+| ... | `scripts/migrate-record-shares.ts` | Per-teammate sharing Phase 1 (see `Beacon_Per_User_Sharing_Plan.md`): `record_shares` table + RLS, `is_record_shared_with_me()`/`owns_shared_record()`; adds a SELECT-only shared-with-me OR-clause to `properties`/`contacts`/`deals` (read-only, not co-editable) |
+| ... | `scripts/migrate-zoning-fields.ts` / `migrate-zoning-data-json.ts` | Persist zoning lookup on properties |
+| ... | `scripts/migrate-dashboard-layout.ts` | Dashboard show/hide layout JSON on `user_settings` |
+| ... | `scripts/migrate-lead-buy-boxes.ts` | Saved Prospect lead-finder presets |
+| ... | `scripts/migrate-invite-only.ts` / `migrate-admin-account-management.ts` | Invite-only signup + admin revoke |
+| ... | `scripts/migrate-pilot-agreement.ts` | `user_settings.pilot_agreement_accepted_at` |
+| ... | `scripts/migrate-industrial-cre.ts` | Industrial listing columns on properties, buyer/1031 criteria on contacts, `rent_comps` |
+| ... | `scripts/migrate-jobs-tours-cache.ts` | `background_jobs`, `dashboard_kpi_cache`, `tours` |
+| ... | `scripts/migrate-oauth-connections.ts` | `oauth_connections` flags (Gmail/Outlook/calendar/DocuSign — no tokens until env configured) |
+| latest | `scripts/migrate-industrial-field-defs.ts` | `field_definitions.field_group` (`custom` \| `industrial`); `user_settings.industrial_specs_initialized` |
 
 ## Adding a new migration
 
