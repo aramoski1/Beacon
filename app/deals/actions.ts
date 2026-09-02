@@ -22,6 +22,7 @@ import {
 import { sumEstimatedCommission } from "@/lib/dashboard-kpis";
 import { formatDealFollowUpDescription } from "@/lib/deal-follow-up";
 import { deleteDocumentsForEntity } from "@/lib/documents";
+import { withAction } from "@/lib/logger";
 
 async function syncDealFollowUp(params: {
   ownerId: string;
@@ -212,59 +213,65 @@ export async function createDeal(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  if (input.contact_id) {
-    const { data: contact } = await supabase
-      .from("contacts")
-      .select("id")
-      .eq("id", input.contact_id)
-      .eq("owner_id", user.id)
-      .maybeSingle();
-    if (!contact) return { error: "That contact isn't in your book." };
-  }
-  if (input.property_id) {
-    const { data: property } = await supabase
-      .from("properties")
-      .select("id")
-      .eq("id", input.property_id)
-      .eq("owner_id", user.id)
-      .maybeSingle();
-    if (!property) return { error: "That property isn't in your book." };
-  }
+  return withAction(
+    "createDeal",
+    async () => {
+      if (input.contact_id) {
+        const { data: contact } = await supabase
+          .from("contacts")
+          .select("id")
+          .eq("id", input.contact_id)
+          .eq("owner_id", user.id)
+          .maybeSingle();
+        if (!contact) return { error: "That contact isn't in your book." };
+      }
+      if (input.property_id) {
+        const { data: property } = await supabase
+          .from("properties")
+          .select("id")
+          .eq("id", input.property_id)
+          .eq("owner_id", user.id)
+          .maybeSingle();
+        if (!property) return { error: "That property isn't in your book." };
+      }
 
-  const { data, error } = await supabase
-    .from("deals")
-    .insert({
-      owner_id: user.id,
-      name: input.name.trim(),
-      deal_type: input.deal_type ?? "tenant_rep",
-      stage: input.stage ?? "prospect",
-      contact_id: input.contact_id ?? null,
-      property_id: input.property_id ?? null,
-      estimated_commission: input.estimated_commission ?? null,
-      notes: input.notes?.trim() ?? null,
-      next_action: input.next_action?.trim() ?? null,
-      next_action_due: input.next_action_due ?? null,
-      expected_close_date: input.expected_close_date ?? null,
-      custom_fields: input.custom_fields ?? {},
-    })
-    .select("*, contacts(name, company), properties(address, city)")
-    .single();
+      const { data, error } = await supabase
+        .from("deals")
+        .insert({
+          owner_id: user.id,
+          name: input.name.trim(),
+          deal_type: input.deal_type ?? "tenant_rep",
+          stage: input.stage ?? "prospect",
+          contact_id: input.contact_id ?? null,
+          property_id: input.property_id ?? null,
+          estimated_commission: input.estimated_commission ?? null,
+          notes: input.notes?.trim() ?? null,
+          next_action: input.next_action?.trim() ?? null,
+          next_action_due: input.next_action_due ?? null,
+          expected_close_date: input.expected_close_date ?? null,
+          custom_fields: input.custom_fields ?? {},
+        })
+        .select("*, contacts(name, company), properties(address, city)")
+        .single();
 
-  if (error) return { error: error.message };
+      if (error) return { error: error.message };
 
-  await syncDealFollowUp({
-    ownerId: user.id,
-    dealId: data.id,
-    dealName: data.name,
-    contactId: data.contact_id,
-    propertyId: data.property_id,
-    nextAction: data.next_action,
-    nextActionDue: data.next_action_due,
-  });
+      await syncDealFollowUp({
+        ownerId: user.id,
+        dealId: data.id,
+        dealName: data.name,
+        contactId: data.contact_id,
+        propertyId: data.property_id,
+        nextAction: data.next_action,
+        nextActionDue: data.next_action_due,
+      });
 
-  revalidatePath("/deals");
-  revalidatePath("/dashboard");
-  return { deal: data as Deal };
+      revalidatePath("/deals");
+      revalidatePath("/dashboard");
+      return { deal: data as Deal };
+    },
+    { userId: user.id, context: { name: input.name } },
+  );
 }
 
 export async function updateDealStage(

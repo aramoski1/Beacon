@@ -71,10 +71,11 @@ export default async function HowBeaconWorksPage({
   searchParams: Promise<{ from?: string }>;
 }) {
   const supabase = await createClient();
-  await requireUser(supabase);
+  await requireUser(supabase, { skipPilotAgreement: true });
 
   const { from } = await searchParams;
   const fromOnboarding = from === "onboarding";
+  const fromPilot = from === "pilot";
 
   return (
     <div className="px-4 py-6 sm:px-6 sm:py-8 max-w-3xl mx-auto space-y-10">
@@ -85,6 +86,13 @@ export default async function HowBeaconWorksPage({
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             ← Back to setup
+          </Link>
+        ) : fromPilot ? (
+          <Link
+            href="/pilot-agreement"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            ← Pilot agreement
           </Link>
         ) : (
           <Link

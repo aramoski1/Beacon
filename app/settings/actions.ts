@@ -1,5 +1,6 @@
 "use server";
 
+import { withAction } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -67,21 +68,23 @@ export async function getUserSettings(): Promise<UserSettings> {
 export async function upsertUserSettings(
   partial: Partial<UserSettings>
 ): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated." };
+  return withAction("upsertUserSettings", async () => {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated." };
 
-  const { error } = await supabase
-    .from("user_settings")
-    .upsert(
-      { owner_id: user.id, ...partial, updated_at: new Date().toISOString() },
-      { onConflict: "owner_id" }
-    );
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert(
+        { owner_id: user.id, ...partial, updated_at: new Date().toISOString() },
+        { onConflict: "owner_id" }
+      );
 
-  if (error) return { error: error.message };
-  return {};
+    if (error) return { error: error.message };
+    return {};
+  });
 }
 
 export async function changePassword(

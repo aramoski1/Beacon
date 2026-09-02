@@ -140,6 +140,18 @@ export default function LoginPage() {
                 {signUpState.message}
               </p>
             )}
+            <label className="flex items-start gap-2.5 text-xs leading-relaxed cursor-pointer text-muted-foreground">
+              <input
+                type="checkbox"
+                name="pilot_agreement"
+                required
+                className="mt-0.5 size-4 shrink-0 accent-primary"
+              />
+              <span>
+                I agree to the Beacon pilot terms and will not share access or confidential
+                product details outside my firm.
+              </span>
+            </label>
             <SignUpSubmitButton />
           </form>
         )}

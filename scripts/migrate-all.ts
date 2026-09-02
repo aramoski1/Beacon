@@ -278,6 +278,11 @@ const SCRIPTS: { file: string; description: string }[] = [
     description:
       "Admin — access_revoked_at/revoked_by/last_active_at on user_settings (trigger-guarded so only is_admin() can change the revoke columns), admin_set_account_revoked() RPC, activity_log table (write-your-own-row RLS, admin-only SELECT), admin_list_accounts() extended with the new columns",
   },
+  {
+    file: "migrate-pilot-agreement.ts",
+    description:
+      "User settings — nullable pilot_agreement_accepted_at; signup checkbox + /pilot-agreement gate for existing users",
+  },
 ];
 
 const hr = "─".repeat(60);

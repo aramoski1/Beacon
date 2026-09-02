@@ -21,10 +21,11 @@ vi.mock("next/navigation", () => ({
 import { createClient } from "@/lib/supabase/server";
 import { signUp } from "@/app/login/actions";
 
-function formData(email: string, password = "password123"): FormData {
+function formData(email: string, password = "password123", agree = false): FormData {
   const fd = new FormData();
   fd.set("email", email);
   fd.set("password", password);
+  if (agree) fd.set("pilot_agreement", "on");
   return fd;
 }
 
@@ -40,9 +41,12 @@ function fakeSupabase(opts: {
     data: { session: { access_token: "x" }, user: { id: "user-1" } },
     error: null,
   });
-  const signInWithPasswordMock = vi.fn().mockResolvedValue({ error: null });
+  const signInWithPasswordMock = vi.fn().mockResolvedValue({ error: null, data: { user: { id: "user-1" } } });
+  const upsert = vi.fn().mockResolvedValue({ error: null });
+  const from = vi.fn(() => ({ upsert }));
   return {
     rpc,
+    from,
     auth: { signUp: signUpMock, signInWithPassword: signInWithPasswordMock },
   };
 }
@@ -85,7 +89,7 @@ describe("signUp — invite-only gate", () => {
     const supabase = fakeSupabase({ isEmailApprovedResult: { data: true, error: null } });
     (createClient as Mock).mockResolvedValue(supabase);
 
-    await expect(signUp(null, formData("broker@example.com"))).rejects.toThrow("NEXT_REDIRECT");
+    await expect(signUp(null, formData("broker@example.com", "password123", true))).rejects.toThrow("NEXT_REDIRECT");
 
     expect(supabase.auth.signUp).toHaveBeenCalledWith(
       expect.objectContaining({ email: "broker@example.com", password: "password123" }),
@@ -96,8 +100,18 @@ describe("signUp — invite-only gate", () => {
     const supabase = fakeSupabase({ isEmailApprovedResult: { data: true, error: null } });
     (createClient as Mock).mockResolvedValue(supabase);
 
-    await expect(signUp(null, formData("broker@example.com"))).rejects.toThrow("NEXT_REDIRECT");
+    await expect(signUp(null, formData("broker@example.com", "password123", true))).rejects.toThrow("NEXT_REDIRECT");
 
     expect(supabase.rpc).not.toHaveBeenCalledWith("record_access_request", expect.anything());
+  });
+
+  it("blocks an approved email that has not accepted the pilot agreement", async () => {
+    const supabase = fakeSupabase({ isEmailApprovedResult: { data: true, error: null } });
+    (createClient as Mock).mockResolvedValue(supabase);
+
+    const result = await signUp(null, formData("broker@example.com"));
+
+    expect(result).toEqual({ error: "Please accept the pilot agreement to create an account." });
+    expect(supabase.auth.signUp).not.toHaveBeenCalled();
   });
 });

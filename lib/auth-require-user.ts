@@ -13,7 +13,10 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
  * its trigger guard on user_settings (scripts/migrate-admin-account-management.ts);
  * this just makes sure a revoked user is actually kicked out of the app.
  */
-export async function requireUser(supabase: Supabase): Promise<User> {
+export async function requireUser(
+  supabase: Supabase,
+  opts?: { skipPilotAgreement?: boolean },
+): Promise<User> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -21,13 +24,17 @@ export async function requireUser(supabase: Supabase): Promise<User> {
 
   const { data: settings } = await supabase
     .from("user_settings")
-    .select("access_revoked_at")
+    .select("access_revoked_at, pilot_agreement_accepted_at")
     .eq("owner_id", user.id)
     .maybeSingle();
 
   if (settings?.access_revoked_at) {
     await supabase.auth.signOut();
     redirect("/access-revoked");
+  }
+
+  if (!opts?.skipPilotAgreement && !settings?.pilot_agreement_accepted_at) {
+    redirect("/pilot-agreement");
   }
 
   return user;

@@ -1,5 +1,5 @@
 # Beacon — Pilot Readiness
-**As of:** July 2026 (post elevate prompts A–I, skip B)  
+**As of:** September 2026  
 **Audience:** CRE brokers evaluating a pilot, and engineers shipping with them
 
 This document reflects **current code**, not aspirational roadmap. For architecture detail see `Beacon_PRD.md`.
@@ -10,7 +10,7 @@ This document reflects **current code**, not aspirational roadmap. For architect
 
 Beacon is built for a **single Miami-area CRE broker** (industrial / investment / leasing) whose edge is:
 
-1. **Ownership truth from county tax roll** — Miami-Dade (MDPA) and Broward (BCPA GIS) parcel lookup + **owner-name portfolio discovery in both counties**, Sunbiz humans behind LLC owners, **ownership watch** with batch re-check.
+1. **Ownership truth from county tax roll** — Miami-Dade, Broward, Palm Beach, and Massachusetts parcel lookup + owner-name portfolio discovery, Sunbiz humans behind Florida LLC owners, **ownership watch** with batch re-check.
 2. **Lease rollover clock** — abstracts linked to properties → Lease radar → Today desk; follow-ups that do not go dark when property linkage is missing.
 3. **Who to call** — tenant vs owner routing on radar/outreach; contact↔property join; Owner portfolio; call/tour logging that bumps cadence.
 
@@ -34,12 +34,12 @@ Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists
 | **Calls / tours** | One-click Log call (outcomes) + Log tour on contact; bumps `last_contacted_at` for call/email/meeting/letter |
 | **Cadence** | Tier days from `user_settings` |
 | **Deals** | Type-aware stages; `next_action_due` syncs a soft-deduped follow-up; tenant-rep soft fields; Call/Tour/Outreach on cards |
-| **Owner portfolio** | Hero CTA; **Tax roll portfolio** discovery for **Miami-Dade + Broward** |
+| **Owner portfolio** | Hero CTA; **Tax roll portfolio** discovery for Miami-Dade, Broward, Palm Beach, Massachusetts |
 | **Book map** | Corridor view by submarket/city with SF/type filters; OSM deep links (no stored geocodes) |
-| **Dashboard** | KPI strip + Today + Ask Beacon Copilot + Pipeline / Lease / Book / Ops |
-| **Nav** | Dashboard, Workspace, Deals, Lease radar, Outreach, Settings; Advanced: Book map, All tasks, audit, errors |
-| **Copilot** | Kept on dashboard |
-| **Onboarding** | Gate on Dashboard + Workspace |
+| **Dashboard** | KPI strip + Today + Ask Beacon Copilot + customizable modules |
+| **Nav** | Dashboard, Workspace, Deals, Prospect, Lease radar, Outreach, Settings; Advanced: Book map, All tasks, audit, errors |
+| **Copilot** | Kept on dashboard; page-by-page help via floating **?** and `/how-beacon-works` |
+| **Onboarding** | Gate on Dashboard + Workspace; signup requires pilot agreement checkbox |
 | **Exports** | Properties / contacts / leases XLSX — lease export uses real columns (`base_rate`, linked property address, etc.) |
 
 **Not shipped (deliberately skipped):** Prompt B industrial space fields on property detail / Workspace — Workspace columns left unchanged.
@@ -51,7 +51,7 @@ Everything else (cadence, deals, Copilot, lease comps, corridor book map) exists
 | Topic | Reality |
 |-------|---------|
 | **Email** | Drafts + `mailto:` / web compose. Broker sends. No SMTP / Gmail API send. |
-| **Tax roll** | Miami-Dade + Broward ingest + portfolio discovery. Not statewide. Broward owner match is single `OWN_NAME` field (shallower than MDPA). |
+| **Tax roll** | Miami-Dade, Broward, Palm Beach, Massachusetts ingest + portfolio discovery. Not statewide FL. Broward owner match is single `OWN_NAME` field (shallower than MDPA). |
 | **Comps** | Tax-roll sales + **your** lease abstracts. **Not CoStar** market data. |
 | **Book map** | Corridor aggregation + OSM links — **not** a stored pin map / GIS product. |
 | **Industrial specs** | No dedicated clear-height / docks / availability model yet (Prompt B deferred). |

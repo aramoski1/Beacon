@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { withAction } from "@/lib/logger";
 import { getUserSettings } from "@/app/settings/actions";
 import { cadenceMapFromSettings } from "@/lib/cadence";
 import {
@@ -683,34 +684,36 @@ export async function getDashboardLayout(): Promise<DashboardLayoutPrefs | null>
 export async function saveDashboardLayout(
   patch: Record<string, unknown>,
 ): Promise<{ ok: true } | { error: string }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated." };
+  return withAction("saveDashboardLayout", async () => {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated." };
 
-  const sanitized = sanitizeVisiblePatch(patch);
-  if (!sanitized.ok) return { error: sanitized.error };
+    const sanitized = sanitizeVisiblePatch(patch);
+    if (!sanitized.ok) return { error: sanitized.error };
 
-  const { data: existing } = await supabase
-    .from("user_settings")
-    .select("dashboard_layout")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+    const { data: existing } = await supabase
+      .from("user_settings")
+      .select("dashboard_layout")
+      .eq("owner_id", user.id)
+      .maybeSingle();
 
-  const existingVisible = (existing?.dashboard_layout as DashboardLayoutPrefs | null)?.visible ?? {};
-  const merged: DashboardLayoutPrefs = {
-    version: 1,
-    visible: { ...existingVisible, ...sanitized.visible },
-  };
+    const existingVisible = (existing?.dashboard_layout as DashboardLayoutPrefs | null)?.visible ?? {};
+    const merged: DashboardLayoutPrefs = {
+      version: 1,
+      visible: { ...existingVisible, ...sanitized.visible },
+    };
 
-  const { error } = await supabase
-    .from("user_settings")
-    .upsert(
-      { owner_id: user.id, dashboard_layout: merged, updated_at: new Date().toISOString() },
-      { onConflict: "owner_id" },
-    );
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert(
+        { owner_id: user.id, dashboard_layout: merged, updated_at: new Date().toISOString() },
+        { onConflict: "owner_id" },
+      );
 
-  if (error) return { error: error.message };
-  return { ok: true };
+    if (error) return { error: error.message };
+    return { ok: true };
+  });
 }
 
 /** Clears the column entirely — null resolves to all-visible via

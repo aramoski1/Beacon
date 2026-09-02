@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "types:gen": "tsx --env-file=.env.local scripts/generate-database-types.ts",
     "test": "vitest run",
     "migrate": "tsx --env-file=.env.local scripts/migrate-all.ts",
     "db:verify": "tsx --env-file=.env.local scripts/verify-schema.ts",

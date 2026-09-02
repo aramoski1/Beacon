@@ -31,6 +31,20 @@ function siteOrigin(): string {
   return "http://localhost:3000";
 }
 
+async function persistPilotAgreement(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+) {
+  await supabase.from("user_settings").upsert(
+    {
+      owner_id: userId,
+      pilot_agreement_accepted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "owner_id" },
+  );
+}
+
 async function enterApp() {
   revalidatePath("/", "layout");
   redirect("/onboarding");
@@ -98,6 +112,10 @@ export async function signUp(
     return { error: "Beacon is currently invite-only — contact us for access." };
   }
 
+  if (formData.get("pilot_agreement") !== "on") {
+    return { error: "Please accept the pilot agreement to create an account." };
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -112,11 +130,14 @@ export async function signUp(
     // Already registered — confirm + try sign-in so stuck users aren't blocked.
     if (msg.includes("already") || msg.includes("registered")) {
       await pilotConfirmUserEmail(email);
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signedIn, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (!signInError) await enterApp();
+      if (!signInError && signedIn.user) {
+        await persistPilotAgreement(supabase, signedIn.user.id);
+        await enterApp();
+      }
       return {
         message:
           "That email already has an account. Use Sign in with your password (confirmation email is not required).",
@@ -126,7 +147,11 @@ export async function signUp(
   }
 
   // Autoconfirm / Confirm-email-off → session on signup.
-  if (data.session) await enterApp();
+  if (data.session && data.user) {
+    await ensurePersonalFirm(supabase, data.user.id);
+    await persistPilotAgreement(supabase, data.user.id);
+    await enterApp();
+  }
 
   // Confirm via Postgres, then sign in — skips the inbox entirely for pilot.
   await pilotConfirmUserEmail(email);
@@ -136,7 +161,10 @@ export async function signUp(
     password,
   });
 
-  if (!signInError && data.user) await ensurePersonalFirm(supabase, data.user.id);
+  if (!signInError && data.user) {
+    await ensurePersonalFirm(supabase, data.user.id);
+    await persistPilotAgreement(supabase, data.user.id);
+  }
   if (!signInError) await enterApp();
 
   return {

@@ -373,7 +373,7 @@ Users can define custom fields for properties, contacts, leases, and **deals** a
 2. **Scale**: app shell badge counts, owner portfolio, and some dashboard aggregations favor simplicity over large-book performance.
 3. **Dual-write**: `linked_properties[]` still written; reads prefer `contact_properties`.
 4. **Industrial space fields** — Prompt B deferred; use custom fields or notes until shipped.
-5. **Smart lists** — table and filter schema exist; still no UI to create/manage a saved segment.
+5. **Smart lists** — save, load, and delete from Workspace (`app/crm/smart-lists-bar.tsx`).
 6. **Team multi-tenancy was built ahead of pilot validation**, by explicit product decision — not because a pilot broker asked for it. The RLS/data-layer is covered by an extensive real-database test suite (`tests/security/team-firm-isolation.test.ts`), but the UI itself (Workspace scope toggle, Settings → Team, the invite flow) has not had a manual browser QA pass. Treat every pilot account as single-broker unless specifically testing this.
 7. **Related sub-collections on a shared record's detail page are a known, documented gap** — e.g. opening a teammate's shared contact still only shows *your own* linked properties/deals, not theirs; a shared deal's follow-ups list is similarly scoped to the viewer. Not fixed as part of the initial build.
 
@@ -406,10 +406,10 @@ See `Beacon_Pilot_Readiness.md` for the full pilot risk list.
 - Multi-firm membership (a user belongs to at most one active firm — §5.11)
 - Per-teammate (rather than whole-firm) sharing granularity — "shared" always means "visible to everyone currently in my firm," there's no "share with just Alex"
 - Owner-role transfer / co-ownership UI for a firm (a firm's `owner` role can't be reassigned through the product yet)
-- Map view of portfolio
-- Smart list management UI (table may exist; no producer UI)
+- Pin map of portfolio (corridor Book map exists)
 - Drop of legacy `linked_properties` column (join is preferred; dual-write remains)
-- County coverage beyond Miami-Dade / Broward / Palm Beach
+- County coverage beyond Miami-Dade / Broward / Palm Beach / Massachusetts
+- Industrial space fields (Prompt B — deferred)
 
 ---
 

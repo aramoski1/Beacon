@@ -154,6 +154,15 @@ describe("withAction", () => {
     expect(captureException).not.toHaveBeenCalled();
   });
 
+  it("rethrows Next.js redirect errors instead of converting them to { error }", async () => {
+    const redirectErr = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/dashboard" });
+    await expect(
+      withAction("signIn", async () => {
+        throw redirectErr;
+      }),
+    ).rejects.toBe(redirectErr);
+  });
+
   it("catches an unexpected throw and returns a sanitized error", async () => {
     const result = await withAction("createDeal", async () => {
       throw new Error("ECONNRESET: connection lost");

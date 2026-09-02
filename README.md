@@ -29,14 +29,14 @@ Run all migrations against your Supabase database:
 npm run migrate
 ```
 
-This runs four scripts in order — each is idempotent, so re-running is always safe:
+This runs **all** idempotent TypeScript migrations in `scripts/migrate-all.ts` (65+ scripts). Re-running is always safe (`IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`).
 
-| Script | What it does |
-|---|---|
-| `migrate.ts` | Creates `properties`, `contacts`, `lease_abstracts` tables with RLS |
-| `migrate-contacts.ts` | Adds `size_category`, `geographic_category`, `ownership_type` to `contacts` |
-| `migrate-custom-fields.ts` | Creates `field_definitions` table; adds `custom_fields JSONB` to all three entity tables |
-| `setup-storage.ts` | Creates the `leases` storage bucket with RLS policies |
+Then verify:
+
+```bash
+npm run db:verify
+npm run types:gen   # regenerates lib/database.types.ts from the live schema
+```
 
 If any script fails the run stops immediately and prints the exit code. Fix the error and re-run — scripts that already succeeded will simply no-op.
 
@@ -62,4 +62,7 @@ Open [http://localhost:3000](http://localhost:3000).
 npm run build    # production build
 npm run start    # serve production build
 npm run lint     # ESLint
+npm run typecheck
+npm test         # Vitest (exclude tests/security in CI — those need a live Supabase)
+npm run db:verify
 ```

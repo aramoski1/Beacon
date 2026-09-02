@@ -31,12 +31,32 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Open the login page. Use **Sign in** if you already have an account, or **Sign up** to create one.",
       "Enter your email and password (minimum 6 characters on signup).",
       "If signup is blocked with an invite-only message, your email is not approved yet — contact the Beacon admin.",
-      "After sign-in you land on **Onboarding** (first time) or the **Dashboard** (returning users).",
+      "After sign-in you land on **Onboarding** (first time) or the **Dashboard** (returning users). Existing accounts that have not accepted the pilot terms are sent to **Pilot agreement** first.",
     ],
     features: [
       "Sign in and sign up tabs on one page",
+      "Invite-only signup — email must be on the approved list",
+      "Pilot agreement checkbox required on signup",
       "No confirmation email required — accounts activate immediately when approved",
       "Clear error messages for wrong password or non-approved email",
+    ],
+  },
+  {
+    id: "pilot-agreement",
+    route: "/pilot-agreement",
+    title: "Pilot agreement",
+    category: "Getting started",
+    purpose: "Accept Beacon’s private-pilot terms before using the CRM. Shown on signup and to existing users who have not accepted yet.",
+    walkthrough: [
+      "Read the short pilot terms (do not share access or confidential product details outside your firm).",
+      "Check the agreement box and click **Accept and continue**.",
+      "You can open **How Beacon works** from this screen without losing the gate.",
+      "Use **Sign out** if you are not ready to accept.",
+    ],
+    features: [
+      "Required once per account (stored as pilot_agreement_accepted_at)",
+      "Blocks Dashboard and other app pages until accepted",
+      "Link to How Beacon works",
     ],
   },
   {
@@ -696,6 +716,7 @@ export function getGuideForPathname(pathname: string): PageGuide | null {
   const g = (id: string) => GUIDE_BY_ID.get(id) ?? null;
 
   if (pathname === "/login") return g("login");
+  if (pathname === "/pilot-agreement") return g("pilot-agreement");
   if (pathname === "/onboarding") return g("onboarding");
   if (pathname === "/how-beacon-works") return g("overview");
   if (pathname === "/dashboard" || pathname === "/") return g("dashboard");

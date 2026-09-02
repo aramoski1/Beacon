@@ -80,7 +80,21 @@ export async function logWarn(entry: LogEntry): Promise<void> {
  *
  * Usage:
  *   return withAction("createDeal", () => { ... }, { userId, context: { name } });
+ * Redirects from Next.js `redirect()` are rethrown, not converted to `{ error }`.
  */
+export function isNextControlFlowError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: string }).digest;
+  if (
+    typeof digest === "string" &&
+    (digest.startsWith("NEXT_REDIRECT") || digest.startsWith("NEXT_NOT_FOUND"))
+  ) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : "";
+  return message === "NEXT_REDIRECT" || message === "NEXT_NOT_FOUND";
+}
+
 export async function withAction<T extends Record<string, unknown>>(
   actionName: string,
   fn: () => Promise<T>,
@@ -89,6 +103,7 @@ export async function withAction<T extends Record<string, unknown>>(
   try {
     return await fn();
   } catch (e) {
+    if (isNextControlFlowError(e)) throw e;
     const error = e instanceof Error ? e : new Error(String(e));
     // Fire-and-forget: logging must not prevent the sanitized response from
     // reaching the client, even if the logger itself has a transient failure.
