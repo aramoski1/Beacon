@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
-import { fetchFieldDefs } from "@/lib/custom-fields";
+import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { fetchListingText } from "@/lib/listing-fetch";
 
@@ -63,9 +63,7 @@ export async function ingestUrl(formData: FormData): Promise<UrlIngestResult> {
     return { error: "fetch_failed", detail: `Could not fetch the page: ${msg}` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    f => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   try {
     const fields = await extractPropertyFields(
       { type: "text", text: pageText, hint: `from listing URL: ${url.toString()}` },
@@ -108,9 +106,7 @@ export async function ingestPastedContent(
   if (!text || text.length < 50)
     return { error: "Please paste at least a few lines of listing content." };
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    f => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   try {
     const fields = await extractPropertyFields(
       {

@@ -16,7 +16,7 @@ import {
   type MARecord,
 } from "@/lib/magis";
 import { savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
-import { fetchFieldDefs } from "@/lib/custom-fields";
+import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { findDuplicate } from "@/lib/property-ingest";
 import { mdpaIndividualOwnerContact } from "@/lib/owner-contacts";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -94,9 +94,7 @@ export async function importMagisFolio(
     return { error: `No Massachusetts parcel record found for LOC_ID ${normalizedLocId}.` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    (f) => f.fill_mode === "extract",
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   const nullCustom = Object.fromEntries(customExtractFields.map((f) => [f.field_name, null]));
   const fields = magisToFields(rec, nullCustom);
 

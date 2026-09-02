@@ -179,27 +179,28 @@ describe("computeDocumentDiff — custom (broker-defined, extract-mode) fields",
 });
 
 describe("computeDocumentDiff — first-class industrial specs", () => {
-  it("fills empty dock doors from extract", () => {
+  it("fills empty dock doors from extract via the Dock doors spec", () => {
     const existing = baseExisting({ dock_doors: null });
     const extracted = baseExtracted({ dock_doors: 8 });
-    const diff = computeDocumentDiff(existing, extracted, []);
-    const entry = diff.changes.find((c) => c.field === "dock_doors");
+    const diff = computeDocumentDiff(existing, extracted, [customField({ field_name: "Dock doors" })]);
+    const entry = diff.changes.find((c) => c.field === "custom_fields.dock_doors");
     expect(entry?.rawAfter).toBe(8);
-    expect(diff.conflicts.some((c) => c.field === "dock_doors")).toBe(false);
+    expect(diff.conflicts.some((c) => c.field === "custom_fields.dock_doors")).toBe(false);
   });
 
-  it("lifts custom_fields.clear_height into clear_height_ft", () => {
+  it("lifts custom_fields.clear_height into the Clear height spec", () => {
     const existing = baseExisting();
     const extracted = baseExtracted({ custom_fields: { clear_height: "24 ft" } });
-    const diff = computeDocumentDiff(existing, extracted, []);
-    expect(diff.changes.find((c) => c.field === "clear_height_ft")?.rawAfter).toBe(24);
+    const diff = computeDocumentDiff(existing, extracted, [customField({ field_name: "Clear height" })]);
+    expect(diff.changes.find((c) => c.field === "custom_fields.clear_height")?.rawAfter).toBe("24 ft");
   });
 
   it("does not clear existing docks when extract omits them", () => {
     const existing = baseExisting({ dock_doors: 4 });
     const extracted = baseExtracted({});
-    const diff = computeDocumentDiff(existing, extracted, []);
+    const diff = computeDocumentDiff(existing, extracted, [customField({ field_name: "Dock doors" })]);
     const all = [...diff.changes, ...diff.conflicts, ...diff.unchanged].map((e) => e.field);
+    expect(all).not.toContain("custom_fields.dock_doors");
     expect(all).not.toContain("dock_doors");
   });
 });

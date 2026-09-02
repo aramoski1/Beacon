@@ -11,8 +11,9 @@ import {
   createFieldDefinition,
   renameFieldDefinition,
   deleteFieldDefinition,
+  ensureIndustrialSpecs,
 } from "@/app/settings/fields/actions";
-import type { FieldDefinition, EntityType, FieldType } from "@/lib/custom-fields";
+import type { FieldDefinition, EntityType, FieldType, FieldGroup } from "@/lib/custom-fields";
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text:   "Text",
@@ -39,9 +40,11 @@ const ENTITY_HINTS: Record<EntityType, string> = {
 
 function AddFieldForm({
   entityType,
+  fieldGroup,
   onCreated,
 }: {
   entityType: EntityType;
+  fieldGroup: FieldGroup;
   onCreated: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -54,6 +57,7 @@ function AddFieldForm({
     setError(null);
     const fd = new FormData(e.currentTarget);
     fd.set("entity_type", entityType);
+    fd.set("field_group", fieldGroup);
     startTransition(async () => {
       const result = await createFieldDefinition(fd);
       if ("error" in result) {
@@ -77,7 +81,7 @@ function AddFieldForm({
 
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border p-4 space-y-3 bg-muted/20 mt-2">
-      <p className="text-sm font-medium">New custom field</p>
+      <p className="text-sm font-medium">{fieldGroup === "industrial" ? "New spec" : "New custom field"}</p>
 
       <div className="space-y-1.5">
         <Label htmlFor="cfp-field_name">Field name</Label>
@@ -128,6 +132,7 @@ function AddFieldForm({
             name="fill_mode"
             required
             disabled={isPending}
+            defaultValue={fieldGroup === "industrial" ? "extract" : ""}
             className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background"
           >
             <option value="">— Choose —</option>
@@ -319,9 +324,11 @@ function FieldRow({ field, onDeleted, onRenamed }: { field: FieldDefinition; onD
 
 export function CustomFieldsPanel({
   entityType,
+  fieldGroup = "custom",
   onClose,
 }: {
   entityType: EntityType;
+  fieldGroup?: FieldGroup;
   onClose: () => void;
 }) {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
@@ -330,12 +337,13 @@ export function CustomFieldsPanel({
   const loadFields = useCallback(async () => {
     setLoading(true);
     try {
+      if (fieldGroup === "industrial") await ensureIndustrialSpecs();
       const all = await getFieldDefinitions();
-      setFields(all.filter((f) => f.entity_type === entityType));
+      setFields(all.filter((f) => f.entity_type === entityType && (f.field_group ?? "custom") === fieldGroup));
     } finally {
       setLoading(false);
     }
-  }, [entityType]);
+  }, [entityType, fieldGroup]);
 
   useEffect(() => { loadFields(); }, [loadFields]);
 
@@ -355,8 +363,16 @@ export function CustomFieldsPanel({
       <div className="relative z-10 h-full w-full max-w-sm bg-background border-l shadow-xl flex flex-col">
         <div className="flex items-center justify-between gap-4 px-5 py-4 border-b shrink-0">
           <div>
-            <h2 className="text-sm font-semibold">{ENTITY_LABELS[entityType]} — Custom fields</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">{ENTITY_HINTS[entityType]}</p>
+            <h2 className="text-sm font-semibold">
+              {fieldGroup === "industrial"
+                ? "Industrial / flex specs"
+                : `${ENTITY_LABELS[entityType]} — Custom fields`}
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {fieldGroup === "industrial"
+                ? "Defaults can be deleted. Add any spec you want — extract from a listing, or fill in by hand."
+                : ENTITY_HINTS[entityType]}
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -373,7 +389,9 @@ export function CustomFieldsPanel({
               Loading…
             </div>
           ) : fields.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">No custom fields yet.</p>
+            <p className="text-sm text-muted-foreground py-4">
+              {fieldGroup === "industrial" ? "No industrial specs. Add one below." : "No custom fields yet."}
+            </p>
           ) : (
             <div>
               {fields.map((f) => (
@@ -381,7 +399,7 @@ export function CustomFieldsPanel({
               ))}
             </div>
           )}
-          <AddFieldForm entityType={entityType} onCreated={loadFields} />
+          <AddFieldForm entityType={entityType} fieldGroup={fieldGroup} onCreated={loadFields} />
         </div>
       </div>
     </div>

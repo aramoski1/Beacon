@@ -557,6 +557,7 @@ export type Database = {
       field_type: string
       select_options: Json | null
       fill_mode: string | null
+      field_group: string
       created_at: string | null
       }
       Insert: {
@@ -567,6 +568,7 @@ export type Database = {
       field_type: string | null
       select_options?: Json | null
       fill_mode?: string | null
+      field_group?: string | null
       created_at?: string | null
       }
       Update: {
@@ -577,6 +579,7 @@ export type Database = {
       field_type?: string | null
       select_options?: Json | null
       fill_mode?: string | null
+      field_group?: string | null
       created_at?: string | null
       }
       Relationships: []
@@ -1252,6 +1255,7 @@ export type Database = {
       revoked_by: string | null
       last_active_at: string | null
       pilot_agreement_accepted_at: string | null
+      industrial_specs_initialized: boolean
       }
       Insert: {
       id?: string | null
@@ -1281,6 +1285,7 @@ export type Database = {
       revoked_by?: string | null
       last_active_at?: string | null
       pilot_agreement_accepted_at?: string | null
+      industrial_specs_initialized?: boolean
       }
       Update: {
       id?: string | null
@@ -1310,6 +1315,7 @@ export type Database = {
       revoked_by?: string | null
       last_active_at?: string | null
       pilot_agreement_accepted_at?: string | null
+      industrial_specs_initialized?: boolean
       }
       Relationships: []
     }

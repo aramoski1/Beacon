@@ -5,13 +5,8 @@
 
 import { fieldSlug, type FieldDefinition } from "./custom-fields";
 import type { ExtractedProperty } from "./property-pipeline";
-import {
-  INDUSTRIAL_FIELD_KEYS,
-  industrialFieldLabel,
-  industrialFromExtracted,
-  type IndustrialExtractSource,
-} from "./industrial-extract";
-import type { IndustrialFields } from "./industrial-fields";
+import { industrialFromExtracted, type IndustrialExtractSource } from "./industrial-extract";
+import { INDUSTRIAL_COLUMN_BY_SLUG, type IndustrialFields } from "./industrial-fields";
 
 // Authoritative fields: never silently overwritten by a document/URL/pasted
 // source when an existing value is already on record. Surfaced as individual
@@ -104,23 +99,17 @@ export function computeDocumentDiff(
   pushCore("asset_description", "Asset description", existing.asset_description, extractedAssetDescription, (v) => (v == null ? null : String(v)));
 
   const extractedIndustrial = industrialFromExtracted(extracted as IndustrialExtractSource);
-  for (const key of INDUSTRIAL_FIELD_KEYS) {
-    const beforeRaw = existing[key] ?? null;
-    const afterRaw = extractedIndustrial[key];
-    if (key === "column_spacing" || key === "power_phase" || key === "sprinkler_type" || key === "availability_status" || key === "lease_structure") {
-      pushCore(key, industrialFieldLabel(key), beforeRaw as string | null, afterRaw as string | null, (v) => (v == null ? null : String(v)));
-    } else {
-      pushCore(key, industrialFieldLabel(key), beforeRaw as number | null, afterRaw as number | null, (v) => fmtN(v as number | null));
-    }
-  }
 
-  // Custom (broker-defined, extract-mode) fields — never authoritative, always
-  // land in `changes` (fill or overwrite), never gated as a conflict.
+  // Custom + industrial specs (broker-defined). Industrial defaults are
+  // field_definitions with field_group=industrial; values may arrive as
+  // custom_fields.<slug> or a mapped first-class column.
   for (const def of customFieldDefs) {
     const slug = fieldSlug(def.field_name);
     const field = `custom_fields.${slug}`;
-    const beforeRaw = existing.custom_fields?.[slug] ?? null;
-    const afterRaw = extracted.custom_fields?.[slug] ?? null;
+    const col = INDUSTRIAL_COLUMN_BY_SLUG[slug];
+    const beforeRaw = existing.custom_fields?.[slug] ?? (col ? existing[col] ?? null : null) ?? null;
+    const afterRaw =
+      extracted.custom_fields?.[slug] ?? (col ? extractedIndustrial[col] : null) ?? null;
     if (afterRaw == null) continue; // nothing to write; reason surfaced separately by the caller
     const before = beforeRaw == null ? null : String(beforeRaw);
     const after = String(afterRaw);

@@ -32,9 +32,9 @@ import { extractPropertyFields, type ExtractedProperty, type PipelineContent } f
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
-import { fetchFieldDefs, fieldSlug } from "@/lib/custom-fields";
-import { INDUSTRIAL_SELECT } from "@/lib/industrial-fields";
-import { compactIndustrial, industrialFromExtracted, yardAcresFromLandSqft } from "@/lib/industrial-extract";
+import { fieldSlug } from "@/lib/custom-fields";
+import { INDUSTRIAL_SELECT, fetchIndustrialFieldDefs, industrialColumnForSlug, propertyExtractFieldDefs } from "@/lib/industrial-fields";
+import { persistIndustrialFromExtract, yardAcresFromLandSqft } from "@/lib/industrial-extract";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
 import type { ZoningResult } from "@/lib/zoning";
@@ -531,9 +531,7 @@ export async function previewCountyEnhancement(
     .single();
   if (!existing) return { error: "Property not found." };
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    (f) => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
 
   const county = countyFromStrap(strap);
 
@@ -1013,25 +1011,38 @@ export async function applyCountyEnhancement(
   }
 
   const landSqft = mdpaData.land_sqft ?? existing.land_sqft ?? null;
-  const industrialIncoming = compactIndustrial(
-    industrialFromExtracted({
-      custom_fields: customFieldsUpdate,
-      building_composition: { lot_size_sqft: landSqft },
-    }),
-  );
+  const industrialDefs = await fetchIndustrialFieldDefs(supabase);
+  const persist = persistIndustrialFromExtract(industrialDefs, {
+    custom_fields: customFieldsUpdate,
+  });
+  Object.assign(customFieldsUpdate, persist.custom);
   const industrialUpdate: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(industrialIncoming)) {
+  for (const [key, value] of Object.entries(persist.columns)) {
     const current = (existing as Record<string, unknown>)[key];
     if ((current == null || current === "") && value != null) {
       industrialUpdate[key] = value;
       fieldSourcesUpdate[key] = "county";
     }
   }
-  if (industrialUpdate.yard_acres == null && (existing.yard_acres == null || existing.yard_acres === "") && landSqft) {
+  const yardStillConfigured = industrialDefs.some(
+    (d) => industrialColumnForSlug(fieldSlug(d.field_name)) === "yard_acres",
+  );
+  if (
+    yardStillConfigured &&
+    industrialUpdate.yard_acres == null &&
+    (existing.yard_acres == null || existing.yard_acres === "") &&
+    landSqft
+  ) {
     const derived = yardAcresFromLandSqft(Number(landSqft));
     if (derived != null) {
       industrialUpdate.yard_acres = derived;
       fieldSourcesUpdate.yard_acres = "county";
+      const yardSlug = industrialDefs
+        .map((d) => fieldSlug(d.field_name))
+        .find((s) => industrialColumnForSlug(s) === "yard_acres");
+      if (yardSlug && (customFieldsUpdate[yardSlug] == null || customFieldsUpdate[yardSlug] === "")) {
+        customFieldsUpdate[yardSlug] = derived;
+      }
     }
   }
 
@@ -1098,6 +1109,44 @@ export async function applyCountyEnhancement(
   }
 
   return { ok: true, owner_contacts_saved, zoning };
+}
+
+export async function saveIndustrialSpec(
+  propertyId: string,
+  slug: string,
+  value: string | number | null,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  if (!slug) return { error: "Missing field." };
+
+  const { data: existing } = await supabase
+    .from("properties")
+    .select("custom_fields")
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!existing) return { error: "Property not found." };
+
+  const custom = {
+    ...((existing.custom_fields as Record<string, string | number | null> | null) ?? {}),
+    [slug]: value,
+  };
+  const patch: Record<string, unknown> = {
+    custom_fields: custom,
+    updated_at: new Date().toISOString(),
+  };
+  const column = industrialColumnForSlug(slug);
+  if (column) patch[column] = value;
+
+  const { error } = await supabase
+    .from("properties")
+    .update(patch)
+    .eq("id", propertyId)
+    .eq("owner_id", user.id);
+  if (error) return { error: error.message };
+  return {};
 }
 
 // ─── Document / pasted-text / URL enhancement ─────────────────────────────────
@@ -1219,9 +1268,7 @@ export async function previewDocumentEnhancement(
   if ("error" in built) return { error: built.error };
   const { content, sourceKind, sourceDetail } = built;
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    (f) => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
 
   let extracted: ExtractedProperty;
   try {
@@ -1270,9 +1317,7 @@ export async function applyDocumentEnhancement(
     .single();
   if (!existing) return { error: "Property not found." };
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    (f) => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
 
   const diff = computeDocumentDiff(
     existing as unknown as ExistingPropertyForDiff,
@@ -1305,6 +1350,15 @@ export async function applyDocumentEnhancement(
     }
     fieldSourcesUpdate[entry.field] = sourceKind;
   }
+
+  const industrialDefs = await fetchIndustrialFieldDefs(supabase);
+  const persist = persistIndustrialFromExtract(industrialDefs, {
+    ...extracted,
+    custom_fields: customFieldsUpdate,
+  });
+  Object.assign(customFieldsUpdate, persist.custom);
+  Object.assign(update, persist.columns);
+
   update.custom_fields = customFieldsUpdate;
   update.field_sources = fieldSourcesUpdate;
   update.confidence_flags = remainingFlags;

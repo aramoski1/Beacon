@@ -28,7 +28,8 @@ import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actio
 import { EnrichPanel } from "./enrich-panel";
 import { ZoningSection } from "./zoning-section";
 import { IndustrialSection } from "./industrial-section";
-import { mergeIndustrialDisplay } from "@/lib/industrial-extract";
+import { industrialSpecValue } from "@/lib/industrial-extract";
+import { ensureIndustrialFieldDefs, isCustomGroup } from "@/lib/industrial-fields";
 import { RentNotebook } from "./rent-notebook";
 import { listRentComps } from "./rent-notebook-actions";
 import { lookupRentBand } from "@/lib/submarket-rent-bands";
@@ -189,6 +190,8 @@ export default async function PropertyPage({
 
   const linkedContactIds = await loadContactIdsForProperty(supabase, user.id, id);
 
+  await ensureIndustrialFieldDefs(supabase, user.id);
+
   const [{ data: fdData }, { data: linkedContactsData }, propertyActivities, { data: linkedLeases }, { data: propFollowUps }, userSettings, propertyDocuments, isSoloFirm] = await Promise.all([
     supabase
       .from("field_definitions")
@@ -220,8 +223,27 @@ export default async function PropertyPage({
     listDocuments(supabase, user.id, "property", id),
     isSoloFirmForUser(supabase, user.id),
   ]);
-  const customDefs = (fdData ?? []) as FieldDefinition[];
+  const allPropertyDefs = (fdData ?? []) as FieldDefinition[];
+  const customDefs = allPropertyDefs.filter(isCustomGroup);
+  const industrialDefs = allPropertyDefs.filter((d) => !isCustomGroup(d));
   const customValues = p.custom_fields ?? {};
+  const industrialValues: Record<string, string | number | null> = {};
+  for (const def of industrialDefs) {
+    industrialValues[fieldSlug(def.field_name)] = industrialSpecValue(def, customValues, {
+      clear_height_ft: p.clear_height_ft ?? null,
+      dock_doors: p.dock_doors ?? null,
+      drive_in_doors: p.drive_in_doors ?? null,
+      power_amps: p.power_amps ?? null,
+      power_phase: p.power_phase ?? null,
+      yard_acres: p.yard_acres ?? null,
+      column_spacing: p.column_spacing ?? null,
+      sprinkler_type: p.sprinkler_type ?? null,
+      availability_status: p.availability_status ?? null,
+      asking_rent_psf: p.asking_rent_psf ?? null,
+      nnn_cam_psf: p.nnn_cam_psf ?? null,
+      lease_structure: p.lease_structure ?? null,
+    });
+  }
   const linkedContacts = (linkedContactsData ?? []) as LinkedContact[];
   const storedOwnerContacts = parseStoredOwnerContacts(p.owner_contacts);
   const displayOwnerContacts = resolvePropertyOwnerContacts(
@@ -499,24 +521,8 @@ export default async function PropertyPage({
 
       <IndustrialSection
         propertyId={id}
-        initial={mergeIndustrialDisplay(
-          {
-            clear_height_ft: p.clear_height_ft ?? null,
-            dock_doors: p.dock_doors ?? null,
-            drive_in_doors: p.drive_in_doors ?? null,
-            power_amps: p.power_amps ?? null,
-            power_phase: p.power_phase ?? null,
-            yard_acres: p.yard_acres ?? null,
-            column_spacing: p.column_spacing ?? null,
-            sprinkler_type: p.sprinkler_type ?? null,
-            availability_status: p.availability_status ?? null,
-            asking_rent_psf: p.asking_rent_psf ?? null,
-            nnn_cam_psf: p.nnn_cam_psf ?? null,
-            lease_structure: p.lease_structure ?? null,
-          },
-          p.custom_fields,
-          p.land_sqft,
-        )}
+        defs={industrialDefs}
+        values={industrialValues}
       />
 
       {/* Enrich property — county records, Sunbiz owner discovery, document/URL, CoStar export */}

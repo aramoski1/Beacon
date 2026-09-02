@@ -8,7 +8,7 @@ import {
   type ExtractedProperty,
   type PipelineContent,
 } from "@/lib/property-pipeline";
-import { fetchFieldDefs } from "@/lib/custom-fields";
+import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -106,9 +106,7 @@ export async function ingestUpload(
     return { error: "Upload a file or paste property details." };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    f => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   let fields: ExtractedProperty;
   try {
     fields = await extractPropertyFields(pipelineContent, undefined, customExtractFields);

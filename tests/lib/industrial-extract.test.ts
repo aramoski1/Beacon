@@ -3,8 +3,10 @@ import {
   compactIndustrial,
   industrialFromCustomFields,
   industrialFromExtracted,
+  industrialSpecValue,
   mergeIndustrialDisplay,
   parseNumericSpec,
+  persistIndustrialFromExtract,
   yardAcresFromLandSqft,
 } from "@/lib/industrial-extract";
 
@@ -87,5 +89,63 @@ describe("compactIndustrial", () => {
 describe("industrialFromCustomFields", () => {
   it("is a convenience wrapper around extracted custom_fields", () => {
     expect(industrialFromCustomFields({ asking_rent: 18.5 }).asking_rent_psf).toBe(18.5);
+  });
+});
+
+describe("persistIndustrialFromExtract", () => {
+  const dockDef = {
+    id: "1",
+    owner_id: "u",
+    entity_type: "property" as const,
+    field_name: "Dock doors",
+    field_type: "number" as const,
+    select_options: null,
+    fill_mode: "extract" as const,
+    field_group: "industrial" as const,
+    created_at: "2026-01-01",
+  };
+  const railDef = {
+    ...dockDef,
+    id: "2",
+    field_name: "Rail served",
+    field_type: "text" as const,
+  };
+
+  it("writes only specs that still exist on the broker's list", () => {
+    const out = persistIndustrialFromExtract([dockDef], { dock_doors: 8, clear_height_ft: 24 });
+    expect(out.columns).toEqual({ dock_doors: 8 });
+    expect(out.custom.dock_doors).toBe(8);
+    expect(out.columns.clear_height_ft).toBeUndefined();
+  });
+
+  it("keeps user-added specs from custom_fields", () => {
+    const out = persistIndustrialFromExtract([dockDef, railDef], {
+      custom_fields: { rail_served: "yes" },
+    });
+    expect(out.custom.rail_served).toBe("yes");
+  });
+
+  it("writes nothing to columns when every spec was deleted", () => {
+    const out = persistIndustrialFromExtract([], { dock_doors: 8 });
+    expect(out.columns).toEqual({});
+  });
+});
+
+describe("industrialSpecValue", () => {
+  const def = {
+    id: "1",
+    owner_id: "u",
+    entity_type: "property" as const,
+    field_name: "Clear height",
+    field_type: "number" as const,
+    select_options: null,
+    fill_mode: "extract" as const,
+    field_group: "industrial" as const,
+    created_at: "2026-01-01",
+  };
+
+  it("prefers custom_fields then the mapped column", () => {
+    expect(industrialSpecValue(def, { clear_height: 32 }, { clear_height_ft: 24 })).toBe(32);
+    expect(industrialSpecValue(def, {}, { clear_height_ft: 24 })).toBe(24);
   });
 });

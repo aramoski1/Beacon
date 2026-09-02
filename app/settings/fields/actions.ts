@@ -2,7 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { fieldSlug, scrubCustomFieldValues, renameCustomFieldValues, type FieldDefinition, type EntityType, type FieldType, type FillMode } from "@/lib/custom-fields";
+import { fieldSlug, scrubCustomFieldValues, renameCustomFieldValues, type FieldDefinition, type EntityType, type FieldType, type FillMode, type FieldGroup } from "@/lib/custom-fields";
+import { ensureIndustrialFieldDefs, scrubIndustrialColumn } from "@/lib/industrial-fields";
 
 export async function getFieldDefinitions(): Promise<FieldDefinition[]> {
   const supabase = await createClient();
@@ -18,6 +19,13 @@ export async function getFieldDefinitions(): Promise<FieldDefinition[]> {
   return (data ?? []) as FieldDefinition[];
 }
 
+export async function ensureIndustrialSpecs(): Promise<FieldDefinition[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  return ensureIndustrialFieldDefs(supabase, user.id);
+}
+
 export async function createFieldDefinition(
   formData: FormData
 ): Promise<{ id: string } | { error: string }> {
@@ -30,12 +38,17 @@ export async function createFieldDefinition(
   const field_type  = formData.get("field_type")  as FieldType;
   const fill_mode   = (formData.get("fill_mode")  as FillMode | null) || null;
   const optionsRaw  = (formData.get("select_options") as string | null)?.trim() ?? "";
+  const field_group = ((formData.get("field_group") as string | null) || "custom") as FieldGroup;
 
   if (!field_name) return { error: "Field name is required." };
   if (!["property", "contact", "lease", "deal"].includes(entity_type))
     return { error: "Invalid entity type." };
   if (!["text", "number", "date", "select"].includes(field_type))
     return { error: "Invalid field type." };
+  if (field_group !== "custom" && field_group !== "industrial")
+    return { error: "Invalid field group." };
+  if (field_group === "industrial" && entity_type !== "property")
+    return { error: "Industrial specs are property fields." };
   if (entity_type === "property" && !fill_mode)
     return { error: "Property fields require a fill mode (extract or manual)." };
   if (fieldSlug(field_name).length < 1)
@@ -53,6 +66,7 @@ export async function createFieldDefinition(
     .insert({
       owner_id: user.id,
       entity_type,
+      field_group,
       field_name,
       field_type,
       fill_mode: entity_type === "property" ? fill_mode : null,
@@ -137,6 +151,9 @@ export async function deleteFieldDefinition(
 
   if (def) {
     await scrubCustomFieldValues(supabase, user.id, def.entity_type as EntityType, def.field_name);
+    if (def.entity_type === "property") {
+      await scrubIndustrialColumn(supabase, user.id, fieldSlug(def.field_name));
+    }
   }
   return {};
 }

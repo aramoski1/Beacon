@@ -56,11 +56,15 @@ import { previewCountyEnhancement, applyDocumentEnhancement } from "@/app/proper
 
 // ─── Mock Supabase builder ────────────────────────────────────────────────────
 
-function buildSupabaseSpy(existingRow: Record<string, unknown> | null) {
+function buildSupabaseSpy(
+  existingRow: Record<string, unknown> | null,
+  opts: { fieldDefs?: unknown[] } = {},
+) {
   const updates: Record<string, unknown>[] = [];
+  const fieldDefs = opts.fieldDefs ?? [];
 
   function makeChain(table: string) {
-    let mode: "select" | "update" = "select";
+    let mode: "select" | "update" | "insert" | "upsert" = "select";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const proxy: any = new Proxy(
       {},
@@ -73,16 +77,29 @@ function buildSupabaseSpy(existingRow: Record<string, unknown> | null) {
               return proxy;
             };
           }
+          if (prop === "insert" || prop === "upsert") {
+            return () => {
+              mode = "insert";
+              return proxy;
+            };
+          }
           if (prop === "single" || prop === "maybeSingle") {
             return () =>
               Promise.resolve(
-                mode === "select" && table === "properties"
+                table === "properties" && mode === "select"
                   ? { data: existingRow, error: null }
-                  : { data: null, error: null }
+                  : table === "user_settings"
+                    ? { data: { industrial_specs_initialized: true }, error: null }
+                    : { data: null, error: null },
               );
           }
           if (prop === "then") {
-            return (onf: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(onf);
+            return (onf: (v: unknown) => unknown) =>
+              Promise.resolve(
+                table === "field_definitions"
+                  ? { data: fieldDefs, error: null }
+                  : { data: null, error: null },
+              ).then(onf);
           }
           return () => proxy;
         },
@@ -141,6 +158,7 @@ beforeEach(() => {
 
 describe("previewCountyEnhancement — custom-field pass-through", () => {
   it("passes the broker's extract-mode custom field definitions to extractPropertyFields (Miami-Dade path)", async () => {
+    const customDefs = [fieldDef({ field_name: "Clear Height" }), fieldDef({ id: "fd-2", field_name: "Dock Doors" })];
     const { supabase } = buildSupabaseSpy({
       owner_name: null,
       size_sqft: null,
@@ -150,11 +168,9 @@ describe("previewCountyEnhancement — custom-field pass-through", () => {
       owner_mailing_address: null,
       land_sqft: null,
       asset_description: null,
-    });
+    }, { fieldDefs: customDefs });
     (createClient as Mock).mockResolvedValue(supabase);
 
-    const customDefs = [fieldDef({ field_name: "Clear Height" }), fieldDef({ id: "fd-2", field_name: "Dock Doors" })];
-    (fetchFieldDefs as Mock).mockResolvedValue(customDefs);
     (getPropertyDetail as Mock).mockResolvedValue({ OwnerInfos: [{ Name: "John Smith" }] });
     (extractPropertyFields as Mock).mockResolvedValue(extractedProperty());
 
@@ -281,9 +297,10 @@ describe("applyDocumentEnhancement", () => {
   };
 
   it("never writes an unaccepted conflict field, but does write plain changes and merges custom_fields", async () => {
-    const { supabase, updates } = buildSupabaseSpy(existingRow);
+    const { supabase, updates } = buildSupabaseSpy(existingRow, {
+      fieldDefs: [fieldDef({ field_name: "Dock Doors" })],
+    });
     (createClient as Mock).mockResolvedValue(supabase);
-    (fetchFieldDefs as Mock).mockResolvedValue([fieldDef({ field_name: "Dock Doors" })]);
 
     const extracted = extractedProperty({
       owner_name: "New Owner LLC", // conflict — differs from existing, authoritative
@@ -310,9 +327,10 @@ describe("applyDocumentEnhancement", () => {
   });
 
   it("writes an accepted conflict field", async () => {
-    const { supabase, updates } = buildSupabaseSpy(existingRow);
+    const { supabase, updates } = buildSupabaseSpy(existingRow, {
+      fieldDefs: [fieldDef({ field_name: "Dock Doors" })],
+    });
     (createClient as Mock).mockResolvedValue(supabase);
-    (fetchFieldDefs as Mock).mockResolvedValue([fieldDef({ field_name: "Dock Doors" })]);
 
     const extracted = extractedProperty({
       owner_name: "New Owner LLC",
@@ -331,9 +349,8 @@ describe("applyDocumentEnhancement", () => {
     const { supabase, updates } = buildSupabaseSpy({
       ...existingRow,
       custom_fields: { dock_doors: "2", clear_height: "18 ft" },
-    });
+    }, { fieldDefs: [fieldDef({ field_name: "Dock Doors" })] });
     (createClient as Mock).mockResolvedValue(supabase);
-    (fetchFieldDefs as Mock).mockResolvedValue([fieldDef({ field_name: "Dock Doors" })]);
 
     const extracted = extractedProperty({
       owner_name: "Existing Owner LLC", // unchanged, no conflict

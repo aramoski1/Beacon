@@ -133,6 +133,7 @@ const EXPECTED: TableSpec[] = [
       { col: "select_options", from: "migrate-custom-fields.ts" },
       { col: "fill_mode",      from: "migrate-custom-fields.ts" },
       { col: "created_at",     from: "migrate-custom-fields.ts" },
+      { col: "field_group",    from: "migrate-industrial-field-defs.ts" },
     ],
   },
   {
@@ -229,6 +230,7 @@ const EXPECTED: TableSpec[] = [
       { col: "onboarding_completed_at",  from: "migrate-onboarding.ts" },
       { col: "email_provider",           from: "migrate-email-provider.ts" },
       { col: "pilot_agreement_accepted_at", from: "migrate-pilot-agreement.ts" },
+      { col: "industrial_specs_initialized", from: "migrate-industrial-field-defs.ts" },
     ],
   },
   {

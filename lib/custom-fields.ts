@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type FieldType = "text" | "number" | "date" | "select";
 export type EntityType = "property" | "contact" | "lease" | "deal";
 export type FillMode = "extract" | "manual";
+export type FieldGroup = "custom" | "industrial";
 
 export type FieldDefinition = {
   id: string;
@@ -12,6 +13,7 @@ export type FieldDefinition = {
   field_type: FieldType;
   select_options: string[] | null;
   fill_mode: FillMode | null;
+  field_group?: FieldGroup | null;
   created_at: string;
 };
 

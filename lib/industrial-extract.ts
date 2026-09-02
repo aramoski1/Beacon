@@ -1,8 +1,11 @@
+import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import {
   AVAILABILITY_STATUS,
+  INDUSTRIAL_COLUMN_BY_SLUG,
   LEASE_STRUCTURES,
   POWER_PHASES,
   SPRINKLER_TYPES,
+  isIndustrialGroup,
   type IndustrialFields,
 } from "@/lib/industrial-fields";
 
@@ -180,4 +183,53 @@ export function compactIndustrial(fields: IndustrialFields): Partial<IndustrialF
     }
   }
   return out;
+}
+
+export function industrialSpecValue(
+  def: FieldDefinition,
+  custom: Record<string, string | number | null> | null | undefined,
+  columns?: Partial<IndustrialFields> | null,
+): string | number | null {
+  const slug = fieldSlug(def.field_name);
+  const fromCustom = custom?.[slug];
+  if (fromCustom != null && fromCustom !== "") return fromCustom;
+  const col = INDUSTRIAL_COLUMN_BY_SLUG[slug];
+  if (col) {
+    const fromCol = columns?.[col];
+    if (fromCol != null && fromCol !== "") return fromCol;
+  }
+  return null;
+}
+
+/**
+ * Map extract output onto the broker's current industrial field list.
+ * Deleted defaults are not written. User-added specs come from custom_fields.
+ */
+export function persistIndustrialFromExtract(
+  defs: FieldDefinition[],
+  source: IndustrialExtractSource,
+): {
+  custom: Record<string, string | number | null>;
+  columns: Partial<IndustrialFields>;
+} {
+  const extracted = industrialFromExtracted(source);
+  const custom: Record<string, string | number | null> = { ...(source.custom_fields ?? {}) };
+  const industrialDefs = defs.filter(isIndustrialGroup);
+
+  if (industrialDefs.length === 0) {
+    return { custom, columns: {} };
+  }
+
+  const columns: Partial<IndustrialFields> = {};
+  for (const def of industrialDefs) {
+    const slug = fieldSlug(def.field_name);
+    const col = INDUSTRIAL_COLUMN_BY_SLUG[slug];
+    const fromCustom = custom[slug];
+    const fromCol = col ? extracted[col] : null;
+    const value = fromCustom != null && fromCustom !== "" ? fromCustom : fromCol;
+    if (value == null || value === "") continue;
+    custom[slug] = value as string | number;
+    if (col) Object.assign(columns, { [col]: extracted[col] ?? coerceField(col, value) });
+  }
+  return { custom, columns };
 }

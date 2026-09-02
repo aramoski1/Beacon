@@ -1,16 +1,37 @@
 "use client";
 
 import { useState } from "react";
-import { Warehouse } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Settings2, Warehouse } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/client";
+import { CustomFieldsPanel } from "@/components/custom-fields-panel";
+import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import {
   AVAILABILITY_STATUS,
   LEASE_STRUCTURES,
   POWER_PHASES,
   SPRINKLER_TYPES,
-  type IndustrialFields,
+  industrialSuffix,
 } from "@/lib/industrial-fields";
+import { parseNumericSpec } from "@/lib/industrial-extract";
+import { saveIndustrialSpec } from "./actions";
+
+function labeledOptions(
+  slug: string,
+  selectOptions: string[] | null,
+): { value: string; label: string }[] {
+  const catalogs: Record<string, readonly { value: string; label: string }[]> = {
+    phase: POWER_PHASES,
+    power_phase: POWER_PHASES,
+    sprinkler: SPRINKLER_TYPES,
+    sprinkler_type: SPRINKLER_TYPES,
+    availability: AVAILABILITY_STATUS,
+    availability_status: AVAILABILITY_STATUS,
+    lease_structure: LEASE_STRUCTURES,
+  };
+  if (catalogs[slug]) return [...catalogs[slug]];
+  return (selectOptions ?? []).map((o) => ({ value: o, label: o }));
+}
 
 function NumField({
   value,
@@ -19,7 +40,7 @@ function NumField({
 }: {
   value: number | null;
   onSave: (v: number | null) => void;
-  suffix?: string;
+  suffix?: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value != null ? String(value) : "");
@@ -117,89 +138,116 @@ function SelectField({
   );
 }
 
+function DateField({ value, onSave }: { value: string | null; onSave: (v: string | null) => void }) {
+  return (
+    <input
+      type="date"
+      value={value ?? ""}
+      onChange={(e) => onSave(e.target.value || null)}
+      className="font-medium mt-0.5 rounded px-1.5 py-0.5 -mx-1.5 hover:bg-muted/60 w-full bg-transparent outline-none cursor-pointer text-sm"
+    />
+  );
+}
+
 export function IndustrialSection({
   propertyId,
-  initial,
+  defs,
+  values,
 }: {
   propertyId: string;
-  initial: IndustrialFields;
+  defs: FieldDefinition[];
+  values: Record<string, string | number | null>;
 }) {
-  const [values, setValues] = useState(initial);
+  const router = useRouter();
+  const [local, setLocal] = useState(values);
+  const [customize, setCustomize] = useState(false);
 
-  async function save<K extends keyof IndustrialFields>(field: K, value: IndustrialFields[K]) {
-    setValues((prev) => ({ ...prev, [field]: value }));
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("properties")
-      .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", propertyId);
-    if (error) {
-      window.alert(`Failed to save: ${error.message}`);
-      setValues((prev) => ({ ...prev, [field]: initial[field] }));
+  async function save(slug: string, value: string | number | null) {
+    setLocal((prev) => ({ ...prev, [slug]: value }));
+    const result = await saveIndustrialSpec(propertyId, slug, value);
+    if (result.error) {
+      window.alert(`Failed to save: ${result.error}`);
+      setLocal((prev) => ({ ...prev, [slug]: values[slug] ?? null }));
     }
   }
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <Warehouse className="size-4" />
-          Industrial / flex specs
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">Clear height, docks, power, availability, asking rent.</p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Warehouse className="size-4" />
+              Industrial / flex specs
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Defaults can be removed. Add any spec you track.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCustomize(true)}
+            className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+            title="Customize specs"
+          >
+            <Settings2 className="size-4" />
+          </button>
+        </div>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-xs text-muted-foreground">Clear height</dt>
-            <dd><NumField value={values.clear_height_ft} suffix="ft" onSave={(v) => save("clear_height_ft", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Dock doors</dt>
-            <dd><NumField value={values.dock_doors} onSave={(v) => save("dock_doors", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Drive-in doors</dt>
-            <dd><NumField value={values.drive_in_doors} onSave={(v) => save("drive_in_doors", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Power</dt>
-            <dd><NumField value={values.power_amps} suffix="amps" onSave={(v) => save("power_amps", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Phase</dt>
-            <dd><SelectField value={values.power_phase} options={[...POWER_PHASES]} onSave={(v) => save("power_phase", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Yard</dt>
-            <dd><NumField value={values.yard_acres} suffix="ac" onSave={(v) => save("yard_acres", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Column spacing</dt>
-            <dd><TextField value={values.column_spacing} onSave={(v) => save("column_spacing", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Sprinkler</dt>
-            <dd><SelectField value={values.sprinkler_type} options={[...SPRINKLER_TYPES]} onSave={(v) => save("sprinkler_type", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Availability</dt>
-            <dd><SelectField value={values.availability_status} options={[...AVAILABILITY_STATUS]} onSave={(v) => save("availability_status", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Asking rent</dt>
-            <dd><NumField value={values.asking_rent_psf} suffix="$/SF" onSave={(v) => save("asking_rent_psf", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">NNN / CAM</dt>
-            <dd><NumField value={values.nnn_cam_psf} suffix="$/SF" onSave={(v) => save("nnn_cam_psf", v)} /></dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Lease structure</dt>
-            <dd><SelectField value={values.lease_structure} options={[...LEASE_STRUCTURES]} onSave={(v) => save("lease_structure", v)} /></dd>
-          </div>
-        </dl>
+        {defs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No specs configured. Use the gear to add fields.
+          </p>
+        ) : (
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            {defs.map((def) => {
+              const slug = fieldSlug(def.field_name);
+              const raw = local[slug];
+              return (
+                <div key={def.id}>
+                  <dt className="text-xs text-muted-foreground">{def.field_name}</dt>
+                  <dd>
+                    {def.field_type === "number" ? (
+                      <NumField
+                        value={parseNumericSpec(raw)}
+                        suffix={industrialSuffix(slug)}
+                        onSave={(v) => save(slug, v)}
+                      />
+                    ) : def.field_type === "select" ? (
+                      <SelectField
+                        value={raw != null ? String(raw) : null}
+                        options={labeledOptions(slug, def.select_options)}
+                        onSave={(v) => save(slug, v)}
+                      />
+                    ) : def.field_type === "date" ? (
+                      <DateField
+                        value={raw != null ? String(raw) : null}
+                        onSave={(v) => save(slug, v)}
+                      />
+                    ) : (
+                      <TextField
+                        value={raw != null ? String(raw) : null}
+                        onSave={(v) => save(slug, v)}
+                      />
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        )}
       </CardContent>
+      {customize && (
+        <CustomFieldsPanel
+          entityType="property"
+          fieldGroup="industrial"
+          onClose={() => {
+            setCustomize(false);
+            router.refresh();
+          }}
+        />
+      )}
     </Card>
   );
 }

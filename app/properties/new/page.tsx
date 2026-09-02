@@ -30,6 +30,7 @@ import {
 import type { SunbizPerson } from "@/lib/sunbiz-types";
 import { createClient } from "@/lib/supabase/client";
 import { fetchFieldDefs, fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { isCustomGroup } from "@/lib/industrial-fields";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,7 +128,7 @@ function PreviewFields({ preview: p }: { preview: PropertyPreview | UrlPreview |
       if (user) fetchFieldDefs(supabase, user.id, "property").then(setCustomDefs);
     });
   }, []);
-  const extractDefs = customDefs.filter(f => f.fill_mode === "extract");
+  const extractDefs = customDefs.filter(f => f.fill_mode === "extract" && isCustomGroup(f));
   if (extractDefs.length === 0) return null;
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
@@ -176,7 +177,7 @@ function AddressPreviewCard({
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual" && isCustomGroup(f))));
     });
   }, []);
 
@@ -371,7 +372,7 @@ function UrlPreviewCard({
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual" && isCustomGroup(f))));
     });
   }, []);
 
@@ -481,7 +482,7 @@ function UploadPreviewCard({
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual")));
+      if (user) fetchFieldDefs(supabase, user.id, "property").then(defs => setManualDefs(defs.filter(f => f.fill_mode === "manual" && isCustomGroup(f))));
     });
   }, []);
 

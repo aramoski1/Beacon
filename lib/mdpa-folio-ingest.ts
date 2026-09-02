@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty } from "@/lib/property-pipeline";
-import { fetchFieldDefs } from "@/lib/custom-fields";
+import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { findDuplicate } from "@/lib/property-ingest";
 import { mdpaIndividualOwnerContact } from "@/lib/owner-contacts";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -66,9 +66,7 @@ export async function importTaxRollFolio(
     return { error: `MDPA detail fetch failed: ${msg}` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    (f) => f.fill_mode === "extract",
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
 
   let fields;
   try {

@@ -22,7 +22,7 @@ import {
   type MARecord,
 } from "@/lib/magis";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
-import { fetchFieldDefs } from "@/lib/custom-fields";
+import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { searchAndExtractSunbiz, type SunbizResult, type SunbizPerson } from "@/lib/sunbiz";
 import { storedOwnerContactsFromSunbiz, mdpaIndividualOwnerContact } from "@/lib/owner-contacts";
@@ -304,7 +304,7 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     }
     if (!rec) return { error: `No Broward parcel record found for folio ${strap}.` };
 
-    const customExtractDefs = (await fetchFieldDefs(supabase, user.id, "property")).filter(f => f.fill_mode === "extract");
+    const customExtractDefs = await propertyExtractFieldDefs(supabase, user.id);
     const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
     const fields = bcpaToFields(rec, nullCustom);
 
@@ -362,7 +362,7 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     }
     if (!rec) return { error: `No Palm Beach parcel record found for folio ${strap}.` };
 
-    const customExtractDefs = (await fetchFieldDefs(supabase, user.id, "property")).filter(f => f.fill_mode === "extract");
+    const customExtractDefs = await propertyExtractFieldDefs(supabase, user.id);
     const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
     const fields = pbcpaToFields(rec, nullCustom);
 
@@ -420,7 +420,7 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     }
     if (!rec) return { error: `No Massachusetts parcel record found for LOC_ID ${strap}.` };
 
-    const customExtractDefs = (await fetchFieldDefs(supabase, user.id, "property")).filter(f => f.fill_mode === "extract");
+    const customExtractDefs = await propertyExtractFieldDefs(supabase, user.id);
     const nullCustom = Object.fromEntries(customExtractDefs.map(f => [f.field_name, null]));
     const fields = magisToFields(rec, nullCustom);
 
@@ -486,9 +486,7 @@ STRICT RULES — violation is not permitted:
    a. ownership_type: derive from the literal owner name string in the source — presence of LLC / CORP / INC / TRUST / FUND / REIT → "institutional"; government keywords (CITY, COUNTY, STATE, GOVT) → "institutional"; individual human-style names → "private".
    b. property_type: derive from the numeric DORCode in the source using Florida DOR mappings: 01 = "residential"; 03/04/08 = "multifamily"; 20–28 = "retail"; 30–39 = "office"; 40–49 = "industrial"; 11–18 = "land". If DORCode is absent, return null and flag.`;
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    f => f.fill_mode === "extract"
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
 
   let fields: ExtractedProperty;
   try {

@@ -8,7 +8,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertProperty } from "./property-ingest";
 import { buildCustomFieldsSchema, type FieldDefinition } from "./custom-fields";
 import type { StoredOwnerContact } from "./owner-contacts";
-import { compactIndustrial, industrialFromExtracted } from "./industrial-extract";
+import { persistIndustrialFromExtract } from "./industrial-extract";
+import { ensureIndustrialFieldDefs } from "./industrial-fields";
 
 // ─── Unified tool ─────────────────────────────────────────────────────────────
 // One definition used by every ingestion path. Source-specific extraction hints
@@ -273,7 +274,8 @@ export async function savePipelineProperty(
   }
 ): Promise<string> {
   const bc = fields.building_composition;
-  const industrial = compactIndustrial(industrialFromExtracted(fields));
+  const industrialDefs = await ensureIndustrialFieldDefs(supabase, userId);
+  const persist = persistIndustrialFromExtract(industrialDefs, fields);
   return upsertProperty(supabase, userId, {
     owner_id: userId,
     address:               overrides?.address    ?? fields.address,
@@ -294,7 +296,7 @@ export async function savePipelineProperty(
     source_url:            sourceUrl ?? null,
     ingested_at:           new Date().toISOString(),
     confidence_flags:      fields.confidence_flags,
-    custom_fields:         fields.custom_fields ?? {},
-    ...industrial,
+    custom_fields:         persist.custom,
+    ...persist.columns,
   });
 }

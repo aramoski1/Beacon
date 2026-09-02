@@ -295,6 +295,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-oauth-connections.ts",
     description: "oauth_connections flags for Gmail/Outlook/calendar/DocuSign (no tokens until env configured)",
   },
+  {
+    file: "migrate-industrial-field-defs.ts",
+    description: "Industrial specs as customizable field_definitions (field_group) + seed-once flag on user_settings",
+  },
 ];
 
 const hr = "─".repeat(60);

@@ -17,7 +17,7 @@ import {
   type PBRecord,
 } from "@/lib/pbcpa";
 import { savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
-import { fetchFieldDefs } from "@/lib/custom-fields";
+import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { findDuplicate } from "@/lib/property-ingest";
 import { mdpaIndividualOwnerContact } from "@/lib/owner-contacts";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -90,9 +90,7 @@ export async function importPbcpaFolio(
     return { error: `No Palm Beach parcel record found for folio ${normalizedStrap}.` };
   }
 
-  const customExtractFields = (await fetchFieldDefs(supabase, user.id, "property")).filter(
-    (f) => f.fill_mode === "extract",
-  );
+  const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   const nullCustom = Object.fromEntries(customExtractFields.map((f) => [f.field_name, null]));
   const fields = pbcpaToFields(rec, nullCustom);
 
