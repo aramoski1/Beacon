@@ -79,6 +79,18 @@ export type PropertyPayload = {
   ingested_at: string;
   confidence_flags: { field: string; reason: string }[];
   custom_fields?: Record<string, unknown>;
+  clear_height_ft?: number | null;
+  dock_doors?: number | null;
+  drive_in_doors?: number | null;
+  power_amps?: number | null;
+  power_phase?: string | null;
+  yard_acres?: number | null;
+  column_spacing?: string | null;
+  sprinkler_type?: string | null;
+  availability_status?: string | null;
+  asking_rent_psf?: number | null;
+  nnn_cam_psf?: number | null;
+  lease_structure?: string | null;
 };
 
 // Inserts or updates depending on dedup result. Returns the record id.

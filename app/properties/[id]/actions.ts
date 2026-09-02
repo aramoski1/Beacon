@@ -33,6 +33,8 @@ import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
 import { fetchFieldDefs, fieldSlug } from "@/lib/custom-fields";
+import { INDUSTRIAL_SELECT } from "@/lib/industrial-fields";
+import { compactIndustrial, industrialFromExtracted, yardAcresFromLandSqft } from "@/lib/industrial-extract";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
 import type { ZoningResult } from "@/lib/zoning";
@@ -965,7 +967,7 @@ export async function applyCountyEnhancement(
 
   const { data: existing } = await supabase
     .from("properties")
-    .select("id, address, city, confidence_flags, custom_fields, field_sources")
+    .select(`id, address, city, confidence_flags, custom_fields, field_sources, land_sqft, ${INDUSTRIAL_SELECT}`)
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
@@ -1010,6 +1012,29 @@ export async function applyCountyEnhancement(
     if (value != null) fieldSourcesUpdate[`custom_fields.${slug}`] = "county";
   }
 
+  const landSqft = mdpaData.land_sqft ?? existing.land_sqft ?? null;
+  const industrialIncoming = compactIndustrial(
+    industrialFromExtracted({
+      custom_fields: customFieldsUpdate,
+      building_composition: { lot_size_sqft: landSqft },
+    }),
+  );
+  const industrialUpdate: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(industrialIncoming)) {
+    const current = (existing as Record<string, unknown>)[key];
+    if ((current == null || current === "") && value != null) {
+      industrialUpdate[key] = value;
+      fieldSourcesUpdate[key] = "county";
+    }
+  }
+  if (industrialUpdate.yard_acres == null && (existing.yard_acres == null || existing.yard_acres === "") && landSqft) {
+    const derived = yardAcresFromLandSqft(Number(landSqft));
+    if (derived != null) {
+      industrialUpdate.yard_acres = derived;
+      fieldSourcesUpdate.yard_acres = "county";
+    }
+  }
+
   const { error } = await supabase
     .from("properties")
     .update({
@@ -1029,6 +1054,7 @@ export async function applyCountyEnhancement(
                               : `mdpa:${strap}`,
       confidence_flags:      [...remainingFlags, ...newCustomFlags],
       ingested_at:           new Date().toISOString(),
+      ...industrialUpdate,
     })
     .eq("id", propertyId)
     .eq("owner_id", user.id);
@@ -1092,7 +1118,7 @@ export type DocumentEnhancementPreview = {
 };
 
 const EXISTING_FOR_DIFF_SELECT =
-  "owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields";
+  "owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields, clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase, yard_acres, column_spacing, sprinkler_type, availability_status, asking_rent_psf, nnn_cam_psf, lease_structure";
 
 async function buildDocumentContent(
   formData: FormData

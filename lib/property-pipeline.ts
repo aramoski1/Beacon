@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertProperty } from "./property-ingest";
 import { buildCustomFieldsSchema, type FieldDefinition } from "./custom-fields";
 import type { StoredOwnerContact } from "./owner-contacts";
+import { compactIndustrial, industrialFromExtracted } from "./industrial-extract";
 
 // ─── Unified tool ─────────────────────────────────────────────────────────────
 // One definition used by every ingestion path. Source-specific extraction hints
@@ -22,6 +23,7 @@ Rules:
 - size_sqft: building/rentable area only — never lot/land size.
 - ownership_type: infer from owner name (LLC/INC/CORP/TRUST/FUND/REIT = institutional; government entities = institutional; individual names = private).
 - last_sale_date/last_sale_price: historical sale data only — never the listing asking price.
+- Industrial/flex specs (clear_height_ft, dock_doors, drive_in_doors, power, yard_acres, sprinkler, availability, asking_rent_psf, nnn_cam_psf, lease_structure): copy only when the source states them. Do not invent docks or clear height from a tax roll, DOR code, or lot size. Lot/land size belongs in building_composition.lot_size_sqft, not yard_acres, unless the source names a yard or outside storage.
 - confidence_flags: flag every field that is absent, ambiguous, inferred, or uncertain.`,
   input_schema: {
     type: "object" as const,
@@ -54,6 +56,18 @@ Rules:
       },
       last_sale_date:  { type: ["string", "null"] },
       last_sale_price: { type: ["number", "null"] },
+      clear_height_ft: { type: ["number", "null"], description: "Warehouse/flex clear height in feet." },
+      dock_doors: { type: ["integer", "null"], description: "Count of dock-high loading doors." },
+      drive_in_doors: { type: ["integer", "null"] },
+      power_amps: { type: ["number", "null"] },
+      power_phase: { type: ["string", "null"], description: "Electrical phase: \"1\" or \"3\"." },
+      yard_acres: { type: ["number", "null"], description: "Outside storage / yard acres if stated; otherwise omit (lot size is lot_size_sqft)." },
+      column_spacing: { type: ["string", "null"] },
+      sprinkler_type: { type: ["string", "null"], description: "esfr | k25 | wet | dry | none" },
+      availability_status: { type: ["string", "null"], description: "available | leased | off_market | under_contract" },
+      asking_rent_psf: { type: ["number", "null"], description: "Asking rent $/SF if listed — not a historical sale price." },
+      nnn_cam_psf: { type: ["number", "null"] },
+      lease_structure: { type: ["string", "null"], description: "nnn | modified_gross | gross | industrial_gross" },
       building_composition: {
         type: "object",
         properties: {
@@ -95,6 +109,18 @@ export type ExtractedProperty = {
   property_type: string;
   last_sale_date: string | null;
   last_sale_price: number | null;
+  clear_height_ft?: number | null;
+  dock_doors?: number | null;
+  drive_in_doors?: number | null;
+  power_amps?: number | null;
+  power_phase?: string | null;
+  yard_acres?: number | null;
+  column_spacing?: string | null;
+  sprinkler_type?: string | null;
+  availability_status?: string | null;
+  asking_rent_psf?: number | null;
+  nnn_cam_psf?: number | null;
+  lease_structure?: string | null;
   building_composition: {
     year_built?: number | null;
     lot_size_sqft?: number | null;
@@ -208,7 +234,7 @@ export async function extractPropertyFields(
 
   const message = await anthropic.messages.create({
     model: "claude-opus-4-8",
-    max_tokens: 2048,
+    max_tokens: 3072,
     ...(systemPrompt ? { system: systemPrompt } : {}),
     tools: [toolForCall],
     tool_choice: { type: "tool", name: "extract_property_fields" },
@@ -247,6 +273,7 @@ export async function savePipelineProperty(
   }
 ): Promise<string> {
   const bc = fields.building_composition;
+  const industrial = compactIndustrial(industrialFromExtracted(fields));
   return upsertProperty(supabase, userId, {
     owner_id: userId,
     address:               overrides?.address    ?? fields.address,
@@ -268,5 +295,6 @@ export async function savePipelineProperty(
     ingested_at:           new Date().toISOString(),
     confidence_flags:      fields.confidence_flags,
     custom_fields:         fields.custom_fields ?? {},
+    ...industrial,
   });
 }

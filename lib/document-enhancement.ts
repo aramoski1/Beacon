@@ -5,6 +5,13 @@
 
 import { fieldSlug, type FieldDefinition } from "./custom-fields";
 import type { ExtractedProperty } from "./property-pipeline";
+import {
+  INDUSTRIAL_FIELD_KEYS,
+  industrialFieldLabel,
+  industrialFromExtracted,
+  type IndustrialExtractSource,
+} from "./industrial-extract";
+import type { IndustrialFields } from "./industrial-fields";
 
 // Authoritative fields: never silently overwritten by a document/URL/pasted
 // source when an existing value is already on record. Surfaced as individual
@@ -25,7 +32,7 @@ export type ExistingPropertyForDiff = {
   last_sale_date: string | null;
   last_sale_price: number | null;
   custom_fields: Record<string, string | number | null> | null;
-};
+} & Partial<IndustrialFields>;
 
 export type DocumentDiffEntry = {
   field: string; // "owner_name" | "size_sqft" | "land_sqft" | "last_sale_date" | "last_sale_price" | "asset_description" | "custom_fields.<slug>"
@@ -95,6 +102,17 @@ export function computeDocumentDiff(
   pushCore("last_sale_date", "Last sale date", existing.last_sale_date, extracted.last_sale_date, (v) => fmtD(v as string | null));
   pushCore("last_sale_price", "Last sale price", existing.last_sale_price, extracted.last_sale_price, (v) => fmtN(v as number | null, CURRENCY));
   pushCore("asset_description", "Asset description", existing.asset_description, extractedAssetDescription, (v) => (v == null ? null : String(v)));
+
+  const extractedIndustrial = industrialFromExtracted(extracted as IndustrialExtractSource);
+  for (const key of INDUSTRIAL_FIELD_KEYS) {
+    const beforeRaw = existing[key] ?? null;
+    const afterRaw = extractedIndustrial[key];
+    if (key === "column_spacing" || key === "power_phase" || key === "sprinkler_type" || key === "availability_status" || key === "lease_structure") {
+      pushCore(key, industrialFieldLabel(key), beforeRaw as string | null, afterRaw as string | null, (v) => (v == null ? null : String(v)));
+    } else {
+      pushCore(key, industrialFieldLabel(key), beforeRaw as number | null, afterRaw as number | null, (v) => fmtN(v as number | null));
+    }
+  }
 
   // Custom (broker-defined, extract-mode) fields — never authoritative, always
   // land in `changes` (fill or overwrite), never gated as a conflict.

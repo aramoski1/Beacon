@@ -28,6 +28,7 @@ import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actio
 import { EnrichPanel } from "./enrich-panel";
 import { ZoningSection } from "./zoning-section";
 import { IndustrialSection } from "./industrial-section";
+import { mergeIndustrialDisplay } from "@/lib/industrial-extract";
 import { RentNotebook } from "./rent-notebook";
 import { listRentComps } from "./rent-notebook-actions";
 import { lookupRentBand } from "@/lib/submarket-rent-bands";
@@ -498,20 +499,24 @@ export default async function PropertyPage({
 
       <IndustrialSection
         propertyId={id}
-        initial={{
-          clear_height_ft: p.clear_height_ft ?? null,
-          dock_doors: p.dock_doors ?? null,
-          drive_in_doors: p.drive_in_doors ?? null,
-          power_amps: p.power_amps ?? null,
-          power_phase: p.power_phase ?? null,
-          yard_acres: p.yard_acres ?? null,
-          column_spacing: p.column_spacing ?? null,
-          sprinkler_type: p.sprinkler_type ?? null,
-          availability_status: p.availability_status ?? null,
-          asking_rent_psf: p.asking_rent_psf ?? null,
-          nnn_cam_psf: p.nnn_cam_psf ?? null,
-          lease_structure: p.lease_structure ?? null,
-        }}
+        initial={mergeIndustrialDisplay(
+          {
+            clear_height_ft: p.clear_height_ft ?? null,
+            dock_doors: p.dock_doors ?? null,
+            drive_in_doors: p.drive_in_doors ?? null,
+            power_amps: p.power_amps ?? null,
+            power_phase: p.power_phase ?? null,
+            yard_acres: p.yard_acres ?? null,
+            column_spacing: p.column_spacing ?? null,
+            sprinkler_type: p.sprinkler_type ?? null,
+            availability_status: p.availability_status ?? null,
+            asking_rent_psf: p.asking_rent_psf ?? null,
+            nnn_cam_psf: p.nnn_cam_psf ?? null,
+            lease_structure: p.lease_structure ?? null,
+          },
+          p.custom_fields,
+          p.land_sqft,
+        )}
       />
 
       {/* Enrich property — county records, Sunbiz owner discovery, document/URL, CoStar export */}

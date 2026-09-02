@@ -177,3 +177,29 @@ describe("computeDocumentDiff — custom (broker-defined, extract-mode) fields",
     expect(extracted.confidence_flags.find((f) => f.field === "custom_fields.clear_height")?.reason).toBe(reason);
   });
 });
+
+describe("computeDocumentDiff — first-class industrial specs", () => {
+  it("fills empty dock doors from extract", () => {
+    const existing = baseExisting({ dock_doors: null });
+    const extracted = baseExtracted({ dock_doors: 8 });
+    const diff = computeDocumentDiff(existing, extracted, []);
+    const entry = diff.changes.find((c) => c.field === "dock_doors");
+    expect(entry?.rawAfter).toBe(8);
+    expect(diff.conflicts.some((c) => c.field === "dock_doors")).toBe(false);
+  });
+
+  it("lifts custom_fields.clear_height into clear_height_ft", () => {
+    const existing = baseExisting();
+    const extracted = baseExtracted({ custom_fields: { clear_height: "24 ft" } });
+    const diff = computeDocumentDiff(existing, extracted, []);
+    expect(diff.changes.find((c) => c.field === "clear_height_ft")?.rawAfter).toBe(24);
+  });
+
+  it("does not clear existing docks when extract omits them", () => {
+    const existing = baseExisting({ dock_doors: 4 });
+    const extracted = baseExtracted({});
+    const diff = computeDocumentDiff(existing, extracted, []);
+    const all = [...diff.changes, ...diff.conflicts, ...diff.unchanged].map((e) => e.field);
+    expect(all).not.toContain("dock_doors");
+  });
+});
