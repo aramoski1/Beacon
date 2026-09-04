@@ -767,7 +767,7 @@ export default async function PropertyPage({
                         String(val)
                       ) : (
                         <span className="text-xs italic text-muted-foreground/40 font-normal">
-                          {reason ?? "not found in county tax roll — upload a flyer or OM to populate"}
+                          {reason ?? "not found yet — Find listing specs or upload a flyer to populate"}
                         </span>
                       )}
                     </dd>

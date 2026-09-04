@@ -1467,20 +1467,18 @@ export async function previewListingDiscover(
   return previewListingDiscoverForUser(supabase, user.id, propertyId);
 }
 
-export async function applyListingDiscover(
+async function applyListingDiscoverForUser(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
   propertyId: string,
   acceptedFields: string[],
   preview: ListingDiscoverPreview,
 ): Promise<{ ok: true; fieldsApplied: number } | { error: string }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated." };
-
   const { data: existing } = await supabase
     .from("properties")
     .select(LISTING_DISCOVER_SELECT)
     .eq("id", propertyId)
-    .eq("owner_id", user.id)
+    .eq("owner_id", userId)
     .single();
   if (!existing) return { error: "Property not found." };
 
@@ -1493,21 +1491,52 @@ export async function applyListingDiscover(
   );
   if (planned.fieldsApplied === 0) return { error: "No empty unlocked fields to apply." };
 
-  const update: Record<string, unknown> = {
-    ...planned.columns,
-    custom_fields: planned.custom,
-    field_sources: planned.nextSources,
-    updated_at: new Date().toISOString(),
-  };
-  const fieldsApplied = planned.fieldsApplied;
-
   const { error } = await supabase
     .from("properties")
-    .update(update)
+    .update({
+      ...planned.columns,
+      custom_fields: planned.custom,
+      field_sources: planned.nextSources,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", propertyId)
-    .eq("owner_id", user.id);
+    .eq("owner_id", userId);
   if (error) return { error: error.message };
-  return { ok: true, fieldsApplied };
+  return { ok: true, fieldsApplied: planned.fieldsApplied };
+}
+
+export async function applyListingDiscover(
+  propertyId: string,
+  acceptedFields: string[],
+  preview: ListingDiscoverPreview,
+): Promise<{ ok: true; fieldsApplied: number } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  return applyListingDiscoverForUser(supabase, user.id, propertyId, acceptedFields, preview);
+}
+
+export async function fillListingSpecsForProperty(
+  propertyId: string,
+): Promise<{ preview: ListingDiscoverPreview; fieldsApplied: number } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const previewRes = await previewListingDiscoverForUser(supabase, user.id, propertyId);
+  if ("error" in previewRes) return previewRes;
+  const { preview } = previewRes;
+  if (preview.candidates.length === 0) return { preview, fieldsApplied: 0 };
+
+  const applyRes = await applyListingDiscoverForUser(
+    supabase,
+    user.id,
+    propertyId,
+    preview.candidates.map((c) => c.field),
+    preview,
+  );
+  if ("error" in applyRes) return { preview, fieldsApplied: 0 };
+  return { preview, fieldsApplied: applyRes.fieldsApplied };
 }
 
 export async function enqueueListingDiscover(
@@ -1539,24 +1568,26 @@ export async function enqueueListingDiscover(
 
 export async function runListingDiscoverJob(
   payload: Record<string, unknown>,
-): Promise<ListingDiscoverPreview> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated.");
+): Promise<{ preview: ListingDiscoverPreview; applied: number }> {
   const propertyId = typeof payload.propertyId === "string" ? payload.propertyId : "";
   if (!propertyId) throw new Error("listing_discover job missing propertyId.");
-  const result = await previewListingDiscoverForUser(supabase, user.id, propertyId);
+  const result = await fillListingSpecsForProperty(propertyId);
   if ("error" in result) throw new Error(result.error);
-  return result.preview;
+  return { preview: result.preview, applied: result.fieldsApplied };
 }
+
+export type ListingDiscoverFieldHit = { label: string; value: string | number };
 
 export type ListingDiscoverJobStatus = {
   propertyId: string;
   status: "queued" | "running" | "done" | "failed" | "none";
   candidateCount: number;
+  applied: number;
   url: string | null;
   note: string | null;
   error: string | null;
+  fields: ListingDiscoverFieldHit[];
+  preview: ListingDiscoverPreview | null;
 };
 
 export async function getListingDiscoverJobStatuses(
@@ -1582,6 +1613,7 @@ export async function getListingDiscoverJobStatuses(
     const payload = (job.payload ?? {}) as {
       propertyId?: string;
       preview?: ListingDiscoverPreview;
+      applied?: number;
     };
     const propertyId = payload.propertyId;
     if (!propertyId || !ids.includes(propertyId) || latest.has(propertyId)) continue;
@@ -1590,9 +1622,12 @@ export async function getListingDiscoverJobStatuses(
       propertyId,
       status: job.status as ListingDiscoverJobStatus["status"],
       candidateCount: preview?.candidates.length ?? 0,
+      applied: payload.applied ?? 0,
       url: preview?.url ?? null,
       note: preview?.note ?? null,
       error: job.last_error,
+      fields: (preview?.candidates ?? []).map((c) => ({ label: c.label, value: c.value })),
+      preview: preview ?? null,
     });
   }
 
@@ -1600,10 +1635,54 @@ export async function getListingDiscoverJobStatuses(
     propertyId,
     status: "none",
     candidateCount: 0,
+    applied: 0,
     url: null,
     note: null,
     error: null,
+    fields: [],
+    preview: null,
   });
+}
+
+/** Apply a stored listing preview that was never written (older jobs). */
+export async function finalizeListingDiscoverIfNeeded(
+  propertyId: string,
+): Promise<ListingDiscoverJobStatus | null> {
+  const [status] = await getListingDiscoverJobStatuses([propertyId]);
+  if (!status || status.status !== "done" || !status.preview) return status ?? null;
+  if (status.applied > 0 || status.preview.candidates.length === 0) return status;
+
+  const apply = await applyListingDiscover(
+    propertyId,
+    status.preview.candidates.map((c) => c.field),
+    status.preview,
+  );
+  const applied = "error" in apply ? 0 : apply.fieldsApplied;
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: jobs } = await supabase
+      .from("background_jobs")
+      .select("id, payload")
+      .eq("owner_id", user.id)
+      .eq("job_type", "listing_discover")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const job = (jobs ?? []).find((row) => {
+      const payload = (row.payload ?? {}) as { propertyId?: string };
+      return payload.propertyId === propertyId;
+    });
+    if (job) {
+      await supabase
+        .from("background_jobs")
+        .update({ payload: { ...(job.payload ?? {}), applied } })
+        .eq("id", job.id)
+        .eq("owner_id", user.id);
+    }
+  }
+
+  return { ...status, applied };
 }
 
 // ─── Zoning ───────────────────────────────────────────────────────────────────

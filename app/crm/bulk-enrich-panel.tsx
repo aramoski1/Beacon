@@ -11,8 +11,10 @@ import {
   lookupSunbiz,
   saveSunbizOwnerContacts,
   enqueueListingDiscover,
+  finalizeListingDiscoverIfNeeded,
   getListingDiscoverJobStatuses,
   type EnhancementPreview,
+  type ListingDiscoverFieldHit,
 } from "@/app/properties/[id]/actions";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +36,7 @@ type ItemResult =
   | { tag: "pending" }
   | { tag: "running"; step: string }
   | { tag: "done"; countyFields: number; sunbizPersons: number; countyNote?: string }
-  | { tag: "listing"; candidateCount: number; url: string | null; note: string | null }
+  | { tag: "listing"; candidateCount: number; applied: number; url: string | null; note: string | null; fields: ListingDiscoverFieldHit[] }
   | { tag: "ambiguous"; matchCount: number }
   | { tag: "error"; message: string };
 
@@ -189,11 +191,17 @@ export function BulkEnrichPanel({
         } else if (s.status === "failed") {
           setResult(s.propertyId, { tag: "error", message: s.error ?? "Listing search failed." });
         } else if (s.status === "done") {
+          const finalized = s.applied === 0 && s.preview && s.preview.candidates.length > 0
+            ? await finalizeListingDiscoverIfNeeded(s.propertyId)
+            : s;
+          const done = finalized ?? s;
           setResult(s.propertyId, {
             tag: "listing",
-            candidateCount: s.candidateCount,
-            url: s.url,
-            note: s.note,
+            candidateCount: done.candidateCount,
+            applied: done.applied,
+            url: done.url,
+            note: done.note,
+            fields: done.fields,
           });
         } else if (guard < 3) {
           pending = true;
@@ -240,7 +248,7 @@ export function BulkEnrichPanel({
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {mode === "listing"
-                ? "Search public listing pages. Review cited specs on each property — nothing is auto-applied."
+                ? "Search public listing pages and fill empty industrial specs and extract custom fields. County and broker-entered values stay locked."
                 : "County data · Sunbiz owners · auto-applied on unambiguous match"}
             </p>
             {!running && !done && (
@@ -357,11 +365,36 @@ export function BulkEnrichPanel({
                       </div>
                     )}
                     {result.tag === "listing" && (
-                      <p className="text-xs text-muted-foreground">
-                        {result.candidateCount > 0
-                          ? `${result.candidateCount} cited spec${result.candidateCount !== 1 ? "s" : ""} found — open the property to accept`
-                          : result.note ?? "No cited empty specs on a matching page"}
-                      </p>
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          {result.applied > 0
+                            ? `Filled ${result.applied} empty spec${result.applied !== 1 ? "s" : ""}`
+                            : result.candidateCount > 0
+                              ? `${result.candidateCount} cited spec${result.candidateCount !== 1 ? "s" : ""} found — already filled or locked`
+                              : result.note ?? "No cited empty specs on a matching page"}
+                        </p>
+                        {result.fields.length > 0 && (
+                          <ul className="space-y-0.5">
+                            {result.fields.map((field) => (
+                              <li key={field.label} className="text-xs">
+                                <span className="text-muted-foreground">{field.label}</span>
+                                {" "}
+                                <span className="font-medium text-green-700 dark:text-green-500">{field.value}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {result.url && (
+                          <a
+                            href={result.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-primary underline underline-offset-2"
+                          >
+                            Listing page
+                          </a>
+                        )}
+                      </div>
                     )}
                     {result.tag === "ambiguous" && (
                       <p className="text-xs text-amber-700 dark:text-amber-400">

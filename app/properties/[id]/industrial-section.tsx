@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Settings2, Warehouse } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -161,6 +161,10 @@ export function IndustrialSection({
   const router = useRouter();
   const [local, setLocal] = useState(values);
   const [customize, setCustomize] = useState(false);
+
+  useEffect(() => {
+    setLocal(values);
+  }, [values]);
   const filled = defs.filter((def) => {
     const raw = local[fieldSlug(def.field_name)];
     return raw != null && raw !== "";

@@ -44,10 +44,13 @@ import {
   applyDocumentEnhancement,
   previewListingDiscover,
   applyListingDiscover,
+  finalizeListingDiscoverIfNeeded,
+  getListingDiscoverJobStatuses,
   type EnhancementPreview,
   type SunbizLookupAction,
   type DocumentEnhancementPreview,
   type ListingDiscoverPreview,
+  type ListingDiscoverFieldHit,
 } from "./actions";
 
 const COUNTY_SOURCE_LABEL: Record<string, string> = {
@@ -126,7 +129,7 @@ type ListingPhase =
   | { tag: "error"; message: string }
   | { tag: "previewing"; preview: ListingDiscoverPreview }
   | { tag: "saving" }
-  | { tag: "done"; fieldsApplied: number };
+  | { tag: "done"; fieldsApplied: number; fields?: ListingDiscoverFieldHit[]; url?: string | null };
 
 // Human-readable noun for "Enriched from ___" status copy.
 function docSourceNoun(kind: DocumentEnhancementPreview["sourceKind"]): string {
@@ -252,6 +255,9 @@ export function EnrichPanel({
   const [listing, setListing] = useState<ListingPhase>({ tag: "idle" });
   const [listingSel, setListingSel] = useState<Set<string>>(new Set());
   const listingAutoStarted = useRef(false);
+  const listingTagRef = useRef<ListingPhase["tag"]>("idle");
+  const listingJobWatched = useRef(false);
+  listingTagRef.current = listing.tag;
 
   // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar / -listing) ──
 
@@ -275,6 +281,56 @@ export function EnrichPanel({
       pendingHashRef.current = null;
     }
   }, [open]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function pollListingJob() {
+      if (listingTagRef.current === "previewing" || listingTagRef.current === "saving") return;
+      const [status] = await getListingDiscoverJobStatuses([propertyId]);
+      if (cancelled || !status) return;
+
+      if (status.status === "queued" || status.status === "running") {
+        listingJobWatched.current = true;
+        setListing({ tag: "loading" });
+        await fetch("/api/jobs/process", { method: "POST" });
+        timer = setTimeout(pollListingJob, 2500);
+        return;
+      }
+
+      if (status.status === "failed") {
+        setListing({ tag: "error", message: status.error ?? "Listing search failed." });
+        return;
+      }
+
+      if (status.status !== "done") return;
+
+      const needsFinalize = status.applied === 0 && !!status.preview?.candidates.length;
+      const finalized = needsFinalize
+        ? await finalizeListingDiscoverIfNeeded(propertyId)
+        : status;
+      if (cancelled) return;
+      const done = finalized ?? status;
+      if (done.applied > 0 || done.fields.length > 0 || listingJobWatched.current) {
+        setListing({
+          tag: "done",
+          fieldsApplied: done.applied,
+          fields: done.fields,
+          url: done.url,
+        });
+      }
+      if (listingJobWatched.current || (needsFinalize && done.applied > 0)) {
+        router.refresh();
+      }
+    }
+
+    pollListingJob();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [propertyId, router]);
 
   // ── County handlers ─────────────────────────────────────────────────────────
 
@@ -503,7 +559,14 @@ export function EnrichPanel({
     startTransition(async () => {
       const res = await applyListingDiscover(propertyId, [...listingSel], preview);
       if ("error" in res) { setListing({ tag: "error", message: res.error }); return; }
-      setListing({ tag: "done", fieldsApplied: res.fieldsApplied });
+      setListing({
+        tag: "done",
+        fieldsApplied: res.fieldsApplied,
+        fields: preview.candidates
+          .filter((c) => listingSel.has(c.field))
+          .map((c) => ({ label: c.label, value: c.value })),
+        url: preview.url,
+      });
       router.refresh();
     });
   }
@@ -526,18 +589,45 @@ export function EnrichPanel({
     const done: string[] = [];
     if (!needsCountyEnhancement && hasCountyFolio) done.push("County records ✓");
     if (ownerContacts.length > 0) done.push(`${ownerContacts.length} owner${ownerContacts.length !== 1 ? "s" : ""} saved`);
+    if (listing.tag === "done" && listing.fieldsApplied > 0) {
+      done.push(`${listing.fieldsApplied} listing spec${listing.fieldsApplied !== 1 ? "s" : ""} filled`);
+    }
 
     return (
-      <div ref={panelRef} className="rounded-xl border bg-card px-5 py-4 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold">Enrich property</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {done.length > 0 ? done.join(" · ") : sources.join(" · ")}
-          </p>
+      <div ref={panelRef} className="space-y-2">
+        {listing.tag === "loading" && (
+          <div className="rounded-xl border bg-card px-5 py-3 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin shrink-0 text-primary" />
+            Searching listing pages for industrial specs and custom fields…
+          </div>
+        )}
+        {listing.tag === "done" && listing.fields && listing.fields.length > 0 && (
+          <div className="rounded-xl border bg-card px-5 py-3 space-y-1.5">
+            <p className="text-xs font-medium text-green-700 dark:text-green-500">
+              Filled from listing page
+            </p>
+            <ul className="space-y-0.5">
+              {listing.fields.map((field) => (
+                <li key={field.label} className="text-sm">
+                  <span className="text-muted-foreground">{field.label}</span>
+                  {" "}
+                  <span className="font-medium">{field.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="rounded-xl border bg-card px-5 py-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold">Enrich property</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {done.length > 0 ? done.join(" · ") : sources.join(" · ")}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)} className="shrink-0">
+            Enrich →
+          </Button>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setOpen(true)} className="shrink-0">
-          Enrich →
-        </Button>
       </div>
     );
   }
@@ -1069,8 +1159,7 @@ export function EnrichPanel({
           {listing.tag === "idle" && (
             <div className="flex items-center justify-between gap-4">
               <p className="text-sm text-muted-foreground">
-                Search public listing pages for this address. Nothing is written until you review
-                the preview and click <span className="font-medium text-foreground">Fill</span>.
+                Search public listing pages for empty industrial specs and extract custom fields.
                 County and broker-entered values stay locked.
               </p>
               <Button
@@ -1167,11 +1256,32 @@ export function EnrichPanel({
           })()}
 
           {listing.tag === "done" && (
-            <div className="space-y-1">
+            <div className="space-y-2">
               <p className="text-sm flex items-center gap-2">
                 <CheckCircle2 className="size-4 text-green-600 shrink-0" />
                 Filled {listing.fieldsApplied} empty spec{listing.fieldsApplied !== 1 ? "s" : ""} from a cited listing page.
               </p>
+              {listing.fields && listing.fields.length > 0 && (
+                <ul className="space-y-0.5 pl-6">
+                  {listing.fields.map((field) => (
+                    <li key={field.label} className="text-sm">
+                      <span className="text-muted-foreground">{field.label}</span>
+                      {" "}
+                      <span className="font-medium text-green-700 dark:text-green-500">{field.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {listing.url && (
+                <a
+                  href={listing.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="pl-6 text-xs text-primary underline underline-offset-2"
+                >
+                  Listing page
+                </a>
+              )}
               <button
                 onClick={resetListing}
                 className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"

@@ -10,6 +10,7 @@ import { buildCustomFieldsSchema, type FieldDefinition } from "./custom-fields";
 import type { StoredOwnerContact } from "./owner-contacts";
 import { persistIndustrialFromExtract } from "./industrial-extract";
 import { ensureIndustrialFieldDefs } from "./industrial-fields";
+import { enqueueJob } from "./jobs";
 
 // ─── Unified tool ─────────────────────────────────────────────────────────────
 // One definition used by every ingestion path. Source-specific extraction hints
@@ -276,7 +277,7 @@ export async function savePipelineProperty(
   const bc = fields.building_composition;
   const industrialDefs = await ensureIndustrialFieldDefs(supabase, userId);
   const persist = persistIndustrialFromExtract(industrialDefs, fields);
-  return upsertProperty(supabase, userId, {
+  const id = await upsertProperty(supabase, userId, {
     owner_id: userId,
     address:               overrides?.address    ?? fields.address,
     city:                  overrides?.city       ?? fields.city,
@@ -299,4 +300,10 @@ export async function savePipelineProperty(
     custom_fields:         persist.custom,
     ...persist.columns,
   });
+
+  const address = overrides?.address ?? fields.address;
+  if (address?.trim()) {
+    await enqueueJob(supabase as never, userId, "listing_discover", { propertyId: id });
+  }
+  return id;
 }

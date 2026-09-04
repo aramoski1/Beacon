@@ -34,13 +34,17 @@ export async function POST() {
       } else if (job.job_type === "ownership_watch_batch") {
         await runOwnershipWatchBatch(10);
       } else if (job.job_type === "listing_discover") {
-        const preview = await runListingDiscoverJob(job.payload ?? {});
+        const result = await runListingDiscoverJob(job.payload ?? {});
         await supabase
           .from("background_jobs")
           .update({
             status: "done",
             finished_at: new Date().toISOString(),
-            payload: { ...(job.payload ?? {}), preview },
+            payload: {
+              ...(job.payload ?? {}),
+              preview: result.preview,
+              applied: result.applied,
+            },
           })
           .eq("id", job.id);
         processed.push({ id: job.id, ok: true });
