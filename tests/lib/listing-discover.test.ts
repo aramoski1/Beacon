@@ -6,7 +6,10 @@ import {
   buildListingCandidates,
   excerptForValue,
   isJunkListingUrl,
+  listingDetailRank,
+  listingSearchHitText,
   listingSearchQuery,
+  parseBraveHits,
   parseBraveUrls,
   parseDdgHtmlUrls,
   parseSerperUrls,
@@ -76,6 +79,25 @@ describe("isJunkListingUrl / uniqueHttpUrls", () => {
   });
 });
 
+describe("search snippet fallback", () => {
+  const snippet = [
+    "3880 W 104th Street, Suite 4, Hialeah, FL",
+    "Featuring a 32’ clear height, and heavy power capacity at 480V/250 AMPS.",
+    "The property includes two dock-high doors, one ramp, and an ESFR sprinkler system.",
+  ].join("\n");
+
+  it("address-matches a Brave snippet when Jina cannot fetch LoopNet", () => {
+    expect(addressMatchesPage("3880 W 104TH ST", "Miami", snippet)).toBe(true);
+  });
+
+  it("can cite docks and clear height from the snippet text", () => {
+    const excerptH = excerptForValue(snippet, 32);
+    const excerptD = excerptForValue(snippet, 2);
+    expect(excerptH?.toLowerCase()).toContain("clear");
+    expect(excerptD).toBeTruthy();
+  });
+});
+
 describe("addressMatchesPage", () => {
   const page = "Industrial warehouse at 7900 NW 27th Avenue, Miami. 32' clear height, 8 dock doors.";
 
@@ -105,6 +127,11 @@ describe("excerptForValue", () => {
   it("rejects a value the page never states", () => {
     expect(excerptForValue(page, 4000)).toBeNull();
   });
+
+  it("does not treat 2 as a match inside 32", () => {
+    expect(excerptForValue("32' clear height and two dock-high doors.", 2)?.toLowerCase()).toContain("dock");
+    expect(excerptForValue("32' clear height only.", 2)).toBeNull();
+  });
 });
 
 describe("search result parsers", () => {
@@ -125,6 +152,29 @@ describe("search result parsers", () => {
   it("reads DuckDuckGo uddg redirects", () => {
     const html = `<a class="result__a" href="//duckduckgo.com/l/?uddg=${encodeURIComponent("https://www.crexi.com/p/2")}">x</a>`;
     expect(parseDdgHtmlUrls(html)).toEqual(["https://www.crexi.com/p/2"]);
+  });
+
+  it("keeps Brave extra snippets and prefers listing detail pages with specs", () => {
+    const hits = parseBraveHits({
+      web: {
+        results: [
+          {
+            url: "https://www.crexi.com/properties/FL/Miami/Warehouses",
+            title: "Warehouses",
+            description: "Browse warehouses",
+          },
+          {
+            url: "https://www.loopnet.com/Listing/3880-W-104th-St-Hialeah-FL/1",
+            title: "3880 W 104th St",
+            description: "Available for lease",
+            extra_snippets: ["32' clear height and two dock-high doors."],
+          },
+        ],
+      },
+    });
+    expect(hits[0]?.url).toContain("/Listing/");
+    expect(listingSearchHitText(hits[0]!)).toContain("32'");
+    expect(listingDetailRank(hits[0]!.url)).toBeLessThan(listingDetailRank(hits[1]!.url));
   });
 });
 

@@ -1,6 +1,7 @@
 // Find a public listing page for an address, fetch it (Jina), gate on address
-// match, then reuse extractPropertyFields. Writes never happen here — callers
-// preview and apply fill-only via field-lock.
+// match, then reuse extractPropertyFields. When Jina is blocked (LoopNet /
+// Crexi), fall back to Brave/Serper snippets that quote the listing.
+// Writes never happen here — callers preview and apply fill-only via field-lock.
 
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { AUTHORITATIVE_PROPERTY_FIELDS } from "@/lib/document-enhancement";
@@ -38,6 +39,65 @@ const SKIP_HOST_PARTS = [
 
 const MAX_SEARCH_RESULTS = 8;
 const MAX_FETCH_PAGES = 4;
+
+export type ListingSearchHit = {
+  url: string;
+  title: string;
+  description: string;
+  snippets: string[];
+};
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function listingSearchHitText(hit: ListingSearchHit): string {
+  return [hit.title, hit.description, ...hit.snippets]
+    .map((s) => stripHtml(s))
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function listingDetailRank(url: string): number {
+  try {
+    const path = new URL(url).pathname;
+    if (/\/Listing\//i.test(path)) return 0;
+    if (/\/properties\/\d+/.test(path)) return 1;
+    if (/\/search\//i.test(path) || /Warehouses\/?$/i.test(path)) return 9;
+    return 5;
+  } catch {
+    return 9;
+  }
+}
+
+function snippetQuality(hit: ListingSearchHit): number {
+  const t = listingSearchHitText(hit).toLowerCase();
+  let score = 0;
+  if (t.includes("clear height") || t.includes("clearance")) score += 3;
+  if (t.includes("dock")) score += 2;
+  if (t.includes("/sf") || t.includes("psf") || t.includes("asking")) score += 1;
+  if (t.includes("esfr") || t.includes("amp")) score += 1;
+  return score;
+}
+
+function sortListingHits(hits: ListingSearchHit[]): ListingSearchHit[] {
+  return [...hits].sort((a, b) => {
+    const rank = listingDetailRank(a.url) - listingDetailRank(b.url);
+    if (rank !== 0) return rank;
+    return snippetQuality(b) - snippetQuality(a);
+  });
+}
+
+function uniqueHits(hits: ListingSearchHit[]): ListingSearchHit[] {
+  const seen = new Set<string>();
+  const out: ListingSearchHit[] = [];
+  for (const hit of hits) {
+    if (isJunkListingUrl(hit.url) || seen.has(hit.url)) continue;
+    seen.add(hit.url);
+    out.push(hit);
+  }
+  return sortListingHits(out);
+}
 
 export type ListingCitation = {
   url: string;
@@ -102,11 +162,47 @@ export function addressMatchesPage(
   return parts[1] != null && text.includes(parts[1]);
 }
 
+const SMALL_NUMBER_WORDS: Record<number, string> = {
+  1: "one",
+  2: "two",
+  3: "three",
+  4: "four",
+  5: "five",
+  6: "six",
+  7: "seven",
+  8: "eight",
+  9: "nine",
+  10: "ten",
+};
+
+function needleIndex(hay: string, needle: string): number {
+  if (!needle) return -1;
+  const lowerHay = hay.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  let from = 0;
+  while (from < lowerHay.length) {
+    const idx = lowerHay.indexOf(lowerNeedle, from);
+    if (idx < 0) return -1;
+    const prev = idx > 0 ? lowerHay[idx - 1] ?? "" : "";
+    const next = lowerHay[idx + lowerNeedle.length] ?? "";
+    const startsWithDigit = /^\d/.test(needle);
+    if (startsWithDigit && /[0-9]/.test(prev)) {
+      from = idx + 1;
+      continue;
+    }
+    if (/^\d{1,2}$/.test(needle) && /[0-9]/.test(next)) {
+      from = idx + 1;
+      continue;
+    }
+    return idx;
+  }
+  return -1;
+}
+
 export function excerptAround(pageText: string, needle: string, radius = 48): string | null {
   const n = needle.trim();
   if (!n) return null;
-  const hay = pageText.toLowerCase();
-  const idx = hay.indexOf(n.toLowerCase());
+  const idx = needleIndex(pageText, n);
   if (idx < 0) return null;
   const start = Math.max(0, idx - radius);
   const end = Math.min(pageText.length, idx + n.length + radius);
@@ -119,6 +215,8 @@ export function excerptForValue(pageText: string, value: string | number): strin
   const candidates = [raw];
   if (typeof value === "number") {
     candidates.push(`${value}'`, `${value} ft`, `${value}ft`, value.toLocaleString("en-US"));
+    const word = SMALL_NUMBER_WORDS[value];
+    if (word) candidates.push(word);
   }
   for (const needle of candidates) {
     const excerpt = excerptAround(pageText, needle);
@@ -147,14 +245,51 @@ export function uniqueHttpUrls(urls: string[]): string[] {
   return out;
 }
 
+export function parseBraveHits(json: unknown): ListingSearchHit[] {
+  const web = (json as {
+    web?: {
+      results?: {
+        url?: string;
+        title?: string;
+        description?: string;
+        extra_snippets?: string[];
+      }[];
+    };
+  })?.web?.results ?? [];
+  return uniqueHits(
+    web
+      .filter((r) => r.url)
+      .map((r) => ({
+        url: r.url as string,
+        title: r.title ?? "",
+        description: r.description ?? "",
+        snippets: r.extra_snippets ?? [],
+      })),
+  );
+}
+
 export function parseBraveUrls(json: unknown): string[] {
-  const web = (json as { web?: { results?: { url?: string }[] } })?.web?.results ?? [];
-  return uniqueHttpUrls(web.map((r) => r.url ?? "").filter(Boolean));
+  return parseBraveHits(json).map((h) => h.url);
+}
+
+export function parseSerperHits(json: unknown): ListingSearchHit[] {
+  const organic = (json as {
+    organic?: { link?: string; title?: string; snippet?: string }[];
+  })?.organic ?? [];
+  return uniqueHits(
+    organic
+      .filter((r) => r.link)
+      .map((r) => ({
+        url: r.link as string,
+        title: r.title ?? "",
+        description: r.snippet ?? "",
+        snippets: [],
+      })),
+  );
 }
 
 export function parseSerperUrls(json: unknown): string[] {
-  const organic = (json as { organic?: { link?: string }[] })?.organic ?? [];
-  return uniqueHttpUrls(organic.map((r) => r.link ?? "").filter(Boolean));
+  return parseSerperHits(json).map((h) => h.url);
 }
 
 export function parseDdgHtmlUrls(html: string): string[] {
@@ -175,17 +310,17 @@ export function parseDdgHtmlUrls(html: string): string[] {
   return uniqueHttpUrls(urls);
 }
 
-export async function searchListingUrls(query: string): Promise<string[]> {
+export async function searchListingHits(query: string): Promise<ListingSearchHit[]> {
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
   if (braveKey) {
-    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_SEARCH_RESULTS}`;
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_SEARCH_RESULTS}&extra_snippets=true`;
     const res = await fetch(url, {
       headers: {
         Accept: "application/json",
         "X-Subscription-Token": braveKey,
       },
     });
-    if (res.ok) return parseBraveUrls(await res.json()).slice(0, MAX_SEARCH_RESULTS);
+    if (res.ok) return parseBraveHits(await res.json()).slice(0, MAX_SEARCH_RESULTS);
   }
 
   const serperKey = process.env.SERPER_API_KEY;
@@ -198,14 +333,38 @@ export async function searchListingUrls(query: string): Promise<string[]> {
       },
       body: JSON.stringify({ q: query, num: MAX_SEARCH_RESULTS }),
     });
-    if (res.ok) return parseSerperUrls(await res.json()).slice(0, MAX_SEARCH_RESULTS);
+    if (res.ok) return parseSerperHits(await res.json()).slice(0, MAX_SEARCH_RESULTS);
   }
 
   const ddg = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
     headers: { "User-Agent": "BeaconListingDiscover/1.0" },
   });
   if (!ddg.ok) return [];
-  return parseDdgHtmlUrls(await ddg.text()).slice(0, MAX_SEARCH_RESULTS);
+  return parseDdgHtmlUrls(await ddg.text())
+    .slice(0, MAX_SEARCH_RESULTS)
+    .map((url) => ({ url, title: "", description: "", snippets: [] }));
+}
+
+export async function searchListingUrls(query: string): Promise<string[]> {
+  return (await searchListingHits(query)).map((h) => h.url);
+}
+
+async function pageTextForHit(
+  hit: ListingSearchHit,
+  address: string,
+  city: string | null,
+): Promise<string | null> {
+  try {
+    const fetched = await fetchListingText(hit.url);
+    if (addressMatchesPage(address, city, fetched)) return fetched;
+  } catch {
+    // LoopNet / Crexi often block Jina. Fall through to public search snippets.
+  }
+  const snippetText = listingSearchHitText(hit);
+  if (snippetText.length >= 80 && addressMatchesPage(address, city, snippetText)) {
+    return snippetText;
+  }
+  return null;
 }
 
 export function buildListingCandidates(
@@ -310,9 +469,9 @@ export async function discoverListingSpecs(
   input: DiscoverListingInput,
 ): Promise<ListingDiscoverPreview> {
   const query = listingSearchQuery(input.address, input.city);
-  let urls: string[] = [];
+  let hits: ListingSearchHit[] = [];
   try {
-    urls = await searchListingUrls(query);
+    hits = await searchListingHits(query);
   } catch {
     return {
       url: null,
@@ -322,7 +481,7 @@ export async function discoverListingSpecs(
     };
   }
 
-  if (urls.length === 0) {
+  if (hits.length === 0) {
     return {
       url: null,
       note: "No public listing pages found for this address.",
@@ -332,19 +491,13 @@ export async function discoverListingSpecs(
   }
 
   let skippedPages = 0;
-  for (const url of urls.slice(0, MAX_FETCH_PAGES)) {
-    let pageText: string;
-    try {
-      pageText = await fetchListingText(url);
-    } catch {
+  for (const hit of hits.slice(0, MAX_FETCH_PAGES)) {
+    const pageText = await pageTextForHit(hit, input.address, input.city);
+    if (!pageText) {
       skippedPages += 1;
       continue;
     }
-
-    if (!addressMatchesPage(input.address, input.city, pageText)) {
-      skippedPages += 1;
-      continue;
-    }
+    const url = hit.url;
 
     let extracted: ExtractedProperty;
     try {
