@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { loadContactsByPropertyMap } from "@/lib/contact-properties";
+import { nearestNoticeDeadline } from "@/lib/lease-export";
 import {
   daysUntilExpiry,
   leaseRadarBucket,
@@ -41,7 +42,7 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
     supabase
       .from("lease_abstracts")
       .select(
-        "id, expiration_date, source_document, base_rate, term, linked_property, tenant_contact_id, properties(id, address, owner_name)",
+        "id, expiration_date, source_document, base_rate, term, options, linked_property, tenant_contact_id, properties(id, address, owner_name)",
       )
       .eq("owner_id", user.id)
       .not("expiration_date", "is", null)
@@ -99,6 +100,7 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
     const propertyId = (row.linked_property as string | null) ?? prop?.id ?? null;
     const linked = propertyId ? ownerByProperty.get(propertyId) : undefined;
     const tenantId = row.tenant_contact_id as string | null;
+    const notice = nearestNoticeDeadline(row.expiration_date, row.options, today);
 
     const entry: LeaseRadarEntry = {
       id: row.id,
@@ -116,6 +118,9 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
         ? { id: linked.id, name: linked.name, email: linked.email, company: linked.company }
         : null,
       tenant_contact: tenantId ? (contactById.get(tenantId) ?? null) : null,
+      notice_deadline: notice?.date ?? null,
+      daysUntilNotice: notice?.daysUntil ?? null,
+      notice_label: notice?.label ?? null,
     };
 
     if (bucket === "3mo") within3.push(entry);

@@ -40,6 +40,7 @@ const ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.csv,.txt";
 export function CoStarSection({ propertyId }: { propertyId: string }) {
   const [phase, setPhase] = useState<Phase>({ tag: "idle" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bookType, setBookType] = useState<"owner" | "tenant">("owner");
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
 
@@ -67,7 +68,7 @@ export function CoStarSection({ propertyId }: { propertyId: string }) {
       setPhase({
         tag: "error",
         message:
-          "No contacts found in the file. Make sure this is a CoStar \"About the Owner\" export.",
+          "No contacts found in the file. Make sure this is a CoStar owner or tenant export.",
       });
       return;
     }
@@ -85,7 +86,7 @@ export function CoStarSection({ propertyId }: { propertyId: string }) {
     setPhase({ tag: "saving" });
     let res: CoStarCreateAction;
     try {
-      res = await createCoStarContacts(propertyId, toCreate, phase.owner.company_name);
+      res = await createCoStarContacts(propertyId, toCreate, phase.owner.company_name, bookType);
     } catch (e) {
       setPhase({ tag: "error", message: e instanceof Error ? e.message : String(e) });
       return;
@@ -121,7 +122,7 @@ export function CoStarSection({ propertyId }: { propertyId: string }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <FileText className="size-4" />
-          CoStar Owner Enrichment
+          CoStar contacts
         </CardTitle>
       </CardHeader>
 
@@ -130,12 +131,23 @@ export function CoStarSection({ propertyId }: { propertyId: string }) {
         {phase.tag === "idle" && (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Upload a CoStar &ldquo;About the Owner&rdquo; export to pull owner contacts onto this property.
+              Upload a CoStar owner or tenant export to add contacts to this property.
               Beacon only uses what&apos;s in the file — no CoStar login.
             </p>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-xs text-muted-foreground">Book</span>
+              <select
+                value={bookType}
+                onChange={(e) => setBookType(e.target.value as "owner" | "tenant")}
+                className="border border-border rounded-md px-2 py-1 text-sm bg-background"
+              >
+                <option value="owner">Owners</option>
+                <option value="tenant">Tenants</option>
+              </select>
+            </label>
             <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-0.5">
-              <li>In CoStar, open the property or owner record.</li>
-              <li>Export &ldquo;About the Owner&rdquo; (PDF, CSV, or screenshot).</li>
+              <li>In CoStar, open the property record.</li>
+              <li>Export About the Owner or a tenant roster (PDF, CSV, or screenshot).</li>
               <li>Upload that file here and click Parse.</li>
             </ol>
             <p className="text-xs text-muted-foreground">

@@ -4,6 +4,8 @@ import {
   parseNoticePeriod,
   subtractNoticePeriod,
   buildCriticalDates,
+  nearestNoticeDeadline,
+  daysUntilIso,
   buildIcsString,
   buildExcelBytes,
   buildWordBytes,
@@ -122,6 +124,25 @@ describe("buildCriticalDates", () => {
     // Only the expiration event; no notice deadline
     expect(dates).toHaveLength(1);
     expect(dates[0].label).toBe("Lease Expiration");
+  });
+});
+
+describe("nearestNoticeDeadline", () => {
+  it("returns the soonest upcoming notice from JSON options", () => {
+    const notice = nearestNoticeDeadline(
+      "2026-12-31",
+      [{ type: "renewal", description: "Two 5-year", notice_period: "6 months" }],
+      "2026-04-01",
+    );
+    expect(notice?.date).toBe("2026-07-01");
+    expect(notice?.daysUntil).toBe(daysUntilIso("2026-07-01", "2026-04-01"));
+    expect(notice?.label).toMatch(/Renewal/i);
+  });
+
+  it("returns null when options have no notice period", () => {
+    expect(
+      nearestNoticeDeadline("2026-12-31", [{ type: "renewal", description: "x" }], "2026-04-01"),
+    ).toBeNull();
   });
 });
 

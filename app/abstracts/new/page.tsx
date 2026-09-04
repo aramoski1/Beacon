@@ -113,6 +113,20 @@ function LeasePreviewCard({
                 {preview.base_rate != null ? `$${preview.base_rate}/sqft` : "—"}
               </dd>
             </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Tenant</dt>
+              <dd className="text-sm font-medium mt-0.5">{preview.tenant_name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Tenant SF</dt>
+              <dd className="text-sm font-medium mt-0.5">
+                {preview.leased_sf != null ? preview.leased_sf.toLocaleString() : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Landlord</dt>
+              <dd className="text-sm font-medium mt-0.5">{preview.landlord_name ?? "—"}</dd>
+            </div>
           </dl>
         </CardContent>
       </Card>

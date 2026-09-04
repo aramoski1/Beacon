@@ -299,6 +299,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-industrial-field-defs.ts",
     description: "Industrial specs as customizable field_definitions (field_group) + seed-once flag on user_settings",
   },
+  {
+    file: "migrate-broker-books.ts",
+    description: "Lease leased_sf + landlord_name; user_settings weekly list pin",
+  },
 ];
 
 const hr = "─".repeat(60);

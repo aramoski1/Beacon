@@ -23,6 +23,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { PropertyContactsSection, type LinkedContact } from "./contacts-section";
+import { PromoteOwnerButton } from "./promote-owner-button";
+import { paVerifyFromSourceUrl } from "@/lib/pa-verify";
 import { PropertyActivitySection, type ActivityContact, type PropertyFollowUpInput } from "./activity-section";
 import { fetchActivitiesByProperty, type Activity } from "@/app/activities/actions";
 import { EnrichPanel } from "./enrich-panel";
@@ -74,6 +76,7 @@ type Property = {
   asset_description: string | null;
   prospect_number: number | null;
   owner_mailing_address: string | null;
+  owner_email: string | null;
   owner_contact_name: string | null;
   owner_contact_address: string | null;
   owner_contacts: StoredOwnerContact[] | null;
@@ -267,6 +270,7 @@ export default async function PropertyPage({
   }));
 
   const folioNumber = folio(p.source_url);
+  const paVerify = paVerifyFromSourceUrl(p.source_url);
   const isMdpaSource = !!(folioNumber || p.source === "tax_roll");
 
   // flagMap: field name → reason string (covers both uncertain and not-found)
@@ -417,24 +421,25 @@ export default async function PropertyPage({
               className="h-8 text-xs"
             />
           )}
+          <PromoteOwnerButton propertyId={id} />
         </div>
       </div>
 
       {/* Source + folio verification strip */}
-      {folioNumber ? (
+      {paVerify ? (
         <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
           <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Source</span>
-          <span className="font-medium">Miami-Dade Property Appraiser</span>
+          <span className="font-medium">{paVerify.sourceName}</span>
           <span className="text-muted-foreground">·</span>
           <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Folio</span>
-          <span className="font-mono text-foreground font-semibold">{folioNumber}</span>
+          <span className="font-mono text-foreground font-semibold">{paVerify.strap}</span>
           <a
-            href={`https://www.miamidade.gov/Apps/PA/propertysearch/#/?strap=${folioNumber}`}
+            href={paVerify.href}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity ml-auto"
           >
-            Verify on MDPA ↗
+            Verify on {paVerify.label} ↗
             <ExternalLink className="size-3" />
           </a>
         </div>
@@ -773,6 +778,8 @@ export default async function PropertyPage({
         propertyLabel={p.address}
         initialContacts={linkedContacts}
         cadenceSettings={userSettings}
+        stagingEmail={p.owner_email}
+        stagingName={p.owner_contact_name ?? p.owner_name}
       />
 
       {/* Linked leases */}

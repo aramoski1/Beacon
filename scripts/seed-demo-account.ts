@@ -206,6 +206,122 @@ function sizeForType(ptype: string): { sqft: number; cat: string } {
   };
 }
 
+const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  Miami: { lat: 25.7617, lng: -80.1918 },
+  Doral: { lat: 25.8195, lng: -80.3553 },
+  Hialeah: { lat: 25.8576, lng: -80.2781 },
+  Medley: { lat: 25.807, lng: -80.337 },
+  "Miami Lakes": { lat: 25.9087, lng: -80.3087 },
+  "Opa-locka": { lat: 25.902, lng: -80.2503 },
+  Homestead: { lat: 25.4687, lng: -80.4776 },
+  "Coral Gables": { lat: 25.7215, lng: -80.2684 },
+  Kendall: { lat: 25.679, lng: -80.3173 },
+  Aventura: { lat: 25.9565, lng: -80.139 },
+};
+
+function jitterCoord(city: string): { lat: number; lng: number } {
+  const base = CITY_COORDS[city] ?? CITY_COORDS.Miami;
+  return {
+    lat: Number((base.lat + (Math.random() - 0.5) * 0.045).toFixed(6)),
+    lng: Number((base.lng + (Math.random() - 0.5) * 0.045).toFixed(6)),
+  };
+}
+
+function isIndustrialType(ptype: string): boolean {
+  return ptype === "industrial" || ptype === "flex" || ptype === "warehouse";
+}
+
+function industrialSpecs(ptype: string, sqft: number) {
+  if (!isIndustrialType(ptype)) {
+    return {
+      clear_height_ft: null as number | null,
+      dock_doors: null as number | null,
+      drive_in_doors: null as number | null,
+      power_amps: null as number | null,
+      power_phase: null as string | null,
+      yard_acres: null as number | null,
+      column_spacing: null as string | null,
+      sprinkler_type: null as string | null,
+      availability_status: Math.random() > 0.55 ? pick(["leased", "off_market"]) : null,
+      asking_rent_psf: Math.random() > 0.6 ? Number((randInt(28, 55) + Math.random()).toFixed(2)) : null,
+      nnn_cam_psf: null as number | null,
+      lease_structure: null as string | null,
+      custom_fields: {} as Record<string, string | number>,
+    };
+  }
+
+  const clear = pick([24, 28, 30, 32, 36, 40]);
+  const docks = Math.max(2, Math.round(sqft / 12000));
+  const driveIn = randInt(1, 4);
+  const power = pick([400, 600, 800, 1200, 1600, 2000]);
+  const yard = Math.random() > 0.35 ? Number((Math.random() * 3.5 + 0.4).toFixed(2)) : null;
+  const column = pick(["50x50", "54x50", "60x50", "40x40"]);
+  const sprinkler = pick(["esfr", "esfr", "wet", "k25"]);
+  const avail = pick(["available", "available", "leased", "under_contract", "off_market"]);
+  const rent = Number((randInt(13, 22) + Math.random()).toFixed(2));
+  const nnn = Number((randInt(3, 6) + Math.random()).toFixed(2));
+  const structure = pick(["nnn", "nnn", "industrial_gross", "modified_gross"]);
+
+  const custom_fields: Record<string, string | number> = {
+    clear_height: clear,
+    dock_doors: docks,
+    drive_in_doors: driveIn,
+    power,
+    phase: "3",
+    column_spacing: column,
+    sprinkler,
+    availability: avail,
+    asking_rent: rent,
+    nnn_cam: nnn,
+    lease_structure: structure,
+  };
+  if (yard != null) custom_fields.yard = yard;
+
+  return {
+    clear_height_ft: clear,
+    dock_doors: docks,
+    drive_in_doors: driveIn,
+    power_amps: power,
+    power_phase: "3",
+    yard_acres: yard,
+    column_spacing: column,
+    sprinkler_type: sprinkler,
+    availability_status: avail,
+    asking_rent_psf: rent,
+    nnn_cam_psf: nnn,
+    lease_structure: structure,
+    custom_fields,
+  };
+}
+
+const INDUSTRIAL_FIELD_DEFS: {
+  field_name: string;
+  field_type: string;
+  select_options: string[] | null;
+}[] = [
+  { field_name: "Clear height", field_type: "number", select_options: null },
+  { field_name: "Dock doors", field_type: "number", select_options: null },
+  { field_name: "Drive-in doors", field_type: "number", select_options: null },
+  { field_name: "Power", field_type: "number", select_options: null },
+  { field_name: "Phase", field_type: "select", select_options: ["1", "3"] },
+  { field_name: "Yard", field_type: "number", select_options: null },
+  { field_name: "Column spacing", field_type: "text", select_options: null },
+  { field_name: "Sprinkler", field_type: "select", select_options: ["esfr", "k25", "wet", "dry", "none"] },
+  { field_name: "Availability", field_type: "select", select_options: ["available", "leased", "off_market", "under_contract"] },
+  { field_name: "Asking rent", field_type: "number", select_options: null },
+  { field_name: "NNN / CAM", field_type: "number", select_options: null },
+  { field_name: "Lease structure", field_type: "select", select_options: ["nnn", "modified_gross", "gross", "industrial_gross"] },
+];
+
+const OWNER_CRITERIA = [
+  { cap: 6.5, markets: ["Airport West", "Doral"], min: 50000, max: 200000, days: 48, notes: "1031 from Palmetto sale — warehouse / last-mile only" },
+  { cap: 5.75, markets: ["Beacon Lakes", "Doral"], min: 80000, max: 300000, days: null as number | null, notes: "Core institutional industrial; ESFR + 32' clear preferred" },
+  { cap: 7.0, markets: ["Medley", "Flagler"], min: 25000, max: 80000, days: 90, notes: "Value-add flex; older stock OK if dock-high" },
+  { cap: 6.25, markets: ["South Dade", "Homestead"], min: 20000, max: 120000, days: 22, notes: "Tight 1031 clock — South Dade / Homestead industrial" },
+  { cap: 6.0, markets: ["Airport West"], min: 80000, max: 160000, days: null, notes: "Airport West only; 3-phase power required" },
+  { cap: 6.75, markets: ["Hialeah"], min: 15000, max: 50000, days: 70, notes: "Hialeah flex / multi-tenant; 15–50k SF" },
+];
+
 async function ensureUser(db: Client): Promise<{ id: string; created: boolean }> {
   const existing = await db.query<{ id: string }>(
     `SELECT id FROM auth.users WHERE lower(email) = lower($1)`,
@@ -265,8 +381,9 @@ async function ensureFirmAndSettings(db: Client, userId: string) {
   await db.query(
     `INSERT INTO user_settings (
        owner_id, display_name, broker_name, company, default_market,
-       default_submarket, phone, sender_email, onboarding_completed_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+       default_submarket, phone, sender_email, onboarding_completed_at,
+       pilot_agreement_accepted_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
      ON CONFLICT (owner_id) DO UPDATE SET
        display_name = EXCLUDED.display_name,
        broker_name = EXCLUDED.broker_name,
@@ -274,6 +391,7 @@ async function ensureFirmAndSettings(db: Client, userId: string) {
        default_market = EXCLUDED.default_market,
        default_submarket = EXCLUDED.default_submarket,
        onboarding_completed_at = COALESCE(user_settings.onboarding_completed_at, now()),
+       pilot_agreement_accepted_at = COALESCE(user_settings.pilot_agreement_accepted_at, now()),
        updated_at = now()`,
     [
       userId,
@@ -288,7 +406,34 @@ async function ensureFirmAndSettings(db: Client, userId: string) {
   );
 }
 
+async function ensureIndustrialDefs(db: Client, userId: string) {
+  for (const def of INDUSTRIAL_FIELD_DEFS) {
+    await db.query(
+      `INSERT INTO field_definitions (
+         owner_id, entity_type, field_group, field_name, field_type,
+         fill_mode, select_options
+       ) VALUES ($1, 'property', 'industrial', $2, $3, 'extract', $4::jsonb)
+       ON CONFLICT (owner_id, entity_type, field_name) DO NOTHING`,
+      [userId, def.field_name, def.field_type, def.select_options ? JSON.stringify(def.select_options) : null],
+    );
+  }
+  await db.query(
+    `UPDATE user_settings
+        SET industrial_specs_initialized = true, updated_at = now()
+      WHERE owner_id = $1`,
+    [userId],
+  );
+}
+
 async function wipeDemo(db: Client, userId: string) {
+  await db.query(
+    `DELETE FROM tours WHERE owner_id = $1 AND (notes LIKE '[Demo]%' OR post_tour_notes LIKE '[Demo]%')`,
+    [userId],
+  );
+  await db.query(
+    `DELETE FROM rent_comps WHERE owner_id = $1 AND source = $2`,
+    [userId, DEMO_SOURCE],
+  );
   // Order: children that reference leases/deals/contacts/properties first
   await db.query(
     `DELETE FROM follow_ups WHERE owner_id = $1 AND (
@@ -343,6 +488,7 @@ async function main() {
   }
 
   await ensureFirmAndSettings(db, userId);
+  await ensureIndustrialDefs(db, userId);
 
   if (RESET) {
     console.log("Wiping prior seed:demo rows…");
@@ -378,15 +524,19 @@ async function main() {
     // Mix cadence: some overdue, some recent
     const lastContacted =
       i % 3 === 0 ? daysAgo(45) : i % 3 === 1 ? daysAgo(8) : daysAgo(2);
+    const criteria = OWNER_CRITERIA[i];
     await db.query(
       `INSERT INTO contacts (
          id, owner_id, name, company, role, email, phone, phone_office,
          contact_tier, client_status, contact_type, ownership_role,
          geographic_category, ownership_type, asset_focus, submarket,
-         relationship_stage, lead_source, last_contacted_at, notes, visibility
+         relationship_stage, lead_source, last_contacted_at, notes, visibility,
+         cap_rate_target, preferred_markets, preferred_min_sf, preferred_max_sf,
+         exchange_1031_deadline, buyer_criteria_notes
        ) VALUES (
          $1,$2,$3,$4,'Principal',$5,$6,$6,$7,'active client','owner','managing_member',
-         'Miami-Dade',$8,$9,$10,'active',$11,$12,$13,'private'
+         'Miami-Dade',$8,$9,$10,'active',$11,$12,$13,'private',
+         $14,$15,$16,$17,$18,$19
        )`,
       [
         cid,
@@ -402,6 +552,12 @@ async function main() {
         DEMO_SOURCE,
         lastContacted.toISOString(),
         `[Demo] Owner principal for ${p.llc}`,
+        criteria.cap,
+        criteria.markets,
+        criteria.min,
+        criteria.max,
+        criteria.days != null ? daysFromNow(criteria.days) : null,
+        `[Demo] ${criteria.notes}`,
       ],
     );
     ownerContactIds.push(cid);
@@ -463,6 +619,9 @@ async function main() {
     const createdAt = daysAgo(randInt(1, 120));
     const watch = i % 7 === 0;
     const ownershipFlip = i % 19 === 0;
+    const storedType = ptype === "flex" || ptype === "warehouse" ? "industrial" : ptype;
+    const specs = industrialSpecs(ptype, sqft);
+    const { lat, lng } = jitterCoord(city);
 
     await db.query(
       `INSERT INTO properties (
@@ -473,7 +632,11 @@ async function main() {
          owner_email, owner_contacts, entity_id,
          ownership_watch_enrolled_at, ownership_last_checked_at,
          ownership_change_detected_at, ownership_change_data,
-         created_at, updated_at, visibility
+         created_at, updated_at, visibility,
+         clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase,
+         yard_acres, column_spacing, sprinkler_type, availability_status,
+         asking_rent_psf, nnn_cam_psf, lease_structure,
+         latitude, longitude, geocoded_at, custom_fields
        ) VALUES (
          $1,$2,$3,$4,$5,$6,
          $7,$8,$9,$10,$11,
@@ -482,7 +645,11 @@ async function main() {
          $19,'[]'::jsonb,$20,
          $21,$22,
          $23,$24,
-         $25,$25,'private'
+         $25,$25,'private',
+         $26,$27,$28,$29,$30,
+         $31,$32,$33,$34,
+         $35,$36,$37,
+         $38,$39,$40,$41::jsonb
        )`,
       [
         id,
@@ -495,7 +662,7 @@ async function main() {
         pick(OWNERSHIP_TYPES),
         sqft,
         cat,
-        ptype === "flex" || ptype === "warehouse" ? "industrial" : ptype,
+        storedType,
         `${ptype.charAt(0).toUpperCase() + ptype.slice(1)} — ${city}`,
         Math.random() > 0.35 ? daysFromNow(-randInt(30, 4000)) : null,
         Math.random() > 0.35 ? randInt(850000, 28000000) : null,
@@ -516,6 +683,22 @@ async function main() {
             })
           : null,
         createdAt.toISOString(),
+        specs.clear_height_ft,
+        specs.dock_doors,
+        specs.drive_in_doors,
+        specs.power_amps,
+        specs.power_phase,
+        specs.yard_acres,
+        specs.column_spacing,
+        specs.sprinkler_type,
+        specs.availability_status,
+        specs.asking_rent_psf,
+        specs.nnn_cam_psf,
+        specs.lease_structure,
+        lat,
+        lng,
+        createdAt.toISOString(),
+        JSON.stringify(specs.custom_fields),
       ],
     );
 
@@ -558,12 +741,12 @@ async function main() {
     await db.query(
       `INSERT INTO lease_abstracts (
          id, owner_id, linked_property, execution_date, expiration_date,
-         term, base_rate, escalations, options, key_provisions,
+         term, base_rate, leased_sf, landlord_name, escalations, options, key_provisions,
          source_document, tenant_contact_id, field_reviews, visibility
        ) VALUES (
          $1,$2,$3,$4,$5,
-         $6,$7,$8::jsonb,$9::jsonb,$10::jsonb,
-         $11,$12,'{}'::jsonb,'private'
+         $6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,
+         $13,$14,'{}'::jsonb,'private'
        )`,
       [
         lid,
@@ -573,8 +756,10 @@ async function main() {
         exp,
         `${randInt(3, 10)} years`,
         randInt(8, 28) + Math.random(),
+        Math.round(prop.sqft * (0.4 + Math.random() * 0.5)),
+        PORTFOLIOS[prop.portfolioIdx].llc,
         JSON.stringify([{ type: "annual", amount: "3%" }]),
-        JSON.stringify([{ type: "renewal", periods: 2, years: 5 }]),
+        JSON.stringify([{ type: "renewal", description: "Two 5-year renewals", notice_period: "6 months" }]),
         JSON.stringify({
           tenant: tenant.name,
           use: "Warehousing and distribution",
@@ -646,6 +831,65 @@ async function main() {
       ],
     );
     dealIds.push(did);
+  }
+
+  // ── Rent comps (notebook) ──────────────────────────────────────────────────
+  console.log("Inserting rent comps…");
+  const industrialProps = propertyMeta.filter((p) => isIndustrialType(p.ptype));
+  for (let i = 0; i < 14; i++) {
+    const prop = industrialProps[i % Math.max(industrialProps.length, 1)] ?? propertyMeta[i];
+    await db.query(
+      `INSERT INTO rent_comps (
+         owner_id, property_id, address, submarket, property_type,
+         size_sqft, rent_psf, lease_structure, comp_date, notes, source
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        userId,
+        prop.id,
+        `${randInt(2000, 16000)} ${pick(STREETS)}`,
+        pick(SUBMARKETS),
+        "industrial",
+        randInt(18000, 140000),
+        Number((randInt(13, 23) + Math.random()).toFixed(2)),
+        pick(["nnn", "nnn", "industrial_gross"]),
+        daysFromNow(-randInt(20, 400)),
+        `[Demo] Broker-entered rent comp`,
+        DEMO_SOURCE,
+      ],
+    );
+  }
+
+  // ── Tours ──────────────────────────────────────────────────────────────────
+  console.log("Inserting tours…");
+  const TOUR_STATUSES = ["scheduled", "scheduled", "completed", "cancelled"] as const;
+  for (let i = 0; i < 10; i++) {
+    const prop = propertyMeta[i * 5 % propertyMeta.length];
+    const status = TOUR_STATUSES[i % TOUR_STATUSES.length];
+    const when =
+      status === "completed"
+        ? daysAgo(randInt(2, 25))
+        : status === "cancelled"
+          ? daysAgo(randInt(1, 10))
+          : new Date(`${daysFromNow(randInt(1, 18))}T15:00:00.000Z`);
+    await db.query(
+      `INSERT INTO tours (
+         owner_id, scheduled_at, property_id, contact_id, deal_id,
+         attendees, status, notes, post_tour_notes
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        userId,
+        when.toISOString(),
+        prop.id,
+        i % 2 === 0
+          ? ownerContactIds[i % ownerContactIds.length]
+          : tenantContactIds[i % tenantContactIds.length],
+        i < dealIds.length ? dealIds[i % dealIds.length] : null,
+        pick(["Alec Ramoski; owner principal", "Alec + tenant ops lead", "Alec Ramoski"]),
+        status,
+        `[Demo] ${status === "scheduled" ? "Tour package sent — confirm dock access" : "Seeded tour"}`,
+        status === "completed" ? "[Demo] Tenant liked clear height; wants more yard" : null,
+      ],
+    );
   }
 
   // ── Activities ─────────────────────────────────────────────────────────────
@@ -745,6 +989,8 @@ async function main() {
     "activities",
     "follow_ups",
     "entities",
+    "tours",
+    "rent_comps",
   ]) {
     const { rows } = await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM ${t} WHERE owner_id = $1`,

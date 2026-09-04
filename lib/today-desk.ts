@@ -5,6 +5,8 @@
 
 export type TodayDeskKind =
   | "lease_urgent"
+  | "option_notice"
+  | "exchange_1031"
   | "ownership"
   | "follow_up"
   | "deal_due"
@@ -36,6 +38,12 @@ export function scoreLeaseUrgent(daysUntilExpiry: number): number {
   if (daysUntilExpiry <= 30) return 100;
   if (daysUntilExpiry <= 90) return 90;
   return 0;
+}
+
+/** Option-notice and 1031 — same 30/90 window, plus overdue bump. */
+export function scoreDatedDeadline(daysUntil: number): number {
+  if (daysUntil < 0) return Math.min(110, 102 + Math.min(Math.abs(daysUntil), 8));
+  return scoreLeaseUrgent(daysUntil);
 }
 
 export function scoreOwnershipChange(): number {
@@ -100,6 +108,20 @@ export type BuildTodayDeskInput = {
     daysUntilExpiry: number;
     property_id: string | null;
   }>;
+  optionNotices?: Array<{
+    id: string;
+    property_address: string | null;
+    daysUntil: number;
+    label: string;
+    href: string;
+    dueDate: string;
+  }>;
+  exchange1031?: Array<{
+    id: string;
+    name: string | null;
+    daysUntil: number;
+    deadline: string;
+  }>;
   /** Max items after sort (default 12) */
   limit?: number;
 };
@@ -123,6 +145,41 @@ export function buildTodayDeskItems(input: BuildTodayDeskInput): TodayDeskItem[]
           : `Lease expires in ${l.daysUntilExpiry}d (≤90d exposure)`,
       href: l.property_id ? `/properties/${l.property_id}` : "/lease-radar",
       dueDate: null,
+    });
+  }
+
+  for (const n of input.optionNotices ?? []) {
+    const score = scoreDatedDeadline(n.daysUntil);
+    if (score <= 0) continue;
+    const addr = n.property_address ?? "Linked property";
+    items.push({
+      id: `notice:${n.id}`,
+      kind: "option_notice",
+      score,
+      title: addr,
+      why:
+        n.daysUntil < 0
+          ? `${n.label} was ${Math.abs(n.daysUntil)}d ago`
+          : `${n.label} in ${n.daysUntil}d`,
+      href: n.href,
+      dueDate: n.dueDate,
+    });
+  }
+
+  for (const x of input.exchange1031 ?? []) {
+    const score = scoreDatedDeadline(x.daysUntil);
+    if (score <= 0) continue;
+    items.push({
+      id: `1031:${x.id}`,
+      kind: "exchange_1031",
+      score,
+      title: x.name ?? "Contact",
+      why:
+        x.daysUntil < 0
+          ? `1031 deadline passed ${Math.abs(x.daysUntil)}d ago`
+          : `1031 exchange deadline in ${x.daysUntil}d`,
+      href: `/contacts/${x.id}`,
+      dueDate: x.deadline,
     });
   }
 
@@ -195,6 +252,8 @@ export function buildTodayDeskItems(input: BuildTodayDeskInput): TodayDeskItem[]
 
 export const TODAY_KIND_LABEL: Record<TodayDeskKind, string> = {
   lease_urgent: "Lease",
+  option_notice: "Notice",
+  exchange_1031: "1031",
   ownership: "Ownership",
   follow_up: "Follow-up",
   deal_due: "Pursuit",

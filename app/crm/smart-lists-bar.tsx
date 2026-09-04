@@ -107,9 +107,10 @@ export function SearchListActions({
   }
 
   async function handleOutreach() {
-    if (!activeFilters) return;
+    const filters = activeFilters ?? savableFilters;
+    if (!filters) return;
     setOutreachPending(true);
-    const res = await getSmartListContactIdsForOutreach(activeFilters);
+    const res = await getSmartListContactIdsForOutreach(filters);
     setOutreachPending(false);
     if (res.error) { setError(res.error); return; }
     if (res.contactIds.length === 0) { setError("No contacts in segment."); return; }
@@ -117,8 +118,9 @@ export function SearchListActions({
     router.push("/outreach");
   }
 
-  const canOutreach = entityType === "contacts" && activeFilters &&
-    (activeFilters.target === "contacts" || activeFilters.target === "both");
+  const outreachFilters = activeFilters ?? savableFilters;
+  const canOutreach = entityType === "contacts" && !!outreachFilters &&
+    (outreachFilters.target === "contacts" || outreachFilters.target === "both");
 
   if (activeListId) {
     return (

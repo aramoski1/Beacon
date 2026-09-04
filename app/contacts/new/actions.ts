@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { validateName, validateEmail } from "@/lib/validation";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
+import { normalizeContactType } from "@/lib/contact-type";
 
 export async function createContact(
   formData: FormData
@@ -48,12 +49,16 @@ export async function createContact(
     }
   }
 
+  const contact_type = normalizeContactType(str("contact_type"));
+  if (!contact_type) return { error: "Choose Owner or Tenant (or Other)." };
+
   const { data, error } = await supabase
     .from("contacts")
     .insert({
       owner_id:           user.id,
       name,
       company:            str("company"),
+      contact_type,
       title_role:         str("title_role"),
       email:              str("email"),
       phone_mobile:       str("phone_mobile"),

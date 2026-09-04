@@ -167,6 +167,13 @@ describe("columnPatchForCorrection", () => {
     expect(columnPatchForCorrection("term", "  ")).toEqual({ patch: { term: null } });
   });
 
+  it("patches leased_sf and landlord_name", () => {
+    expect(columnPatchForCorrection("leased_sf", "42,000")).toEqual({ patch: { leased_sf: 42000 } });
+    expect(columnPatchForCorrection("landlord_name", "PALMETTO LLC")).toEqual({
+      patch: { landlord_name: "PALMETTO LLC" },
+    });
+  });
+
   it("returns null (no column to sync) for array-based fields", () => {
     expect(columnPatchForCorrection("escalations[0]", "3% annually")).toBeNull();
     expect(columnPatchForCorrection("options[1]", "renewal option")).toBeNull();

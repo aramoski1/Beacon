@@ -169,6 +169,13 @@ describe("applyContactMapping", () => {
     expect(result!.email).toBe("alice@acme.com");
     expect(result!.contact_tier).toBe(1);
     expect(result!.role).toBe("VP");
+    expect(result!.contact_type).toBeNull();
+  });
+
+  it("maps owner vs tenant book", () => {
+    const mapping: Mapping = { name: "Name", contact_type: "Type" };
+    expect(applyContactMapping({ Name: "A", Type: "Owner" }, mapping)!.contact_type).toBe("owner");
+    expect(applyContactMapping({ Name: "B", Type: "Tenant" }, mapping)!.contact_type).toBe("tenant");
   });
 
   it("returns null when name is empty", () => {
@@ -257,6 +264,7 @@ describe("deduplicateContacts", () => {
       contact_tier: null,
       ownership_type: "unknown",
       role: null,
+      contact_type: null,
     };
   }
 

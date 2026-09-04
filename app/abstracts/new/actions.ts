@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { fetchFieldDefs, buildCustomFieldsSchema } from "@/lib/custom-fields";
 import { requireLinkedPropertyId } from "@/lib/lease-property";
+import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
@@ -83,6 +84,18 @@ const EXTRACT_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Street address of the leased premises (e.g. '123 Main St, Suite 400'). Extract from the lease preamble.",
       },
+      tenant_name: {
+        type: ["string", "null"],
+        description: "Tenant / lessee legal name if stated in the lease.",
+      },
+      leased_sf: {
+        type: ["number", "null"],
+        description: "Leased / premises square footage for this tenant (not the whole building unless the lease is for the entire building).",
+      },
+      landlord_name: {
+        type: ["string", "null"],
+        description: "Landlord / lessor entity name as stated in the lease.",
+      },
     },
   },
 };
@@ -100,6 +113,9 @@ export type LeasePreview = {
   field_citations: { field: string; page: string; text: string }[];
   custom_fields?: Record<string, string | number | null>;
   premises_address?: string | null;
+  tenant_name?: string | null;
+  leased_sf?: number | null;
+  landlord_name?: string | null;
   linked_property?: string | null;
   storagePath: string;
 };
@@ -278,6 +294,8 @@ export async function saveAbstractLease(
       expiration_date: preview.expiration_date || null,
       term: preview.term || null,
       base_rate: preview.base_rate ?? null,
+      leased_sf: preview.leased_sf ?? null,
+      landlord_name: preview.landlord_name || null,
       escalations: preview.escalations ?? [],
       options: preview.options ?? [],
       key_provisions: preview.key_provisions ?? [],
@@ -288,5 +306,47 @@ export async function saveAbstractLease(
     .single();
 
   if (dbError) return { error: `Database error: ${dbError.message}` };
+
+  const tenantName = preview.tenant_name?.trim();
+  if (tenantName) {
+    const { data: existing } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("owner_id", user.id)
+      .eq("contact_type", "tenant")
+      .ilike("name", tenantName)
+      .limit(1)
+      .maybeSingle();
+
+    let tenantId = existing?.id ?? null;
+    if (!tenantId) {
+      const { data: created } = await supabase
+        .from("contacts")
+        .insert({
+          owner_id: user.id,
+          name: tenantName,
+          company: tenantName,
+          contact_type: "tenant",
+          role: "Tenant",
+        })
+        .select("id")
+        .single();
+      tenantId = created?.id ?? null;
+    }
+
+    if (tenantId) {
+      try {
+        await linkContactPropertyAndSync(supabase, user.id, tenantId, linkedProperty);
+      } catch {
+        // Abstract still saved — tenant link is best-effort
+      }
+      await supabase
+        .from("lease_abstracts")
+        .update({ tenant_contact_id: tenantId })
+        .eq("id", record.id)
+        .eq("owner_id", user.id);
+    }
+  }
+
   return { id: record.id };
 }

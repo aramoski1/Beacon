@@ -216,6 +216,13 @@ export default async function ContactPage({
     isSoloFirmForUser(supabase, user.id),
   ]);
 
+  const { data: tenantLeases } = await supabase
+    .from("lease_abstracts")
+    .select("id, expiration_date, leased_sf, landlord_name, linked_property, properties(address)")
+    .eq("tenant_contact_id", id)
+    .eq("owner_id", user.id)
+    .order("expiration_date", { ascending: true });
+
   const customDefs = (fdData ?? []) as FieldDefinition[];
   const customValues = c.custom_fields ?? {};
   const linkedProps = (linkedPropsResult.data ?? []) as LinkedProperty[];
@@ -432,6 +439,36 @@ export default async function ContactPage({
             <LinkPropertySection contactId={c.id} linkedProperties={linkedProps} />
           </CardContent>
         </Card>
+        {(tenantLeases?.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <FileText className="size-4" />
+                Occupancy
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(tenantLeases ?? []).map((lease) => {
+                const prop = lease.properties as { address?: string | null } | { address?: string | null }[] | null;
+                const addr = Array.isArray(prop) ? prop[0]?.address : prop?.address;
+                return (
+                  <Link
+                    key={lease.id}
+                    href={`/abstracts/${lease.id}`}
+                    className="block text-sm rounded-md border px-3 py-2 hover:bg-muted/40"
+                  >
+                    <p className="font-medium">{addr ?? "Lease abstract"}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {lease.leased_sf != null ? `${Number(lease.leased_sf).toLocaleString()} SF` : "SF —"}
+                      {lease.landlord_name ? ` · ${lease.landlord_name}` : ""}
+                      {lease.expiration_date ? ` · expires ${fmtDate(lease.expiration_date)}` : ""}
+                    </p>
+                  </Link>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* CRE Profile — always shown, blank fields editable in place */}

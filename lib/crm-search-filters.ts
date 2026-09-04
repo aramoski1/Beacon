@@ -267,6 +267,7 @@ export type ManualConFilters = {
   status: string;           // relationship_stage
   assetFocus: string;       // asset_focus_includes
   cadenceStatus: string;    // CadenceStatusValue | ""
+  contactType?: string;     // owner | tenant | other
 };
 
 export type ManualLeaseFilters = {
@@ -351,6 +352,10 @@ export function buildManualFilterSearchResult(
     if (conFilters.cadenceStatus) {
       contacts.cadence_status = conFilters.cadenceStatus as ContactSearchFilters["cadence_status"];
       parts.push(CADENCE_STATUS_LABELS[conFilters.cadenceStatus] ?? humanizeToken(conFilters.cadenceStatus));
+    }
+    if (conFilters.contactType) {
+      contacts.contact_type = conFilters.contactType;
+      parts.push(conFilters.contactType === "owner" ? "Owners" : conFilters.contactType === "tenant" ? "Tenants" : "Other");
     }
     if (parts.length === 0) return null;
     return { target: "contacts", contacts, explanation: parts.join(" · ") };

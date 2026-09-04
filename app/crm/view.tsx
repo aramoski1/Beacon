@@ -28,6 +28,7 @@ import {
 } from "@/lib/crm-search-filters";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { isCustomGroup } from "@/lib/industrial-fields";
+import { buildContactOccupancy } from "@/lib/contact-occupancy";
 import { ensureIndustrialSpecs } from "@/app/settings/fields/actions";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -115,6 +116,11 @@ type Contact = {
   contact_type: string | null;
   last_contacted_at: string | null;
   linked_properties?: string[] | null;
+  book_address?: string | null;
+  book_sf?: number | null;
+  book_leased_sf?: number | null;
+  book_expiry?: string | null;
+  book_landlord?: string | null;
 };
 
 type LeaseAbstract = {
@@ -141,6 +147,7 @@ type ConFilters = {
   status: string;           // relationship_stage
   assetFocus: string;       // asset_focus_includes
   cadenceStatus: string;    // "overdue" | "due_soon" | "ok" | "never" | ""
+  contactType: string;      // owner | tenant | other
 };
 type LeaseFilters = {
   expirationWindow: string;   // "90d" | "180d" | "12mo" | "beyond12mo" | ""
@@ -236,6 +243,12 @@ const LEAD_SOURCES = [
   { value: "other",                 label: "Other" },
 ];
 
+const CONTACT_TYPE_OPTIONS = [
+  { value: "owner",  label: "Owner" },
+  { value: "tenant", label: "Tenant" },
+  { value: "other",  label: "Other" },
+];
+
 type ColDef = { id: string; label: string; alwaysOn?: boolean };
 
 const PROP_COL_DEFS: ColDef[] = [
@@ -256,7 +269,13 @@ const PROP_COL_DEFS: ColDef[] = [
 
 const CON_COL_DEFS: ColDef[] = [
   { id: "name",        label: "Name",           alwaysOn: true },
+  { id: "phone",       label: "Phone" },
+  { id: "book",        label: "Book" },
   { id: "company",     label: "Company" },
+  { id: "occupancy",   label: "Property / occupancy" },
+  { id: "leasedsf",    label: "Tenant SF" },
+  { id: "expiry",      label: "Lease expiry" },
+  { id: "landlord",    label: "Landlord" },
   { id: "type",        label: "Ownership Role" },
   { id: "tier",        label: "Tier" },
   { id: "status",      label: "Stage" },
@@ -303,7 +322,7 @@ function fmtSqft(n: number | null) {
   return n.toLocaleString("en-US") + " sf";
 }
 
-function fmtDate(iso: string | null) {
+function fmtDate(iso: string | null | undefined) {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
@@ -1783,7 +1802,13 @@ function ContactsTable({
               />
             </th>
             <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("phone"))} style={cColStyle("phone")}>Phone<RH col="phone" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("book"))} style={cColStyle("book")}>Book<RH col="book" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("company"))} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("occupancy"))} style={cColStyle("occupancy")}>Property / occupancy<RH col="occupancy" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("leasedsf"))} style={cColStyle("leasedsf")}>Tenant SF<RH col="leasedsf" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("expiry"))} style={cColStyle("expiry")}>Lease expiry<RH col="expiry" onStart={cStartResize} /></th>
+            <th className={cn(thCls, col("landlord"))} style={cColStyle("landlord")}>Landlord<RH col="landlord" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("type"))} style={cColStyle("type")}>Ownership Role<RH col="type" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("tier"))} style={cColStyle("tier")}>Tier<RH col="tier" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("status"))} style={cColStyle("status")}>Stage<RH col="status" onStart={cStartResize} /></th>
@@ -1834,12 +1859,51 @@ function ContactsTable({
                   )}
                 </div>
               </td>
+              <td className={cn(tdCls, "min-w-28", col("phone"))}>
+                <EditableText
+                  value={c.phone_mobile ?? c.phone}
+                  displayClassName="text-muted-foreground truncate block"
+                  onSave={(v) => onSave(c.id, "phone_mobile", v)}
+                />
+              </td>
+              <td className={cn(tdCls, "min-w-24", col("book"))}>
+                <EditableSelect
+                  value={c.contact_type}
+                  options={CONTACT_TYPE_OPTIONS}
+                  onSave={(v) => onSave(c.id, "contact_type", v)}
+                />
+              </td>
               <td className={cn(tdCls, col("company"))}>
                 <EditableText
                   value={c.company}
                   displayClassName="text-muted-foreground truncate block"
                   onSave={(v) => onSave(c.id, "company", v)}
                 />
+              </td>
+              <td className={cn(tdCls, "min-w-40", col("occupancy"))}>
+                {c.book_address ? (
+                  <span className="truncate block text-xs" title={c.book_address}>
+                    {c.book_address}
+                    {c.book_sf != null ? ` · ${Math.round(c.book_sf).toLocaleString()} SF` : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </td>
+              <td className={cn(tdCls, col("leasedsf"))}>
+                <span className="text-xs text-muted-foreground">
+                  {c.book_leased_sf != null ? Math.round(c.book_leased_sf).toLocaleString() : "—"}
+                </span>
+              </td>
+              <td className={cn(tdCls, col("expiry"))}>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {fmtDate(c.book_expiry) ?? "—"}
+                </span>
+              </td>
+              <td className={cn(tdCls, "min-w-28", col("landlord"))}>
+                <span className="truncate block text-xs text-muted-foreground" title={c.book_landlord ?? undefined}>
+                  {c.book_landlord || "—"}
+                </span>
               </td>
               <td className={cn(tdCls, "min-w-28", col("type"))}>
                 <OwnershipRoleBadge role={c.ownership_role} onSave={(v) => onSave(c.id, "ownership_role", v)} />
@@ -2206,7 +2270,7 @@ function PaginationBar({
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 const EMPTY_PROP_FILTERS: PropFilters   = { propType: "", ownership: "", ownershipChange: "", saleRecency: "" };
-const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", assetFocus: "", cadenceStatus: "" };
+const EMPTY_CON_FILTERS: ConFilters     = { tier: "", status: "", assetFocus: "", cadenceStatus: "", contactType: "" };
 const EMPTY_LEASE_FILTERS: LeaseFilters = { expirationWindow: "", linkedPropertyType: "", hasTenantContact: "" };
 
 const VALID_TABS = ["properties", "leases", "contacts"] as const;
@@ -2606,6 +2670,7 @@ export default function CRMView({
       if (conFilters.status) f.relationship_stage = conFilters.status;
       if (conFilters.assetFocus) f.asset_focus_includes = conFilters.assetFocus;
       if (conFilters.cadenceStatus) f.cadence_status = conFilters.cadenceStatus as ContactSearchFilters["cadence_status"];
+      if (conFilters.contactType) f.contact_type = conFilters.contactType;
       q = applyContactFilters(q, f, cadenceMap);
     }
 
@@ -2627,6 +2692,26 @@ export default function CRMView({
         );
         for (const c of rows) {
           c.linked_properties = byContact.get(c.id) ?? c.linked_properties ?? [];
+        }
+        const propIds = [...new Set(rows.flatMap((c: Contact) => c.linked_properties ?? []))];
+        const [{ data: props }, { data: leases }] = await Promise.all([
+          propIds.length
+            ? supabase.from("properties").select("id, address, city, submarket, property_type, size_sqft, land_sqft, last_sale_date, last_sale_price, owner_name").in("id", propIds)
+            : Promise.resolve({ data: [] as never[] }),
+          supabase
+            .from("lease_abstracts")
+            .select("id, tenant_contact_id, linked_property, expiration_date, leased_sf, landlord_name")
+            .in("tenant_contact_id", rows.map((c: Contact) => c.id)),
+        ]);
+        const propRows = (props ?? []) as Parameters<typeof buildContactOccupancy>[1];
+        const leaseRows = (leases ?? []) as Parameters<typeof buildContactOccupancy>[2];
+        for (const c of rows) {
+          const occ = buildContactOccupancy(c.linked_properties ?? [], propRows, leaseRows, c.id);
+          c.book_address = occ.address;
+          c.book_sf = occ.sizeSqft;
+          c.book_leased_sf = occ.leasedSf;
+          c.book_expiry = occ.expiry;
+          c.book_landlord = occ.landlord;
         }
       } catch {
         // Portfolio deep-links are best-effort.
@@ -3256,6 +3341,23 @@ export default function CRMView({
                   )}
                   {tab === "contacts" && (
                     <>
+                      <div className="flex items-center rounded-md border border-border p-0.5 text-xs">
+                        {(["", "owner", "tenant"] as const).map((v) => (
+                          <button
+                            key={v || "all"}
+                            type="button"
+                            onClick={() => updateConFilter("contactType", v)}
+                            className={cn(
+                              "px-2.5 py-1 rounded",
+                              (conFilters.contactType || "") === v
+                                ? "bg-foreground text-background font-semibold"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {v === "" ? "All contacts" : v === "owner" ? "Owners book" : "Tenants book"}
+                          </button>
+                        ))}
+                      </div>
                       <FilterSelect label="Tier" value={conFilters.tier} options={[{ value: "1", label: "Tier 1" }, { value: "2", label: "Tier 2" }, { value: "3", label: "Tier 3" }]} onChange={(v) => updateConFilter("tier", v)} />
                       <FilterSelect label="Stage" value={conFilters.status} options={RELATIONSHIP_STAGES} onChange={(v) => updateConFilter("status", v)} />
                       <FilterSelect label="Asset focus" value={conFilters.assetFocus} options={ASSET_FOCUS_OPTIONS} onChange={(v) => updateConFilter("assetFocus", v)} />
@@ -3324,7 +3426,7 @@ export default function CRMView({
               <SearchListActions
                 entityType={tab}
                 savableFilters={pendingSave}
-                activeFilters={activeSearch}
+                activeFilters={activeSearch ?? pendingSave}
                 searchQuery={searchQuery}
                 activeListId={activeListId}
                 activeListName={activeListName}

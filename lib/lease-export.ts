@@ -97,6 +97,64 @@ export function buildCriticalDates(abstract: LeaseAbstractExport): CriticalDate[
   return dates.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const MS_DAY = 86_400_000;
+
+/** Normalize lease_abstracts.options JSONB into the export shape. */
+export function optionsFromJson(raw: unknown): LeaseAbstractExport["options"] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const o = (item ?? {}) as Record<string, unknown>;
+    return {
+      type: typeof o.type === "string" && o.type.trim() ? o.type : "option",
+      description: typeof o.description === "string" ? o.description : "",
+      notice_period: typeof o.notice_period === "string" ? o.notice_period : undefined,
+    };
+  });
+}
+
+export function daysUntilIso(isoDate: string, today: string): number {
+  return Math.ceil(
+    (new Date(isoDate + "T12:00:00").getTime() - new Date(today + "T12:00:00").getTime()) /
+      MS_DAY,
+  );
+}
+
+/**
+ * Soonest option-notice deadline for a lease. Prefers an upcoming date;
+ * if every notice is in the past, returns the most recently passed one.
+ */
+export function nearestNoticeDeadline(
+  expirationDate: string | null,
+  options: unknown,
+  today: string,
+): { date: string; label: string; daysUntil: number } | null {
+  if (!expirationDate) return null;
+  const notices = buildCriticalDates({
+    id: "tmp",
+    source_document: null,
+    execution_date: null,
+    expiration_date: expirationDate,
+    term: null,
+    base_rate: null,
+    escalations: [],
+    options: optionsFromJson(options),
+    key_provisions: [],
+    field_citations: [],
+  }).filter((d) => d.label.startsWith("Notice Deadline"));
+  if (notices.length === 0) return null;
+
+  const withDays = notices.map((d) => ({
+    date: d.date,
+    label: d.label,
+    daysUntil: daysUntilIso(d.date, today),
+  }));
+  const upcoming = withDays
+    .filter((d) => d.daysUntil >= 0)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+  if (upcoming[0]) return upcoming[0];
+  return withDays.sort((a, b) => b.daysUntil - a.daysUntil)[0] ?? null;
+}
+
 // ─── ICS ───────────────────────────────────────────────────────────────────────
 
 function icsDate(iso: string): string {

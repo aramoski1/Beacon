@@ -130,8 +130,10 @@ export default async function HowBeaconWorksPage({
           <li>
             <p className="font-medium text-foreground">3. Who to call</p>
             <p className="text-muted-foreground mt-0.5">
-              Contacts, tiers, and cadence tell you who is overdue. Outreach drafts email in your
-              own client; Log call / Log tour bumps last-contacted so the queue stays honest.
+              Contacts, tiers, and cadence tell you who is overdue. Workspace splits the book into
+              Owners and Tenants. Outreach drafts email in your own client (merge fields fill
+              name, address, SF, landlord, expiry); Log call / Log tour bumps last-contacted so
+              the queue stays honest. Pin a smart list under Advanced → This week for a weekly block.
             </p>
           </li>
         </ol>
@@ -151,11 +153,12 @@ export default async function HowBeaconWorksPage({
           </li>
           <li>
             <span className="text-foreground">Abstract leases</span> — upload PDFs linked to a
-            property so radar can track expirations.
+            property (tenant SF + landlord when the lease states them) so radar can track
+            expirations and option-notice dates.
           </li>
           <li>
             <span className="text-foreground">Lease radar + Today desk</span> — work the ranked
-            queue on the Dashboard each morning.
+            queue on the Dashboard each morning (rollovers, option notices, 1031 deadlines).
           </li>
           <li>
             <span className="text-foreground">Outreach or call</span> — draft → open in email →
@@ -219,7 +222,10 @@ export default async function HowBeaconWorksPage({
       <section className="space-y-3">
         <h2 className="text-sm font-semibold tracking-tight">Honest limits</h2>
         <ul className="space-y-2 text-sm text-muted-foreground leading-relaxed list-disc list-inside">
-          <li>Beacon drafts email — you send it from Gmail/Outlook.</li>
+          <li>
+            Beacon drafts email — you send it from Gmail/Outlook. Merge tokens fill from the
+            contact’s property and lease; there is no in-app send.
+          </li>
           <li>
             County enrichment covers South Florida (Miami-Dade, Broward, Palm Beach) and the Boston
             metro area (Massachusetts).

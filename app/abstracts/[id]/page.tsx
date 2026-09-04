@@ -32,6 +32,8 @@ type LeaseAbstract = {
   expiration_date: string | null;
   term: string | null;
   base_rate: number | null;
+  leased_sf: number | null;
+  landlord_name: string | null;
   escalations: Escalation[];
   options: LeaseOption[];
   key_provisions: KeyProvision[];

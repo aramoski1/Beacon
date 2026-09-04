@@ -104,7 +104,7 @@ function NewContactInner() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Add contact</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add a new owner contact to your CRM.
+          Add an owner or tenant to your book.
         </p>
         {propertyId && propertyLabel && (
           <p className="mt-2 flex items-center gap-1.5 text-sm text-primary">
@@ -117,6 +117,27 @@ function NewContactInner() {
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* ── Identity ───────────────────────────────────────── */}
         <SectionLabel>Identity</SectionLabel>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="contact_type">
+            Book <span className="text-destructive">*</span>
+          </Label>
+          <select
+            id="contact_type"
+            name="contact_type"
+            required
+            disabled={isPending}
+            defaultValue=""
+            className={selCls}
+          >
+            <option value="" disabled>
+              Owner or tenant
+            </option>
+            <option value="owner">Owner</option>
+            <option value="tenant">Tenant</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="name">

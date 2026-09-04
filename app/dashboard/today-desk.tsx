@@ -11,6 +11,8 @@ import {
 
 const KIND_CLS: Record<TodayDeskKind, string> = {
   lease_urgent: "bg-amber-500/15 text-amber-800 dark:text-amber-400",
+  option_notice: "bg-rose-500/15 text-rose-800 dark:text-rose-400",
+  exchange_1031: "bg-sky-500/15 text-sky-800 dark:text-sky-400",
   ownership: "bg-violet-500/15 text-violet-800 dark:text-violet-400",
   follow_up: "bg-orange-500/15 text-orange-800 dark:text-orange-400",
   deal_due: "bg-blue-500/15 text-blue-800 dark:text-blue-400",
@@ -25,7 +27,7 @@ export function TodayDesk({ items }: { items: TodayDeskItem[] }) {
         <p className="text-sm font-medium">Nothing due</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
           Prospect, enrich a property, or abstract a lease — Today fills when cadence,
-          pursuits, ownership flips, or rollovers need you.
+          pursuits, ownership flips, 1031 clocks, option notices, or rollovers need you.
         </p>
       </div>
     );

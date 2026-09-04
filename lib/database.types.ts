@@ -794,6 +794,8 @@ export type Database = {
       expiration_date: string | null
       term: string | null
       base_rate: number | null
+      leased_sf: number | null
+      landlord_name: string | null
       escalations: Json | null
       options: Json | null
       key_provisions: Json | null
@@ -814,6 +816,8 @@ export type Database = {
       expiration_date?: string | null
       term?: string | null
       base_rate?: number | null
+      leased_sf?: number | null
+      landlord_name?: string | null
       escalations?: Json | null
       options?: Json | null
       key_provisions?: Json | null
@@ -834,6 +838,8 @@ export type Database = {
       expiration_date?: string | null
       term?: string | null
       base_rate?: number | null
+      leased_sf?: number | null
+      landlord_name?: string | null
       escalations?: Json | null
       options?: Json | null
       key_provisions?: Json | null
@@ -1256,6 +1262,8 @@ export type Database = {
       last_active_at: string | null
       pilot_agreement_accepted_at: string | null
       industrial_specs_initialized: boolean
+      weekly_list_smart_list_id: string | null
+      weekly_list_target: number
       }
       Insert: {
       id?: string | null
@@ -1286,6 +1294,8 @@ export type Database = {
       last_active_at?: string | null
       pilot_agreement_accepted_at?: string | null
       industrial_specs_initialized?: boolean
+      weekly_list_smart_list_id?: string | null
+      weekly_list_target?: number
       }
       Update: {
       id?: string | null
@@ -1316,6 +1326,8 @@ export type Database = {
       last_active_at?: string | null
       pilot_agreement_accepted_at?: string | null
       industrial_specs_initialized?: boolean
+      weekly_list_smart_list_id?: string | null
+      weekly_list_target?: number
       }
       Relationships: []
     }

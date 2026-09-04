@@ -253,11 +253,15 @@ export function PropertyContactsSection({
   propertyLabel,
   initialContacts: contacts,
   cadenceSettings,
+  stagingEmail,
+  stagingName,
 }: {
   propertyId: string;
   propertyLabel?: string | null;
   initialContacts: LinkedContact[];
   cadenceSettings?: CadenceSettingsSlice | null;
+  stagingEmail?: string | null;
+  stagingName?: string | null;
 }) {
   const router = useRouter();
   const cadence = cadenceMapFromSettings(cadenceSettings);
@@ -391,7 +395,22 @@ export function PropertyContactsSection({
 
         {/* Empty state */}
         {contacts.length === 0 && !linking && (
-          <p className="text-sm text-muted-foreground">No contacts linked to this property.</p>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">No CRM contacts linked yet.</p>
+            {(stagingEmail || stagingName) && (
+              <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm space-y-1">
+                {stagingName && <p className="font-medium">{stagingName}</p>}
+                {stagingEmail && (
+                  <a href={`mailto:${stagingEmail}`} className="text-xs text-primary hover:underline">
+                    {stagingEmail}
+                  </a>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Tax-roll / owner email — promote to CRM from the header to log cadence.
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Contact list — grouped by contact_type when multiple types are present */}

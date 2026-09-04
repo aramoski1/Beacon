@@ -7,6 +7,13 @@ import { getUserSettings } from "@/app/settings/actions";
 import { validateOutreach } from "@/lib/validation";
 import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
 import { cadenceMapFromSettings, suggestedCadenceDays } from "@/lib/cadence";
+import {
+  applyOutreachMerge,
+  DEFAULT_MERGE_SUBJECT,
+  DEFAULT_MERGE_TEMPLATE,
+  mergeVarsFromOccupancy,
+  type OutreachMergeVars,
+} from "@/lib/outreach-merge";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +48,13 @@ export type EmailDraft = {
   contactId: string;
   subject: string;
   body: string;
+  mergePreview?: OutreachMergeVars;
+};
+
+export type GenerateDraftsOptions = {
+  mergeTemplate?: string;
+  mergeSubject?: string;
+  mergeOnly?: boolean;
 };
 
 // ─── Cadence thresholds ───────────────────────────────────────────────────────
@@ -72,7 +86,7 @@ export async function getDueContacts(): Promise<DueContact[]> {
     supabase
       .from("contacts")
       .select(
-        "id, name, email, phone, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+        "id, name, email, phone, phone_mobile, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
       )
       .eq("owner_id", user.id)
       .not("contact_tier", "is", null),
@@ -88,6 +102,7 @@ export async function getDueContacts(): Promise<DueContact[]> {
   const dueContacts: DueContact[] = hydrated
     .map((c) => ({
       ...c,
+      phone: (c as { phone_mobile?: string | null }).phone_mobile?.trim() || c.phone,
       linked_properties: c.linked_properties,
       daysOverdue: computeDaysOverdue(c, cadence),
       cadenceDays: suggestedCadenceDays(c.contact_tier, cadence),
@@ -227,7 +242,8 @@ export type OutreachTemplate = "intro" | "check-in" | "market-update" | "listing
 export async function generateDrafts(
   contactIds: string[],
   brokerContext: string,
-  template: OutreachTemplate = "check-in"
+  template: OutreachTemplate = "check-in",
+  options?: GenerateDraftsOptions,
 ): Promise<{ drafts?: EmailDraft[]; error?: string; senderNameMissing?: boolean }> {
   const supabase = await createClient();
   const {
@@ -243,7 +259,7 @@ export async function generateDrafts(
     supabase
       .from("contacts")
       .select(
-        "id, name, email, phone, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
+        "id, name, email, phone, phone_mobile, company, role, contact_tier, client_status, last_contacted_at, size_category, geographic_category, ownership_type, linked_properties"
       )
       .eq("owner_id", user.id)
       .in("id", contactIds),
@@ -266,19 +282,20 @@ export async function generateDrafts(
     address: string | null; city: string | null; property_type: string | null;
     size_sqft: number | null; last_sale_date: string | null; asset_description: string | null;
     ownership_change_detected_at: string | null; ownership_change_data: unknown;
+    owner_name: string | null;
   };
   let propMap = new Map<string, PropRecord>();
-  let leaseMap = new Map<string, Array<{ expiration_date: string | null; base_rate: number | null }>>();
+  let leaseMap = new Map<string, Array<{ expiration_date: string | null; base_rate: number | null; leased_sf: number | null; landlord_name: string | null; tenant_contact_id: string | null }>>();
   if (allPropIds.length > 0) {
     const [{ data: props }, { data: abstracts }] = await Promise.all([
       supabase
         .from("properties")
-        .select("id, address, city, property_type, size_sqft, last_sale_date, asset_description, ownership_change_detected_at, ownership_change_data")
+        .select("id, address, city, property_type, size_sqft, last_sale_date, asset_description, ownership_change_detected_at, ownership_change_data, owner_name")
         .eq("owner_id", user.id)
         .in("id", allPropIds),
       supabase
         .from("lease_abstracts")
-        .select("linked_property, expiration_date, base_rate")
+        .select("linked_property, expiration_date, base_rate, leased_sf, landlord_name, tenant_contact_id")
         .eq("owner_id", user.id)
         .in("linked_property", allPropIds)
         .not("expiration_date", "is", null)
@@ -288,7 +305,13 @@ export async function generateDrafts(
     for (const a of abstracts ?? []) {
       if (!a.linked_property) continue;
       const bucket = leaseMap.get(a.linked_property) ?? [];
-      bucket.push({ expiration_date: a.expiration_date, base_rate: a.base_rate });
+      bucket.push({
+        expiration_date: a.expiration_date,
+        base_rate: a.base_rate,
+        leased_sf: a.leased_sf ?? null,
+        landlord_name: a.landlord_name ?? null,
+        tenant_contact_id: a.tenant_contact_id ?? null,
+      });
       leaseMap.set(a.linked_property, bucket);
     }
   }
@@ -360,7 +383,10 @@ export async function generateDrafts(
       const leases = (leaseMap.get(pid) ?? [])
         .map((l) => ({
           expires: monthsUntil(l.expiration_date),
+          expiration_date: l.expiration_date,
           rate_per_sf: l.base_rate ? `$${l.base_rate}/sf` : null,
+          leased_sf: l.leased_sf,
+          landlord: l.landlord_name,
         }))
         .filter((l) => l.expires !== null);
       return [{
@@ -368,6 +394,7 @@ export async function generateDrafts(
         city: p.city,
         type: p.property_type,
         sqft: p.size_sqft,
+        landlord: p.owner_name,
         sold: relativeMonths(p.last_sale_date),
         asset_description: p.asset_description,
         ownership_change: p.ownership_change_detected_at
@@ -375,6 +402,19 @@ export async function generateDrafts(
           : null,
         leases,
       }];
+    });
+
+    const tenantLease = c.linked_properties.flatMap((pid: string) =>
+      (leaseMap.get(pid) ?? []).filter((l) => l.tenant_contact_id === c.id),
+    )[0];
+    const firstProp = c.linked_properties.map((pid: string) => propMap.get(pid)).find(Boolean);
+    const merge_fields = mergeVarsFromOccupancy({
+      name: c.name,
+      address: firstProp?.address,
+      sizeSqft: firstProp?.size_sqft,
+      leasedSf: tenantLease?.leased_sf,
+      landlord: tenantLease?.landlord_name ?? firstProp?.owner_name,
+      expiry: tenantLease?.expiration_date ?? (leaseMap.get(c.linked_properties[0] ?? "") ?? [])[0]?.expiration_date,
     });
 
     return {
@@ -386,6 +426,7 @@ export async function generateDrafts(
       client_status: c.client_status,
       tier_tone: tierTone,
       days_since_contact: daysSince,
+      merge_fields,
       // How many of the last 4 activities were outreach emails — used to force
       // a different opening/angle on repeat touches instead of the same
       // "just checking in" shape every cycle.
@@ -398,6 +439,20 @@ export async function generateDrafts(
       })),
     };
   });
+
+  if (options?.mergeOnly) {
+    const bodyTpl = options.mergeTemplate?.trim() || DEFAULT_MERGE_TEMPLATE;
+    const subjectTpl = options.mergeSubject?.trim() || DEFAULT_MERGE_SUBJECT;
+    return {
+      drafts: contactSummaries.map((s) => ({
+        contactId: s.id,
+        subject: applyOutreachMerge(subjectTpl, s.merge_fields),
+        body: applyOutreachMerge(bodyTpl, s.merge_fields),
+        mergePreview: s.merge_fields,
+      })),
+      senderNameMissing,
+    };
+  }
 
   const GENERATE_TOOL: Anthropic.Tool = {
     name: "generate_outreach_emails",
@@ -460,6 +515,8 @@ RULES — every rule is mandatory:
 7. SIGNATURE: End every email body with a blank line, then the BROKER SIGNATURE exactly as provided above. Never write "[Broker Name]" — use the text given.
 8. REPEAT-TOUCH RULE — when recent_email_touches is 2 or more, this contact has already gotten several "just checking in" emails. Do NOT reuse the "Following up on [X]... wanted to check in... worth a quick call?" shape again. Pick a genuinely different angle instead — rotate through: a direct question about a specific decision point, a plain FYI/update framing with no question at all, a market observation tied to their asset, or a concrete next step you're proposing. Two emails to the same contact should never read like restatements of each other.
 
+9. MERGE TOKENS — merge_fields contains {first_name} {name} {address} {sf} {landlord} {expiry}. You may write those tokens in the body (they are filled in after you return). Do not invent values for empty merge fields.${options?.mergeTemplate?.trim() ? `\n10. Prefer this merge template as the body structure (keep tokens):\n${options.mergeTemplate.trim()}` : ""}
+
 FACT PRIORITY — use the highest-priority fact available for each contact:
 - linked_properties[].leases[].expires → strongest hook: e.g. "your lease at 123 Main expires in 8 months"
 - linked_properties[].ownership_change.detected → timely hook: e.g. "following the ownership change at [address] 3 months ago"
@@ -487,7 +544,14 @@ ${JSON.stringify(chunk, null, 2)}`,
       emails: { contact_id: string; subject: string; body: string }[];
     };
     for (const e of chunkResult.emails) {
-      allDrafts.push({ contactId: e.contact_id, subject: e.subject, body: e.body });
+      const summary = contactSummaries.find((s) => s.id === e.contact_id);
+      const vars = summary?.merge_fields ?? mergeVarsFromOccupancy({ name: null });
+      allDrafts.push({
+        contactId: e.contact_id,
+        subject: applyOutreachMerge(e.subject, vars),
+        body: applyOutreachMerge(e.body, vars),
+        mergePreview: vars,
+      });
     }
   }
 

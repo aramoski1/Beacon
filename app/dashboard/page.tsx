@@ -45,6 +45,7 @@ import { StaleTier1OwnersPanel } from "./stale-owner-panel";
 import { signalPriorityScore } from "@/lib/action-item-signals";
 import { aggregateLeaseExposure } from "@/lib/dashboard-kpis";
 import { buildTodayDeskItems } from "@/lib/today-desk";
+import { daysUntilIso, nearestNoticeDeadline } from "@/lib/lease-export";
 import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
 import { TodayDesk } from "./today-desk";
 import { OwnershipWatchBatchButton } from "./ownership-watch-batch";
@@ -102,6 +103,11 @@ export default async function DashboardPage() {
   // identical to today's fixed layout.
   const visible = resolveVisible(obSettings.dashboard_layout as DashboardLayoutPrefs | null);
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const past30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const ahead90 = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  const ahead2y = new Date(Date.now() + 730 * 86_400_000).toISOString().slice(0, 10);
+
   const [
     enrichedItems,
     stats,
@@ -119,6 +125,8 @@ export default async function DashboardPage() {
     ownershipChangedProperties,
     dealsDashboard,
     ownershipWatchStats,
+    exchange1031Res,
+    noticeLeaseRes,
   ] = await Promise.all([
     getEnrichedActionItems(),
     getDashboardStats(),
@@ -136,6 +144,20 @@ export default async function DashboardPage() {
     getOwnershipChangedProperties(),
     getDealsDashboard(),
     getOwnershipWatchStats(),
+    supabase
+      .from("contacts")
+      .select("id, name, exchange_1031_deadline")
+      .eq("owner_id", user.id)
+      .not("exchange_1031_deadline", "is", null)
+      .gte("exchange_1031_deadline", past30)
+      .lte("exchange_1031_deadline", ahead90),
+    supabase
+      .from("lease_abstracts")
+      .select("id, expiration_date, options, linked_property, properties(id, address)")
+      .eq("owner_id", user.id)
+      .not("expiration_date", "is", null)
+      .gte("expiration_date", todayIso)
+      .lte("expiration_date", ahead2y),
   ]);
 
   // Lease SF for ≤90/180d — join property size when linked
@@ -206,6 +228,28 @@ export default async function DashboardPage() {
       daysUntilExpiry: e.daysUntilExpiry,
       property_id: e.property_id,
     })),
+    optionNotices: (noticeLeaseRes.data ?? []).flatMap((row) => {
+      const notice = nearestNoticeDeadline(row.expiration_date, row.options, todayIso);
+      if (!notice || notice.daysUntil > 90 || notice.daysUntil < -30) return [];
+      const prop = row.properties as unknown as { id: string; address: string | null } | null;
+      return [{
+        id: row.id,
+        property_address: prop?.address ?? null,
+        daysUntil: notice.daysUntil,
+        label: notice.label,
+        href: `/abstracts/${row.id}`,
+        dueDate: notice.date,
+      }];
+    }),
+    exchange1031: (exchange1031Res.data ?? []).flatMap((c) => {
+      if (!c.exchange_1031_deadline) return [];
+      return [{
+        id: c.id,
+        name: c.name,
+        daysUntil: daysUntilIso(c.exchange_1031_deadline, todayIso),
+        deadline: c.exchange_1031_deadline,
+      }];
+    }),
     limit: 12,
   });
 

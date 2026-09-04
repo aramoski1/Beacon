@@ -4,6 +4,7 @@ import {
   daysPastDue,
   scoreDealDue,
   scoreFollowUp,
+  scoreDatedDeadline,
   scoreLeaseUrgent,
   scoreOutreach,
   scoreOwnershipChange,
@@ -15,6 +16,16 @@ describe("scoreLeaseUrgent", () => {
     expect(scoreLeaseUrgent(90)).toBe(90);
     expect(scoreLeaseUrgent(91)).toBe(0);
     expect(scoreLeaseUrgent(-1)).toBe(0);
+  });
+});
+
+describe("scoreDatedDeadline", () => {
+  it("matches lease urgency for upcoming dates and bumps overdue", () => {
+    expect(scoreDatedDeadline(10)).toBe(100);
+    expect(scoreDatedDeadline(90)).toBe(90);
+    expect(scoreDatedDeadline(91)).toBe(0);
+    expect(scoreDatedDeadline(-1)).toBeGreaterThan(100);
+    expect(scoreDatedDeadline(-20)).toBe(110);
   });
 });
 
@@ -95,14 +106,34 @@ describe("buildTodayDeskItems", () => {
           property_id: "p2",
         },
       ],
+      optionNotices: [
+        {
+          id: "l2",
+          property_address: "300 Flex Park",
+          daysUntil: 12,
+          label: "Notice Deadline — Renewal Option",
+          href: "/abstracts/l2",
+          dueDate: "2026-08-05",
+        },
+      ],
+      exchange1031: [
+        {
+          id: "c-1031",
+          name: "1031 Buyer",
+          daysUntil: 22,
+          deadline: "2026-08-15",
+        },
+      ],
       limit: 10,
     });
 
-    expect(items[0]?.kind).toBe("lease_urgent");
+    expect(items.map((i) => i.kind)).toContain("lease_urgent");
     expect(items.map((i) => i.kind)).toContain("ownership");
     expect(items.map((i) => i.kind)).toContain("follow_up");
     expect(items.map((i) => i.kind)).toContain("deal_due");
     expect(items.map((i) => i.kind)).toContain("outreach");
+    expect(items.map((i) => i.kind)).toContain("option_notice");
+    expect(items.map((i) => i.kind)).toContain("exchange_1031");
     // Scores descending
     for (let i = 1; i < items.length; i++) {
       expect(items[i - 1]!.score).toBeGreaterThanOrEqual(items[i]!.score);

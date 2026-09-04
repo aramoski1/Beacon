@@ -305,7 +305,8 @@ export type CoStarCreateAction =
 export async function createCoStarContacts(
   propertyId: string,
   contacts: CoStarContact[],
-  companyName: string | null
+  companyName: string | null,
+  defaultType: "owner" | "tenant" = "owner",
 ): Promise<CoStarCreateAction> {
   const supabase = await createClient();
   const {
@@ -337,6 +338,7 @@ export async function createCoStarContacts(
         action_tags: ["costar", "unverified"],
         outreach_history: [],
         custom_fields: {},
+        contact_type: contact.contact_type === "tenant" ? "tenant" : defaultType,
       })
       .select("id")
       .single();

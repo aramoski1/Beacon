@@ -27,6 +27,10 @@ export type LeaseRadarEntry = {
   owner_contact: RadarContactRef | null;
   /** Tenant CRM contact linked on the lease abstract. */
   tenant_contact: RadarContactRef | null;
+  /** Soonest option-notice deadline derived from abstract options. */
+  notice_deadline?: string | null;
+  daysUntilNotice?: number | null;
+  notice_label?: string | null;
 };
 
 export type LeaseRadarData = {
@@ -189,6 +193,9 @@ export function leaseOutreachContext(
     entry.property_address ? `Property: ${entry.property_address}.` : "",
     entry.property_owner_name ? `Ownership entity: ${entry.property_owner_name}.` : "",
     `Lease expires ${fmtExpiry(entry.expiration_date)} (${entry.daysUntilExpiry} days).`,
+    entry.notice_deadline && entry.daysUntilNotice != null
+      ? `${entry.notice_label ?? "Option notice"} is ${entry.daysUntilNotice < 0 ? `${Math.abs(entry.daysUntilNotice)} days past` : `in ${entry.daysUntilNotice} days`} (${fmtExpiry(entry.notice_deadline)}).`
+      : "",
     entry.base_rate != null ? `Current base rate: $${entry.base_rate}/sf.` : "",
   ];
 

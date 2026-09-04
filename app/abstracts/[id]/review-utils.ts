@@ -63,6 +63,8 @@ const LABELS: Record<string, string> = {
   expiration_date: "Expiration date",
   term: "Term",
   base_rate: "Base rate",
+  leased_sf: "Tenant SF",
+  landlord_name: "Landlord",
   escalations: "Escalations",
   options: "Options",
   key_provisions: "Key provisions",
@@ -89,7 +91,7 @@ export function fieldLabel(key: string): string {
 
 export type ColumnPatch = Record<string, string | number | null>;
 
-const SCALAR_COLUMN_KEYS = ["execution_date", "expiration_date", "term", "base_rate"] as const;
+const SCALAR_COLUMN_KEYS = ["execution_date", "expiration_date", "term", "base_rate", "leased_sf", "landlord_name"] as const;
 
 /**
  * Maps a broker's corrected value for a scalar field back to the real
@@ -136,6 +138,23 @@ export function columnPatchForCorrection(
       return { error: "Base rate must be a number." };
     }
     return { patch: { base_rate: num } };
+  }
+
+  if (fieldKey === "leased_sf") {
+    if (!raw) return { patch: { leased_sf: null } };
+    const stripped = raw.replace(/[^0-9.-]/g, "");
+    if (!stripped || !/\d/.test(stripped)) {
+      return { error: "Tenant SF must be a number." };
+    }
+    const num = Number(stripped);
+    if (!Number.isFinite(num)) {
+      return { error: "Tenant SF must be a number." };
+    }
+    return { patch: { leased_sf: num } };
+  }
+
+  if (fieldKey === "landlord_name") {
+    return { patch: { landlord_name: raw || null } };
   }
 
   // term — plain text passthrough

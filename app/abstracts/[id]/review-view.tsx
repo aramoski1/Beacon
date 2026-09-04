@@ -58,6 +58,8 @@ interface LeaseAbstract {
   expiration_date: string | null;
   term: string | null;
   base_rate: number | null;
+  leased_sf: number | null;
+  landlord_name: string | null;
   escalations: Escalation[];
   options: LeaseOption[];
   key_provisions: KeyProvision[];
@@ -374,7 +376,7 @@ export function LeaseReviewView({
   // Collect all reviewable field keys
   const allFieldKeys = useMemo(() => {
     const keys: string[] = [
-      "execution_date", "expiration_date", "term", "base_rate",
+      "execution_date", "expiration_date", "term", "base_rate", "leased_sf", "landlord_name",
       ...abstract.escalations.map((_, i) => `escalations[${i}]`),
       ...abstract.options.map((_, i) => `options[${i}]`),
       ...abstract.key_provisions.map((_, i) => `key_provisions[${i}]`),
@@ -432,6 +434,18 @@ export function LeaseReviewView({
       key: "base_rate", label: "Base rate",
       value: abstract.base_rate != null ? `$${abstract.base_rate.toLocaleString()}` : "—",
       rawValue: abstract.base_rate != null ? String(abstract.base_rate) : "",
+      inputType: "text",
+    },
+    {
+      key: "leased_sf", label: "Tenant SF",
+      value: abstract.leased_sf != null ? abstract.leased_sf.toLocaleString() : "—",
+      rawValue: abstract.leased_sf != null ? String(abstract.leased_sf) : "",
+      inputType: "text",
+    },
+    {
+      key: "landlord_name", label: "Landlord",
+      value: abstract.landlord_name ?? "—",
+      rawValue: abstract.landlord_name ?? "",
       inputType: "text",
     },
   ];

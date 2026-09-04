@@ -173,6 +173,7 @@ async function importContacts(
         contact_tier: mapped.contact_tier ?? 3,
         ownership_type: mapped.ownership_type,
         role: mapped.role ?? null,
+        contact_type: mapped.contact_type,
       });
       if (error) throw new Error(error.message);
       if (emailKey) batchEmails.add(emailKey);

@@ -234,6 +234,13 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
                 <span className="text-muted-foreground shrink-0">
                   · Expires {fmtExpiry(entry.expiration_date)}
                 </span>
+                {entry.daysUntilNotice != null && entry.daysUntilNotice <= 90 && (
+                  <span className="text-rose-700 dark:text-rose-400 shrink-0">
+                    · Notice {entry.daysUntilNotice < 0
+                      ? `${Math.abs(entry.daysUntilNotice)}d ago`
+                      : `in ${entry.daysUntilNotice}d`}
+                  </span>
+                )}
                 {entry.tenant_contact && entry.owner_contact && (
                   activeAction === "tenant_rollover" ? (
                     <button
@@ -287,7 +294,11 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
             <p className="text-[11px] text-amber-700 dark:text-amber-400">
               {resolution.why}
               <span className="text-muted-foreground">
-                {" · "}Expires {fmtExpiry(entry.expiration_date)} · {rolloverHint(entry.daysUntilExpiry)}
+                {" · "}Expires {fmtExpiry(entry.expiration_date)}
+                {entry.daysUntilNotice != null && entry.daysUntilNotice <= 90
+                  ? ` · Notice ${entry.daysUntilNotice < 0 ? `${Math.abs(entry.daysUntilNotice)}d ago` : `in ${entry.daysUntilNotice}d`}`
+                  : ""}
+                {" · "}{rolloverHint(entry.daysUntilExpiry)}
               </span>
             </p>
           )}

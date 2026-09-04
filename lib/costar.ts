@@ -11,6 +11,7 @@ export interface CoStarContact {
   title: string | null;
   email: string | null;
   phone: string | null;
+  contact_type?: "owner" | "tenant";
 }
 
 export interface CoStarOwner {
@@ -32,7 +33,7 @@ export type CoStarFileContent =
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "extract_costar_owner",
   description:
-    "Extract all owner and contact information from a CoStar 'About the Owner' export. " +
+    "Extract all owner or tenant contact information from a CoStar export (About the Owner or tenant roster). " +
     "Return ONLY what is explicitly present in the file — never guess or invent missing data. " +
     "If a field is not in the file, set it to null.",
   input_schema: {
@@ -62,6 +63,11 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             title: { type: ["string", "null"], description: "Job title or role" },
             email: { type: ["string", "null"] },
             phone: { type: ["string", "null"] },
+            contact_type: {
+              type: "string",
+              enum: ["owner", "tenant"],
+              description: "owner unless the export is clearly a tenant / occupant roster",
+            },
           },
         },
       },
@@ -78,6 +84,7 @@ type ExtractOutput = {
     title?: string | null;
     email?: string | null;
     phone?: string | null;
+    contact_type?: "owner" | "tenant" | null;
   }>;
 };
 
@@ -124,8 +131,9 @@ export async function extractCoStarOwner(
     model: "claude-haiku-4-5-20251001",
     max_tokens: 2048,
     system:
-      "You extract structured contact data from CoStar 'About the Owner' exports. " +
-      "Return ONLY what is explicitly present — never invent or infer missing data.",
+      "You extract structured contact data from CoStar owner or tenant exports. " +
+      "Return ONLY what is explicitly present — never invent or infer missing data. " +
+      "Set contact_type to tenant when the file is a tenant/occupant roster; otherwise owner.",
     tools: [EXTRACT_TOOL],
     tool_choice: { type: "tool", name: "extract_costar_owner" },
     messages: [{ role: "user", content: userContent }],
@@ -146,6 +154,7 @@ export async function extractCoStarOwner(
       title: c.title?.trim() || null,
       email: c.email?.trim() || null,
       phone: c.phone?.trim() || null,
+      contact_type: c.contact_type === "tenant" ? "tenant" : "owner",
     })),
   };
 }

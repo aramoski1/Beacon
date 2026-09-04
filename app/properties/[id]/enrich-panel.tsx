@@ -224,6 +224,7 @@ export function EnrichPanel({
   const [costar, setCostar] = useState<CoStarPhase>({ tag: "idle" });
   const [costarSel, setCostarSel] = useState<Set<number>>(new Set());
   const [fileName, setFileName] = useState<string | null>(null);
+  const [costarBook, setCostarBook] = useState<"owner" | "tenant">("owner");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Document enhancement
@@ -380,7 +381,7 @@ export function EnrichPanel({
       const res = await parseCoStarFile(fd);
       if ("error" in res) { setCostar({ tag: "error", message: res.error }); return; }
       if (!res.owner.contacts.length) {
-        setCostar({ tag: "error", message: 'No contacts found. Make sure this is a CoStar "About the Owner" export.' });
+        setCostar({ tag: "error", message: "No contacts found. Make sure this is a CoStar owner or tenant export." });
         return;
       }
       setCostarSel(new Set(res.owner.contacts.map((_, i) => i)));
@@ -397,7 +398,7 @@ export function EnrichPanel({
       .filter((c): c is CoStarContact => c != null);
     setCostar({ tag: "saving" });
     startTransition(async () => {
-      const res = await createCoStarContacts(propertyId, toCreate, owner.company_name);
+      const res = await createCoStarContacts(propertyId, toCreate, owner.company_name, costarBook);
       if ("error" in res) { setCostar({ tag: "error", message: res.error }); return; }
       setCostar({ tag: "saved", count: res.created });
       router.refresh();
@@ -1270,12 +1271,23 @@ export function EnrichPanel({
               {costar.tag === "idle" && (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Upload a CoStar &ldquo;About the Owner&rdquo; export to pull owner contacts onto this property.
+                    Upload a CoStar owner or tenant export to add contacts to this property.
                     Beacon only uses what&apos;s in the file — no CoStar login.
                   </p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <span className="text-xs text-muted-foreground">Book</span>
+                    <select
+                      value={costarBook}
+                      onChange={(e) => setCostarBook(e.target.value as "owner" | "tenant")}
+                      className="border border-border rounded-md px-2 py-1 text-sm bg-background"
+                    >
+                      <option value="owner">Owners</option>
+                      <option value="tenant">Tenants</option>
+                    </select>
+                  </label>
                   <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-0.5">
-                    <li>In CoStar, open the property or owner record.</li>
-                    <li>Export &ldquo;About the Owner&rdquo; (PDF, CSV, or screenshot).</li>
+                    <li>In CoStar, open the property record.</li>
+                    <li>Export About the Owner or a tenant roster (PDF, CSV, or screenshot).</li>
                     <li>Upload that file here and click Parse.</li>
                   </ol>
                   <p className="text-xs text-muted-foreground">

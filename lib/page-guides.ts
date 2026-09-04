@@ -110,12 +110,12 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Start here each morning. Read the greeting and briefing line at the top.",
       "Use **Ask Beacon** (Copilot) for natural-language questions about your book.",
       "Click **Customize** to show or hide dashboard modules (KPI strip, Today desk, pipeline, etc.).",
-      "Work **Do these today** — the ranked queue merges outreach, follow-ups, deals, ownership flips, and urgent leases.",
+      "Work **Do these today** — the ranked queue merges outreach, follow-ups, deals, ownership flips, urgent leases, option-notice deadlines, and 1031 clocks.",
       "Scan KPI chips (pursuits, leases ≤90d, Tier-1 overdue, ownership changes, book size) — each links to the relevant page.",
       "Check secondary panels: pipeline, lease exposure, book composition, cadence health, recent activity.",
     ],
     features: [
-      "Today desk — ranked action queue (cap ~12 items)",
+      "Today desk — ranked action queue (cap ~12 items), including option notices and 1031 deadlines",
       "KPI strip with links to Deals, Lease radar, Outreach, Workspace",
       "Upcoming follow-ups, ready-to-pursue, cold Tier-1 panels",
       "Lease exposure + compact radar preview",
@@ -133,6 +133,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     purpose: "Your primary grid for properties, contacts, and lease abstracts — search, filter, edit, export, and bulk actions.",
     walkthrough: [
       "Choose a tab: **Properties**, **Contacts**, or **Leases**.",
+      "On **Contacts**, switch **All / Owners / Tenants** to work the owner book or tenant book. Tenant rows show occupancy (property, leased SF, expiry, landlord).",
       "If your firm has teammates, toggle **Mine** vs **Firm** to scope which records you see.",
       "Type a plain-English query in **AI search** (e.g. “industrial over 50k SF in Doral”) or switch to **Smart lists** for saved filters.",
       "Apply column filters (type, tier, cadence status, expiration window, etc.).",
@@ -144,6 +145,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     features: [
       "Three tabs: Properties, Contacts, Leases",
+      "Owner / Tenant book toggle on Contacts (contact_type + occupancy columns)",
       "AI natural-language search with filter explanation",
       "Smart lists — save, load, delete filter presets",
       "Inline grid editing (text, selects, tiers, tags, custom fields)",
@@ -239,13 +241,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Read the urgent banner if leases expire within 90 days.",
       "Use count tiles to jump to buckets: **≤90d**, **≤180d**, **≤12mo**.",
       "Expand or collapse buckets (90d open by default; later buckets collapsed).",
-      "Each row shows property, days to expiry, WHO to email (tenant or owner), and WHY.",
+      "Each row shows property, days to expiry, option-notice countdown when the abstract has a notice period, WHO to email (tenant or owner), and WHY.",
       "Click **Email tenant** or **Email owner** to generate an AI draft inline.",
       "Edit subject/body, then **Open in email** to send from Gmail/Outlook and log the outreach.",
       "If tenant is missing on the abstract, link them first via the abstract page.",
     ],
     features: [
       "Expiration buckets with sticky headers",
+      "Option-notice countdown on rows when the abstract has a notice period",
       "Tenant vs owner routing with switch option when both exist",
       "Inline AI draft generation for rollover outreach",
       "Open in email + mark sent (logs activity)",
@@ -264,6 +267,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Filter by channel: all, has email, or has phone.",
       "Open **Campaign settings** to set your broker context and email template (Intro, Check-in, Market update, Listing alert).",
       "Select contacts by tier section, or use **Select all visible** / **Select all overdue**.",
+      "Open **Campaign settings** to set a merge template (`{first_name}`, `{address}`, `{sf}`…) or check **Merge only** to skip AI.",
       "Click **Generate drafts** — large selections process in batches of 10.",
       "On the review step, edit each subject and body.",
       "Click **Open in email ↗** — you send from Gmail/Outlook; Beacon does not auto-send.",
@@ -274,6 +278,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Due vs All list modes",
       "Tier-grouped contact list with show-more pagination",
       "Four email templates",
+      "Merge fields from property/lease occupancy ({name}, {address}, {sf}, {landlord}, {expiry})",
       "Broker context field (saved locally)",
       "Batch draft generation (10 per batch)",
       "Review and edit step before sending",
@@ -306,6 +311,26 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Lease-expiry badge on auto-generated tasks",
       "Add follow-up form with contact/property links",
       "Show completed toggle",
+    ],
+  },
+  {
+    id: "week",
+    route: "/week",
+    title: "This week",
+    category: "Main navigation",
+    purpose: "Work a pinned contact segment this week — log calls and email without leaving the list.",
+    walkthrough: [
+      "Open **This week** in the main nav. Pin a **Contacts** smart list (Owners book, Tenants book) and set how many people to work.",
+      "If no list is pinned, Beacon falls back to cadence-due contacts in the next 7 days.",
+      "Work down the list: call, **Log** (Connected / Left VM / No answer), or compose email.",
+      "Click **Generate drafts** to mail-merge the whole list in Outreach.",
+    ],
+    features: [
+      "Pin a contact smart list as this week’s work block",
+      "Progress (worked this week / list size)",
+      "Generate drafts for the whole list (mail merge)",
+      "Call outcome picker + tel: link",
+      "Fallback to cadence due in 7 days when nothing is pinned",
     ],
   },
   {
@@ -415,6 +440,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     category: "Add & import",
     purpose: "Manually add an owner or tenant contact to your CRM.",
     walkthrough: [
+      "Choose **Book**: Owner, Tenant, or Other — required so the contact lands on the right Workspace view.",
       "Enter identity: name, company, title, email, phones, mailing address.",
       "Set ownership role, asset focus tags, submarket, and portfolio size.",
       "Assign relationship tier (1–3), stage, and lead source.",
@@ -422,6 +448,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Fill custom fields and save — opens contact detail or returns to property.",
     ],
     features: [
+      "Required book (owner / tenant / other)",
       "Full CRE contact profile fields",
       "Optional property pre-link via URL params",
       "Custom fields",
@@ -436,7 +463,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     purpose: "Upload lease PDF(s) and extract a structured abstract linked to a property.",
     walkthrough: [
       "Choose **Single** or **Batch** upload mode.",
-      "Drop or select a lease PDF — AI extracts terms, rates, dates, escalations, options.",
+      "Drop or select a lease PDF — AI extracts terms, rates, dates, tenant SF, landlord, escalations, options.",
       "**Link to property** (required) — powers Lease radar and Today desk.",
       "Optionally assign tenant contact from property contacts.",
       "Review extracted fields and custom lease fields.",
@@ -445,6 +472,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     features: [
       "Single and batch PDF upload",
       "AI lease abstraction (Claude)",
+      "Tenant SF (leased_sf) and landlord name on the abstract",
       "Required property link",
       "Tenant contact assignment",
       "Custom lease fields from extraction",
@@ -460,7 +488,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     purpose: "Everything Beacon knows about one asset — tax roll, enrichment, owners, comps, activity.",
     walkthrough: [
       "Review core fields: address, type, SF, land, sale history, assessed value, folio source.",
-      "Use **Enrich** to re-run county data, Sunbiz lookup, CoStar file parse, or URL re-ingest.",
+      "Use **Enrich** to re-run county data, Sunbiz lookup, CoStar owner or tenant file parse, or URL re-ingest.",
       "Enroll on **ownership watch** and run **Check ownership now** for flip detection.",
       "Read **Zoning**. On **Industrial / flex specs**, click **Customize** to delete defaults or add any spec you track (same idea as custom fields).",
       "Listing/document extract fills those specs only when the source states them — county tax roll will not invent docks or clear height.",
@@ -478,6 +506,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Rent notebook (seed bands + your comps)",
       "Tax-roll sale comps and lease comps",
       "Promote owners to contacts",
+      "CoStar owner or tenant file parse (book picker)",
       "Linked contacts management",
       "Documents, activity, follow-ups",
       "Team sharing and create deal",
@@ -496,7 +525,8 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Pick a call outcome: Connected, Left VM, No answer — bumps last-contacted.",
       "Read the **relationship briefing** (AI summary) when available.",
       "Manage **linked properties** — view, add, remove links.",
-      "Edit CRE profile and **Buyer / 1031 criteria** (cap rate, markets, 1031 deadline).",
+      "Edit CRE profile and **Buyer / 1031 criteria** (cap rate, markets, 1031 deadline). Deadlines within 90 days also appear on the Today desk.",
+      "On tenant contacts, read the **Occupancy** card (leased SF, landlord, expiry) when an abstract is linked.",
       "Review outreach history and activity timeline.",
       "Open **owner portfolio** when this contact is a property owner.",
       "Create a pursuit or share with firm from the header.",
@@ -508,7 +538,8 @@ export const PAGE_GUIDES: PageGuide[] = [
       "AI relationship briefing",
       "Linked properties panel",
       "CRE profile inline edit",
-      "Buyer / 1031 criteria",
+      "Buyer / 1031 criteria (also surfaced on Today desk when due)",
+      "Tenant occupancy card (leased SF, landlord, expiry)",
       "Documents and custom fields",
       "Activity timeline + outreach history",
       "Owner portfolio link",
@@ -526,7 +557,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Read the PDF side-by-side with extracted fields.",
       "For each field, choose **Accept**, **Reject**, or **Correct** — citations jump to the PDF location.",
       "Use **Accept all pending** to speed through clean extractions.",
-      "Edit expiration date, base rate, term, escalations, options, and key provisions.",
+      "Edit expiration date, base rate, tenant SF, landlord, term, escalations, options, and key provisions.",
       "Link or change the **property** (required for radar) and **assign tenant contact**.",
       "Toggle team sharing; upload related documents.",
       "Corrections save to real database columns (expiration_date, base_rate, etc.).",
@@ -753,6 +784,7 @@ export function getGuideForPathname(pathname: string): PageGuide | null {
   if (pathname === "/lease-radar") return g("lease-radar");
   if (pathname === "/outreach") return g("outreach");
   if (pathname === "/follow-ups") return g("follow-ups");
+  if (pathname === "/week") return g("week");
   if (pathname === "/tours") return g("tours");
   if (pathname === "/book-map") return g("book-map");
   if (pathname === "/properties/audit") return g("audit");

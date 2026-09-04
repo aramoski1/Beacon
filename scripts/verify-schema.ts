@@ -119,6 +119,8 @@ const EXPECTED: TableSpec[] = [
       // migrate-custom-fields.ts
       { col: "custom_fields",    from: "migrate-custom-fields.ts" },
       { col: "visibility",       from: "migrate-firms-visibility.ts" },
+      { col: "leased_sf",        from: "migrate-broker-books.ts" },
+      { col: "landlord_name",    from: "migrate-broker-books.ts" },
     ],
   },
   {
@@ -231,6 +233,8 @@ const EXPECTED: TableSpec[] = [
       { col: "email_provider",           from: "migrate-email-provider.ts" },
       { col: "pilot_agreement_accepted_at", from: "migrate-pilot-agreement.ts" },
       { col: "industrial_specs_initialized", from: "migrate-industrial-field-defs.ts" },
+      { col: "weekly_list_smart_list_id", from: "migrate-broker-books.ts" },
+      { col: "weekly_list_target", from: "migrate-broker-books.ts" },
     ],
   },
   {

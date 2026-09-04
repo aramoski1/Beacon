@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
-  Briefcase, CalendarClock, Plus,
+  Briefcase, CalendarClock, Plus, ListTodo,
   LayoutDashboard, LayoutGrid, Zap,
   CheckSquare, Settings2, LogOut, Menu, X,
   ShieldAlert, AlertCircle, MapPinned, Target, Shield,
@@ -34,6 +34,7 @@ const NAV: NavEntry[] = [
   { href: "/prospect",        icon: Target,          label: "Prospect" },
   { href: "/lease-radar",     icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
   { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
+  { href: "/week",            icon: ListTodo,        label: "This week" },
   { href: "/settings",        icon: Settings2,       label: "Settings" },
 ];
 
@@ -57,6 +58,9 @@ function navActive(href: string, pathname: string): boolean {
   }
   if (href === "/deals") {
     return pathname.startsWith("/deals");
+  }
+  if (href === "/week") {
+    return pathname.startsWith("/week");
   }
   return pathname === href;
 }

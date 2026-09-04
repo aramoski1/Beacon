@@ -1,6 +1,8 @@
 // Pure CSV import mapping utilities — no server imports, safe in client and server.
 // Handles column auto-suggestion, row transformation, and within-file deduplication.
 
+import { normalizeContactType, type ContactType } from "@/lib/contact-type";
+
 // ─── Field definitions ────────────────────────────────────────────────────────
 
 export type CsvFieldDef = {
@@ -30,6 +32,7 @@ export const CONTACT_FIELDS: Record<string, CsvFieldDef> = {
   contact_tier:    { label: "Tier (1–3)",       aliases: ["tier", "priority", "rank", "tier level"] },
   ownership_type:  { label: "Ownership Type",   aliases: ["owner type", "profile type", "entity type"] },
   role:            { label: "Title / Role",     aliases: ["title", "job title", "position", "occupation"] },
+  contact_type:    { label: "Contact type",     aliases: ["type", "owner or tenant", "owner/tenant", "contact type", "book"] },
 };
 
 // Mapping: fieldKey → CSV header name (undefined / "" = skip)
@@ -184,6 +187,7 @@ export type MappedContact = {
   contact_tier: number | null;
   ownership_type: string;
   role: string | null;
+  contact_type: ContactType | null;
 };
 
 // ─── Row transformation ───────────────────────────────────────────────────────
@@ -222,6 +226,7 @@ export function applyContactMapping(
     contact_tier:  normalizeContactTier(cell(row, mapping.contact_tier)),
     ownership_type:normalizeOwnershipType(cell(row, mapping.ownership_type)),
     role:          cell(row, mapping.role)          || null,
+    contact_type:  normalizeContactType(cell(row, mapping.contact_type)),
   };
 }
 

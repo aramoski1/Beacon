@@ -18,6 +18,11 @@ import {
   planOutreachBatches,
 } from "@/lib/outreach-chunks";
 import { SectionHeader } from "@/components/section-header";
+import {
+  DEFAULT_MERGE_SUBJECT,
+  DEFAULT_MERGE_TEMPLATE,
+  MERGE_TOKENS,
+} from "@/lib/outreach-merge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +94,9 @@ export default function OutreachView({
   const [editedBodies, setEditedBodies] = useState<Record<string, string>>({});
 
   const [template, setTemplate] = useState<OutreachTemplate>("check-in");
+  const [mergeTemplate, setMergeTemplate] = useState(DEFAULT_MERGE_TEMPLATE);
+  const [mergeSubject, setMergeSubject] = useState(DEFAULT_MERGE_SUBJECT);
+  const [mergeOnly, setMergeOnly] = useState(false);
 
   // Chunked batch: when >10 selected, generate/review in batches of 10
   const [batchQueue, setBatchQueue] = useState<string[][]>([]);
@@ -102,6 +110,11 @@ export default function OutreachView({
   useEffect(() => {
     const saved = localStorage.getItem("beacon_broker_context");
     if (saved) setBrokerContext(saved);
+    const tpl = localStorage.getItem("beacon_merge_template");
+    if (tpl) setMergeTemplate(tpl);
+    const subj = localStorage.getItem("beacon_merge_subject");
+    if (subj) setMergeSubject(subj);
+    if (localStorage.getItem("beacon_merge_only") === "1") setMergeOnly(true);
   }, []);
 
   // Smart-list / CRM multi-select / deep-link pre-selection (no cadence filter)
@@ -196,7 +209,11 @@ export default function OutreachView({
     setError(null);
     setStep("review");
 
-    const result = await generateDrafts(ids, brokerContext, template);
+    const result = await generateDrafts(ids, brokerContext, template, {
+      mergeTemplate,
+      mergeSubject,
+      mergeOnly,
+    });
     setGenerating(false);
 
     if (result.error) {
@@ -381,6 +398,21 @@ export default function OutreachView({
           onBrokerContextChange={saveBrokerContext}
           template={template}
           onTemplateChange={setTemplate}
+          mergeTemplate={mergeTemplate}
+          onMergeTemplateChange={(val) => {
+            setMergeTemplate(val);
+            localStorage.setItem("beacon_merge_template", val);
+          }}
+          mergeSubject={mergeSubject}
+          onMergeSubjectChange={(val) => {
+            setMergeSubject(val);
+            localStorage.setItem("beacon_merge_subject", val);
+          }}
+          mergeOnly={mergeOnly}
+          onMergeOnlyChange={(val) => {
+            setMergeOnly(val);
+            localStorage.setItem("beacon_merge_only", val ? "1" : "0");
+          }}
         />
 
         {error && (
@@ -703,6 +735,11 @@ export default function OutreachView({
                       <p className="font-medium text-sm">
                         {contact?.name ?? "Unknown"}
                       </p>
+                      {draft.mergePreview && (draft.mergePreview.address || draft.mergePreview.sf || draft.mergePreview.expiry) && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          {[draft.mergePreview.address, draft.mergePreview.sf, draft.mergePreview.expiry].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
                       {realEmail && (
                         <p className="text-xs text-muted-foreground">
                           {testMode ? (
@@ -815,11 +852,23 @@ function CampaignSettings({
   onBrokerContextChange,
   template,
   onTemplateChange,
+  mergeTemplate,
+  onMergeTemplateChange,
+  mergeSubject,
+  onMergeSubjectChange,
+  mergeOnly,
+  onMergeOnlyChange,
 }: {
   brokerContext: string;
   onBrokerContextChange: (val: string) => void;
   template: OutreachTemplate;
   onTemplateChange: (t: OutreachTemplate) => void;
+  mergeTemplate: string;
+  onMergeTemplateChange: (val: string) => void;
+  mergeSubject: string;
+  onMergeSubjectChange: (val: string) => void;
+  mergeOnly: boolean;
+  onMergeOnlyChange: (val: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const templateLabel = TEMPLATES.find((t) => t.id === template)?.label ?? template;
@@ -835,8 +884,9 @@ function CampaignSettings({
         <div className="min-w-0">
           <p className="text-sm font-medium">Campaign settings</p>
           <p className="text-[11px] text-muted-foreground truncate">
-            {templateLabel}
-            {brokerContext.trim() ? " · About you set" : " · Add about-you for better drafts"}
+            {mergeOnly ? "Merge only" : templateLabel}
+            {brokerContext.trim() ? " · About you set" : ""}
+            {" · Tokens ready"}
           </p>
         </div>
         <ChevronDown
@@ -882,6 +932,48 @@ function CampaignSettings({
             </div>
             <p className="text-xs text-muted-foreground">
               {TEMPLATES.find((t) => t.id === template)?.description}
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">Mail merge</label>
+              <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={mergeOnly}
+                  onChange={(e) => onMergeOnlyChange(e.target.checked)}
+                  className="size-3.5 accent-primary"
+                />
+                Merge only — skip AI
+              </label>
+            </div>
+            <input
+              value={mergeSubject}
+              onChange={(e) => onMergeSubjectChange(e.target.value)}
+              placeholder="Subject with tokens"
+              className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background"
+            />
+            <textarea
+              value={mergeTemplate}
+              onChange={(e) => onMergeTemplateChange(e.target.value)}
+              rows={5}
+              className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ring-ring bg-background resize-y font-mono"
+            />
+            <div className="flex flex-wrap gap-1">
+              {MERGE_TOKENS.map((t) => (
+                <button
+                  key={t.token}
+                  type="button"
+                  title={t.hint}
+                  onClick={() => onMergeTemplateChange(`${mergeTemplate}${mergeTemplate.endsWith(" ") || mergeTemplate.endsWith("\n") ? "" : " "}${t.token}`)}
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                >
+                  {t.token}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Tokens fill from each contact&apos;s property and lease. You still open Gmail/Outlook to send.
             </p>
           </div>
         </div>
