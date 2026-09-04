@@ -7,6 +7,7 @@ import {
   excerptForValue,
   isJunkListingUrl,
   listingDetailRank,
+  listingHostBlocksReader,
   listingSearchHitText,
   listingSearchQuery,
   parseBraveHits,
@@ -60,6 +61,12 @@ describe("listingSearchQuery", () => {
 });
 
 describe("isJunkListingUrl / uniqueHttpUrls", () => {
+  it("skips Jina on LoopNet and Crexi", () => {
+    expect(listingHostBlocksReader("https://www.loopnet.com/Listing/1")).toBe(true);
+    expect(listingHostBlocksReader("https://www.crexi.com/properties/1")).toBe(true);
+    expect(listingHostBlocksReader("https://warehousespaces.com/x")).toBe(false);
+  });
+
   it("drops social, tax-roll, and residential portals", () => {
     expect(isJunkListingUrl("https://www.facebook.com/foo")).toBe(true);
     expect(isJunkListingUrl("https://www.miamidade.gov/pa/foo")).toBe(true);
@@ -103,6 +110,10 @@ describe("addressMatchesPage", () => {
 
   it("matches street number plus a street-name token", () => {
     expect(addressMatchesPage("7900 NW 27th Ave", "Miami", page)).toBe(true);
+  });
+
+  it("treats 104TH and 104th as the same street token", () => {
+    expect(addressMatchesPage("3880 W 104TH ST", "Miami", "3880 W 104th Street, Hialeah")).toBe(true);
   });
 
   it("fails closed when the street number is missing", () => {

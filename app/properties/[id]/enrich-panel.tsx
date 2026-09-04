@@ -251,6 +251,7 @@ export function EnrichPanel({
   // Listing discover
   const [listing, setListing] = useState<ListingPhase>({ tag: "idle" });
   const [listingSel, setListingSel] = useState<Set<string>>(new Set());
+  const listingAutoStarted = useRef(false);
 
   // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar / -listing) ──
 
@@ -486,6 +487,16 @@ export function EnrichPanel({
       setListing({ tag: "previewing", preview: res.preview });
     });
   }
+
+  useEffect(() => {
+    if (!open || listingAutoStarted.current || !address) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hash.replace(/^#/, "") !== "enrich-listing") return;
+    listingAutoStarted.current = true;
+    handleListingPreview();
+    // Run once when the panel opens from #enrich-listing (industrial CTA).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, address]);
 
   function handleListingApply(preview: ListingDiscoverPreview) {
     setListing({ tag: "saving" });
@@ -1058,9 +1069,9 @@ export function EnrichPanel({
           {listing.tag === "idle" && (
             <div className="flex items-center justify-between gap-4">
               <p className="text-sm text-muted-foreground">
-                Search public listing pages for this address. Fills empty docks, clear height,
-                rent, and other specs only when a page states them — never overwrites county or
-                broker-entered values.
+                Search public listing pages for this address. Nothing is written until you review
+                the preview and click <span className="font-medium text-foreground">Fill</span>.
+                County and broker-entered values stay locked.
               </p>
               <Button
                 size="sm"
@@ -1104,7 +1115,7 @@ export function EnrichPanel({
                 ) : (
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      {preview.candidates.length} empty field{preview.candidates.length !== 1 ? "s" : ""} with a citation
+                      {preview.candidates.length} empty field{preview.candidates.length !== 1 ? "s" : ""} with a citation — not saved yet
                     </p>
                     {preview.candidates.map((entry) => (
                       <label

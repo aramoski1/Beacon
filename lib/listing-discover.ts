@@ -124,6 +124,7 @@ export function normalizeAddressText(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\b(\d+)(st|nd|rd|th)\b/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -132,6 +133,18 @@ export function listingSearchQuery(address: string, city: string | null): string
   const addr = address.trim();
   const cityPart = city?.trim() ? ` "${city.trim()}"` : "";
   return `"${addr}"${cityPart} (industrial OR warehouse OR "clear height" OR docks OR Crexi OR LoopNet)`;
+}
+
+const READER_BLOCKED_HOSTS = ["loopnet.", "crexi.com", "costar.com"];
+
+/** LoopNet / Crexi block Jina. Use search snippets instead of waiting on a 422. */
+export function listingHostBlocksReader(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return READER_BLOCKED_HOSTS.some((part) => host.includes(part));
+  } catch {
+    return false;
+  }
 }
 
 export function isJunkListingUrl(url: string): boolean {
@@ -310,8 +323,12 @@ export function parseDdgHtmlUrls(html: string): string[] {
   return uniqueHttpUrls(urls);
 }
 
+export function listingSearchConfigured(): boolean {
+  return Boolean(process.env.BRAVE_SEARCH_API_KEY?.trim() || process.env.SERPER_API_KEY?.trim());
+}
+
 export async function searchListingHits(query: string): Promise<ListingSearchHit[]> {
-  const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+  const braveKey = process.env.BRAVE_SEARCH_API_KEY?.trim();
   if (braveKey) {
     const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_SEARCH_RESULTS}&extra_snippets=true`;
     const res = await fetch(url, {
@@ -323,7 +340,7 @@ export async function searchListingHits(query: string): Promise<ListingSearchHit
     if (res.ok) return parseBraveHits(await res.json()).slice(0, MAX_SEARCH_RESULTS);
   }
 
-  const serperKey = process.env.SERPER_API_KEY;
+  const serperKey = process.env.SERPER_API_KEY?.trim();
   if (serperKey) {
     const res = await fetch("https://google.serper.dev/search", {
       method: "POST",
@@ -334,6 +351,10 @@ export async function searchListingHits(query: string): Promise<ListingSearchHit
       body: JSON.stringify({ q: query, num: MAX_SEARCH_RESULTS }),
     });
     if (res.ok) return parseSerperHits(await res.json()).slice(0, MAX_SEARCH_RESULTS);
+  }
+
+  if (!braveKey && !serperKey) {
+    throw new Error("LISTING_SEARCH_NOT_CONFIGURED");
   }
 
   const ddg = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
@@ -354,11 +375,13 @@ async function pageTextForHit(
   address: string,
   city: string | null,
 ): Promise<string | null> {
-  try {
-    const fetched = await fetchListingText(hit.url);
-    if (addressMatchesPage(address, city, fetched)) return fetched;
-  } catch {
-    // LoopNet / Crexi often block Jina. Fall through to public search snippets.
+  if (!listingHostBlocksReader(hit.url)) {
+    try {
+      const fetched = await fetchListingText(hit.url);
+      if (addressMatchesPage(address, city, fetched)) return fetched;
+    } catch {
+      // Fall through to public search snippets.
+    }
   }
   const snippetText = listingSearchHitText(hit);
   if (snippetText.length >= 80 && addressMatchesPage(address, city, snippetText)) {
@@ -472,10 +495,19 @@ export async function discoverListingSpecs(
   let hits: ListingSearchHit[] = [];
   try {
     hits = await searchListingHits(query);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "LISTING_SEARCH_NOT_CONFIGURED") {
+      return {
+        url: null,
+        note: "Listing search is not configured on this server. Add BRAVE_SEARCH_API_KEY in Vercel (Production), then redeploy.",
+        skippedPages: 0,
+        candidates: [],
+      };
+    }
     return {
       url: null,
-      note: "Search failed. Set BRAVE_SEARCH_API_KEY or SERPER_API_KEY, or try again.",
+      note: "Search failed. Check BRAVE_SEARCH_API_KEY on this server, or try again.",
       skippedPages: 0,
       candidates: [],
     };
