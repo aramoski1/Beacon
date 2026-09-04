@@ -10,6 +10,8 @@ import {
   listingHostBlocksReader,
   listingSearchHitText,
   listingSearchQuery,
+  listingUrlLooksLikeAddress,
+  expandAddressForSearch,
   parseBraveHits,
   parseBraveUrls,
   parseDdgHtmlUrls,
@@ -53,10 +55,14 @@ function extracted(overrides: Partial<ExtractedProperty> = {}): ExtractedPropert
 }
 
 describe("listingSearchQuery", () => {
-  it("quotes address and city with industrial terms", () => {
-    expect(listingSearchQuery("7900 NW 27th Ave", "Miami")).toContain('"7900 NW 27th Ave"');
-    expect(listingSearchQuery("7900 NW 27th Ave", "Miami")).toContain('"Miami"');
-    expect(listingSearchQuery("7900 NW 27th Ave", "Miami")).toContain("clear height");
+  it("expands numbered streets and does not exact-quote the tax-roll address", () => {
+    expect(expandAddressForSearch("601 NW 11 ST")).toBe("601 NW 11th Street");
+    expect(expandAddressForSearch("3880 W 104TH ST")).toBe("3880 W 104TH Street");
+    const q = listingSearchQuery("601 NW 11 ST", "Miami");
+    expect(q).toContain("601 NW 11th Street");
+    expect(q).toContain("Miami");
+    expect(q).not.toContain('"601 NW 11 ST"');
+    expect(q).toContain("LoopNet");
   });
 });
 
@@ -122,6 +128,43 @@ describe("addressMatchesPage", () => {
 
   it("fails closed when the street token is missing", () => {
     expect(addressMatchesPage("7900 NW 27th Ave", "Miami", "7900 Biscayne Boulevard industrial")).toBe(false);
+  });
+
+  it("treats 11 ST and 11th Street as the same numbered street", () => {
+    expect(addressMatchesPage("601 NW 11 ST", "Miami", "601 NW 11th Street, Miami warehouse")).toBe(true);
+  });
+
+  it("does not treat 1601 as a match for house number 601", () => {
+    expect(addressMatchesPage("601 NW 11 ST", "Miami", "1601 NW 11th Street industrial")).toBe(false);
+  });
+});
+
+describe("listingUrlLooksLikeAddress", () => {
+  it("accepts a LoopNet detail slug that carries the address", () => {
+    expect(
+      listingUrlLooksLikeAddress(
+        "https://www.loopnet.com/Listing/601-NW-11th-St-Miami-FL/12345/",
+        "601 NW 11 ST",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a different house number in the slug", () => {
+    expect(
+      listingUrlLooksLikeAddress(
+        "https://www.loopnet.com/Listing/1601-NW-11th-St-Miami-FL/12345/",
+        "601 NW 11 ST",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects search/index listing URLs", () => {
+    expect(
+      listingUrlLooksLikeAddress(
+        "https://www.crexi.com/properties/FL/Miami/Warehouses",
+        "601 NW 11 ST",
+      ),
+    ).toBe(false);
   });
 });
 

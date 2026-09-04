@@ -39,7 +39,7 @@ const SKIP_HOST_PARTS = [
 ];
 
 const MAX_SEARCH_RESULTS = 8;
-const MAX_FETCH_PAGES = 4;
+const MAX_FETCH_PAGES = 6;
 
 export type ListingSearchHit = {
   url: string;
@@ -130,10 +130,93 @@ export function normalizeAddressText(value: string): string {
     .trim();
 }
 
+function ordinalSuffix(n: number): string {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return "th";
+  if (n % 10 === 1) return "st";
+  if (n % 10 === 2) return "nd";
+  if (n % 10 === 3) return "rd";
+  return "th";
+}
+
+const SEARCH_SUFFIX: Record<string, string> = {
+  st: "Street",
+  street: "Street",
+  ave: "Avenue",
+  avenue: "Avenue",
+  rd: "Road",
+  road: "Road",
+  dr: "Drive",
+  drive: "Drive",
+  blvd: "Boulevard",
+  boulevard: "Boulevard",
+  ct: "Court",
+  court: "Court",
+  ln: "Lane",
+  lane: "Lane",
+  pl: "Place",
+  place: "Place",
+};
+
+/** Tax-roll "601 NW 11 ST" → "601 NW 11th Street" so search hits listing titles. */
+export function expandAddressForSearch(address: string): string {
+  const parts = address.trim().split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const next = parts[i + 1];
+    const suffix = next ? SEARCH_SUFFIX[next.toLowerCase()] : undefined;
+    const bare = /^(\d+)$/.exec(part);
+    const alreadyOrdinal = /^(\d+)(st|nd|rd|th)$/i.exec(part);
+    if (suffix && bare) {
+      out.push(`${bare[1]}${ordinalSuffix(Number(bare[1]))}`);
+      out.push(suffix);
+      i += 1;
+      continue;
+    }
+    if (suffix && alreadyOrdinal) {
+      out.push(part);
+      out.push(suffix);
+      i += 1;
+      continue;
+    }
+    out.push(part);
+  }
+  return out.join(" ");
+}
+
 export function listingSearchQuery(address: string, city: string | null): string {
-  const addr = address.trim();
-  const cityPart = city?.trim() ? ` "${city.trim()}"` : "";
-  return `"${addr}"${cityPart} (industrial OR warehouse OR "clear height" OR docks OR Crexi OR LoopNet)`;
+  const expanded = expandAddressForSearch(address);
+  const cityPart = city?.trim() ? ` ${city.trim()}` : "";
+  return `${expanded}${cityPart} warehouse OR industrial LoopNet OR Crexi`;
+}
+
+function hasAddressWord(text: string, word: string): boolean {
+  if (!word) return false;
+  return new RegExp(`(?:^|\\s)${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`).test(text);
+}
+
+/** House number + street name, including numbered streets like 11 / 11th. */
+export function streetNameToken(address: string): string | null {
+  const rest = normalizeAddressText(address).split(" ").filter(Boolean).slice(1);
+  const named = rest.find((p) => p.length >= 3 && !STREET_SUFFIXES.has(p) && !DIRECTIONS.has(p));
+  if (named) return named;
+  return rest.find((p) => /^\d+$/.test(p)) ?? null;
+}
+
+/** LoopNet/Crexi slugs often carry the address even when the snippet does not. */
+export function listingUrlLooksLikeAddress(url: string, address: string): boolean {
+  if (listingDetailRank(url) >= 9) return false;
+  let slug: string;
+  try {
+    slug = normalizeAddressText(decodeURIComponent(new URL(url).pathname).replace(/[-_/]+/g, " "));
+  } catch {
+    return false;
+  }
+  const house = normalizeAddressText(address).split(" ").filter(Boolean)[0];
+  const token = streetNameToken(address);
+  if (!house || !token) return false;
+  return hasAddressWord(slug, house) && hasAddressWord(slug, token);
 }
 
 const READER_BLOCKED_HOSTS = ["loopnet.", "crexi.com", "costar.com"];
@@ -162,18 +245,15 @@ export function addressMatchesPage(
   _city: string | null,
   pageText: string,
 ): boolean {
-  const a = normalizeAddressText(address);
   const text = normalizeAddressText(pageText);
-  const parts = a.split(" ").filter(Boolean);
+  const parts = normalizeAddressText(address).split(" ").filter(Boolean);
   const streetNum = parts[0];
   if (!streetNum || !/^\d+[a-z]?$/.test(streetNum)) return false;
-  if (!text.includes(streetNum)) return false;
+  if (!hasAddressWord(text, streetNum)) return false;
 
-  const streetToken = parts.slice(1).find(
-    (p) => p.length >= 3 && !STREET_SUFFIXES.has(p) && !DIRECTIONS.has(p),
-  );
-  if (streetToken) return text.includes(streetToken);
-  return parts[1] != null && text.includes(parts[1]);
+  const streetToken = streetNameToken(address);
+  if (streetToken) return hasAddressWord(text, streetToken);
+  return parts[1] != null && hasAddressWord(text, parts[1]);
 }
 
 const SMALL_NUMBER_WORDS: Record<number, string> = {
@@ -385,9 +465,11 @@ async function pageTextForHit(
     }
   }
   const snippetText = listingSearchHitText(hit);
-  if (snippetText.length >= 80 && addressMatchesPage(address, city, snippetText)) {
-    return snippetText;
-  }
+  const textMatches = addressMatchesPage(address, city, snippetText);
+  const urlMatches = listingUrlLooksLikeAddress(hit.url, address);
+  if (!textMatches && !urlMatches) return null;
+  if (snippetText.length >= 40) return snippetText;
+  if (urlMatches && snippetText.length >= 20) return snippetText;
   return null;
 }
 
@@ -525,6 +607,7 @@ export async function discoverListingSpecs(
   }
 
   let skippedPages = 0;
+  let matchedUrl: string | null = null;
   for (const hit of hits.slice(0, MAX_FETCH_PAGES)) {
     const pageText = await pageTextForHit(hit, input.address, input.city);
     if (!pageText) {
@@ -532,6 +615,7 @@ export async function discoverListingSpecs(
       continue;
     }
     const url = hit.url;
+    matchedUrl = matchedUrl ?? url;
 
     let extracted: ExtractedProperty;
     try {
@@ -556,15 +640,20 @@ export async function discoverListingSpecs(
     );
 
     if (candidates.length === 0) {
-      return {
-        url,
-        note: "A listing page matched this address, but it did not state any empty unlocked specs we can cite.",
-        skippedPages,
-        candidates: [],
-      };
+      skippedPages += 1;
+      continue;
     }
 
     return { url, note: null, skippedPages, candidates };
+  }
+
+  if (matchedUrl) {
+    return {
+      url: matchedUrl,
+      note: "A listing page matched this address, but it did not state any empty unlocked specs we can cite.",
+      skippedPages,
+      candidates: [],
+    };
   }
 
   return {
