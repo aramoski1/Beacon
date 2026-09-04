@@ -351,6 +351,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Set sender name**: Settings → Outreach → Sender name
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact). That does not control industrial specs.
 - **Customize industrial specs**: open a property → Industrial / flex specs → **Customize** (add, rename, or delete defaults). Listing/document extract fills a spec only when the source states it.
+- **Find listing specs**: open a property → Enrich → **Find listing specs** (or the empty-spec CTA on the industrial card). Searches public listing pages for the address, requires an address match and a citation, and fills empty unlocked fields only — never overwrites county, Sunbiz, or broker-entered values. Workspace **Enrich selected** can queue the same job; results are not auto-applied. Needs BRAVE_SEARCH_API_KEY or SERPER_API_KEY (DuckDuckGo HTML is an unauthenticated fallback).
 - **Log an activity**: Open any contact or property page → Timeline section → Log activity
 - **Customize the dashboard**: Dashboard → Customize (top right) → check/uncheck sections → Save (or Reset to default to restore everything)
 - **Schedule a tour**: /tours → date/time, optional property/contact, Save tour
@@ -373,6 +374,8 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - No email sending from Beacon itself — Outreach only drafts and opens your own mail client; you send it
 - No CSV export
 - No live CoStar rent comps (rent notebook uses static tri-county seed bands plus broker-entered comps)
+- No CoStar / LoopNet login scrape — listing discover only fetches public pages
+- Find listing specs does not invent a full industrial card for every tax-roll folio; empty stays empty if no cited page states the spec
 - No Mapbox — pin map uses OSM/Leaflet
 
 ## Fabrication — hard rule, not a preference

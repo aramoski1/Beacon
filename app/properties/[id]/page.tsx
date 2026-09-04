@@ -339,6 +339,12 @@ export default async function PropertyPage({
     ? "Not yet run"
     : "Disabled";
 
+  const webFieldEntries = Object.entries(p.field_sources ?? {}).filter(([, v]) => v === "web");
+  const webDone = webFieldEntries.length > 0;
+  const webDetail = webDone
+    ? `${webFieldEntries.length} field${webFieldEntries.length !== 1 ? "s" : ""} from a cited listing`
+    : "Not yet run";
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
       {/* Back link */}
@@ -512,6 +518,7 @@ export default async function PropertyPage({
             <DataSourceRow label="County records" done={countyDone} detail={countyDetail} href="#enrich-county" />
             <DataSourceRow label="Owner lookup (Sunbiz)" done={sunbizDone} detail={sunbizDetail} href="#enrich-sunbiz" />
             <DataSourceRow label="Document or URL" done={docDone} detail={docDetail} href="#enrich-document" />
+            <DataSourceRow label="Listing specs" done={webDone} detail={webDetail} href="#enrich-listing" />
             <DataSourceRow label="CoStar export" done={costarDone} detail={costarDetail} href="#enrich-costar" />
           </div>
         </CardContent>
@@ -534,7 +541,7 @@ export default async function PropertyPage({
         values={industrialValues}
       />
 
-      {/* Enrich property — county records, Sunbiz owner discovery, document/URL, CoStar export */}
+      {/* Enrich property — county, Sunbiz, listing specs, document/URL, CoStar */}
       <EnrichPanel
         propertyId={id}
         address={p.address}
@@ -945,7 +952,7 @@ function DataSourceRow({
   );
 }
 
-type FieldSource = "county" | "sunbiz" | "costar" | "manual" | "document" | "url" | "pasted";
+type FieldSource = "county" | "sunbiz" | "costar" | "manual" | "document" | "url" | "pasted" | "web";
 
 const SOURCE_TAG_LABELS: Record<FieldSource, string> = {
   county: "County",
@@ -955,6 +962,7 @@ const SOURCE_TAG_LABELS: Record<FieldSource, string> = {
   document: "Document",
   url: "URL",
   pasted: "Pasted",
+  web: "Listing",
 };
 
 function SourceTag({ source }: { source: FieldSource }) {

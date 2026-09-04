@@ -149,7 +149,7 @@ export default async function HowBeaconWorksPage({
           <li>
             <span className="text-foreground">Enrich + promote</span> — county folio, Sunbiz
             contacts, Promote to CRM, set Tier 1 on priorities. On industrial assets, open the
-            property and use **Industrial / flex specs** (Customize or re-extract a listing).
+            property and use **Industrial / flex specs** or Enrich → **Find listing specs**.
           </li>
           <li>
             <span className="text-foreground">Abstract leases</span> — upload PDFs linked to a

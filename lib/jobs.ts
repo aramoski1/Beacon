@@ -1,4 +1,4 @@
-export type JobType = "geocode_property" | "ownership_watch_batch" | "enrich_property";
+export type JobType = "geocode_property" | "ownership_watch_batch" | "enrich_property" | "listing_discover";
 
 export type JobRow = {
   id: string;

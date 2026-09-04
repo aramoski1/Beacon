@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Settings2, Warehouse } from "lucide-react";
+import { Search, Settings2, Warehouse } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CustomFieldsPanel } from "@/components/custom-fields-panel";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
@@ -161,6 +161,11 @@ export function IndustrialSection({
   const router = useRouter();
   const [local, setLocal] = useState(values);
   const [customize, setCustomize] = useState(false);
+  const filled = defs.filter((def) => {
+    const raw = local[fieldSlug(def.field_name)];
+    return raw != null && raw !== "";
+  }).length;
+  const showListingCta = defs.length > 0 && filled <= 1;
 
   async function save(slug: string, value: string | number | null) {
     setLocal((prev) => ({ ...prev, [slug]: value }));
@@ -236,6 +241,18 @@ export function IndustrialSection({
               );
             })}
           </dl>
+        )}
+        {showListingCta && (
+          <p className="mt-4 text-xs text-muted-foreground">
+            County records do not include docks or clear height.{" "}
+            <a
+              href="#enrich-listing"
+              className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              <Search className="size-3" />
+              Find listing specs
+            </a>
+          </p>
         )}
       </CardContent>
       {customize && (

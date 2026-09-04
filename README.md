@@ -17,6 +17,9 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 DATABASE_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
 ANTHROPIC_API_KEY=sk-ant-...
+JINA_API_KEY=                       # optional; listing page fetch
+BRAVE_SEARCH_API_KEY=               # optional; listing discover (preferred)
+SERPER_API_KEY=                     # optional; listing discover fallback
 ```
 
 `DATABASE_URL` is only used by the migration scripts and never exposed to the browser.

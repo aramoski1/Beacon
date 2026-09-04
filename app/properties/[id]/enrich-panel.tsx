@@ -42,9 +42,12 @@ import {
   createCoStarContacts,
   previewDocumentEnhancement,
   applyDocumentEnhancement,
+  previewListingDiscover,
+  applyListingDiscover,
   type EnhancementPreview,
   type SunbizLookupAction,
   type DocumentEnhancementPreview,
+  type ListingDiscoverPreview,
 } from "./actions";
 
 const COUNTY_SOURCE_LABEL: Record<string, string> = {
@@ -116,6 +119,14 @@ type DocPhase =
   | { tag: "done"; fieldsApplied: number; sourceKind: DocumentEnhancementPreview["sourceKind"] };
 
 const DOC_ACCEPTED = ".pdf,.jpg,.jpeg,.png,.webp,.txt";
+
+type ListingPhase =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "previewing"; preview: ListingDiscoverPreview }
+  | { tag: "saving" }
+  | { tag: "done"; fieldsApplied: number };
 
 // Human-readable noun for "Enriched from ___" status copy.
 function docSourceNoun(kind: DocumentEnhancementPreview["sourceKind"]): string {
@@ -237,7 +248,11 @@ export function EnrichPanel({
   const [docConflictSel, setDocConflictSel] = useState<Set<string>>(new Set());
   const docFileRef = useRef<HTMLInputElement>(null);
 
-  // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar) ──
+  // Listing discover
+  const [listing, setListing] = useState<ListingPhase>({ tag: "idle" });
+  const [listingSel, setListingSel] = useState<Set<string>>(new Set());
+
+  // ── Deep-link from the Data sources card (#enrich-county / -sunbiz / -document / -costar / -listing) ──
 
   useEffect(() => {
     function applyHash() {
@@ -462,12 +477,38 @@ export function EnrichPanel({
     if (docFileRef.current) docFileRef.current.value = "";
   }
 
+  function handleListingPreview() {
+    setListing({ tag: "loading" });
+    startTransition(async () => {
+      const res = await previewListingDiscover(propertyId);
+      if ("error" in res) { setListing({ tag: "error", message: res.error }); return; }
+      setListingSel(new Set(res.preview.candidates.map((c) => c.field)));
+      setListing({ tag: "previewing", preview: res.preview });
+    });
+  }
+
+  function handleListingApply(preview: ListingDiscoverPreview) {
+    setListing({ tag: "saving" });
+    startTransition(async () => {
+      const res = await applyListingDiscover(propertyId, [...listingSel], preview);
+      if ("error" in res) { setListing({ tag: "error", message: res.error }); return; }
+      setListing({ tag: "done", fieldsApplied: res.fieldsApplied });
+      router.refresh();
+    });
+  }
+
+  function resetListing() {
+    setListing({ tag: "idle" });
+    setListingSel(new Set());
+  }
+
   // ── Collapsed trigger ────────────────────────────────────────────────────────
 
   if (!open) {
     const sources = [
       needsCountyEnhancement && "County records",
       isEntityOwner && supportsEntityLookup && "Owner lookup (Sunbiz)",
+      "Listing specs",
       costarEnabled && "CoStar export",
     ].filter(Boolean) as string[];
 
@@ -1007,6 +1048,126 @@ export function EnrichPanel({
                 ? "Run county data above — it will auto-search Sunbiz for entity owners."
                 : "Run the Sunbiz lookup above to find registered agents and authorized persons."}
             </p>
+          )}
+        </section>
+
+        {/* ── Listing specs (search public pages, fill empty only) ──────── */}
+        <section id="enrich-listing" className="space-y-3">
+          <SubHeader icon={Search} title="Listing specs" />
+
+          {listing.tag === "idle" && (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">
+                Search public listing pages for this address. Fills empty docks, clear height,
+                rent, and other specs only when a page states them — never overwrites county or
+                broker-entered values.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleListingPreview}
+                disabled={!address}
+                className="shrink-0"
+              >
+                <Search className="size-3.5 mr-1.5" />
+                Find listing specs
+              </Button>
+            </div>
+          )}
+
+          {listing.tag === "loading" && <Spinner label="Searching public listing pages…" />}
+          {listing.tag === "saving" && <Spinner label="Saving empty fields…" />}
+
+          {listing.tag === "error" && (
+            <ErrorBox message={listing.message} onBack={resetListing} backLabel="Try again" />
+          )}
+
+          {listing.tag === "previewing" && (() => {
+            const { preview } = listing;
+            return (
+              <div className="space-y-3">
+                {preview.url && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    Matched{" "}
+                    <a href={preview.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                      {preview.url}
+                    </a>
+                  </p>
+                )}
+                {preview.note && (
+                  <p className="text-sm text-muted-foreground">{preview.note}</p>
+                )}
+                {preview.candidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nothing new to fill. Empty stays empty unless a cited page states the spec.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      {preview.candidates.length} empty field{preview.candidates.length !== 1 ? "s" : ""} with a citation
+                    </p>
+                    {preview.candidates.map((entry) => (
+                      <label
+                        key={entry.field}
+                        className={cn(
+                          "flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
+                          listingSel.has(entry.field) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/30",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setListingSel((prev) => {
+                            const next = new Set(prev);
+                            next.has(entry.field) ? next.delete(entry.field) : next.add(entry.field);
+                            return next;
+                          })}
+                          className="shrink-0 mt-0.5 text-primary"
+                        >
+                          {listingSel.has(entry.field) ? <CheckSquare className="size-4" /> : <Square className="size-4 text-muted-foreground" />}
+                        </button>
+                        <div className="min-w-0 flex-1 text-sm">
+                          <p className="font-medium">
+                            {entry.label}{" "}
+                            <span className="text-green-700">{entry.value}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground italic mt-0.5">
+                            “{entry.citation.excerpt}”
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    onClick={() => handleListingApply(preview)}
+                    disabled={listingSel.size === 0}
+                  >
+                    <ArrowRight className="size-3.5 mr-1.5" />
+                    {listingSel.size === 0
+                      ? "Nothing to apply"
+                      : `Fill ${listingSel.size} empty field${listingSel.size !== 1 ? "s" : ""}`}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={resetListing}>Cancel</Button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {listing.tag === "done" && (
+            <div className="space-y-1">
+              <p className="text-sm flex items-center gap-2">
+                <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+                Filled {listing.fieldsApplied} empty spec{listing.fieldsApplied !== 1 ? "s" : ""} from a cited listing page.
+              </p>
+              <button
+                onClick={resetListing}
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+              >
+                Search again
+              </button>
+            </div>
           )}
         </section>
 

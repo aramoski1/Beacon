@@ -34,12 +34,25 @@ import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
 import { fieldSlug } from "@/lib/custom-fields";
 import { INDUSTRIAL_SELECT, fetchIndustrialFieldDefs, industrialColumnForSlug, propertyExtractFieldDefs } from "@/lib/industrial-fields";
-import { persistIndustrialFromExtract, yardAcresFromLandSqft } from "@/lib/industrial-extract";
+import { INDUSTRIAL_FIELD_KEYS, persistIndustrialFromExtract, yardAcresFromLandSqft } from "@/lib/industrial-extract";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
+import {
+  fieldSourceOf,
+  isFieldLocked,
+  tagManualIndustrial,
+  type FieldSources,
+} from "@/lib/field-lock";
+import {
+  discoverListingSpecs,
+  planListingApplyWrites,
+  type ListingDiscoverPreview,
+} from "@/lib/listing-discover";
+import { enqueueJob } from "@/lib/jobs";
 import type { ZoningResult } from "@/lib/zoning";
 import { runAndPersistZoning } from "@/lib/zoning-persist";
 export type { ZoningResult } from "@/lib/zoning";
+export type { ListingDiscoverPreview } from "@/lib/listing-discover";
 
 export async function createOwnerContact(
   propertyId: string
@@ -989,11 +1002,19 @@ export async function applyCountyEnhancement(
   };
   const touchedCustomFieldFlags = new Set<string>();
   const newCustomFlags: { field: string; reason: string }[] = [];
+  const fieldSourcesUpdate: Record<string, string> = {
+    ...((existing.field_sources as Record<string, string> | null) ?? {}),
+  };
+
   for (const [slug, value] of Object.entries(mdpaData.custom_fields ?? {})) {
     const flagField = `custom_fields.${slug}`;
     touchedCustomFieldFlags.add(flagField);
     if (value != null) {
+      if (isFieldLocked(fieldSourcesUpdate, flagField) && fieldSourceOf(fieldSourcesUpdate, flagField) !== "county") {
+        continue;
+      }
       customFieldsUpdate[slug] = value;
+      fieldSourcesUpdate[flagField] = "county";
     } else {
       const matchedFlag = mdpaData.custom_field_flags?.find((f) => f.field === flagField);
       newCustomFlags.push({ field: flagField, reason: matchedFlag?.reason ?? "not found in source record" });
@@ -1004,22 +1025,25 @@ export async function applyCountyEnhancement(
     (existing.confidence_flags ?? []) as { field: string; reason: string }[]
   ).filter((f) => !MDPA_FIELDS.has(f.field) && !touchedCustomFieldFlags.has(f.field));
 
-  const fieldSourcesUpdate: Record<string, string> = {
-    ...((existing.field_sources as Record<string, string> | null) ?? {}),
-  };
   for (const field of MDPA_FIELDS) fieldSourcesUpdate[field] = "county";
-  for (const [slug, value] of Object.entries(mdpaData.custom_fields ?? {})) {
-    if (value != null) fieldSourcesUpdate[`custom_fields.${slug}`] = "county";
-  }
 
   const landSqft = mdpaData.land_sqft ?? existing.land_sqft ?? null;
   const industrialDefs = await fetchIndustrialFieldDefs(supabase);
   const persist = persistIndustrialFromExtract(industrialDefs, {
     custom_fields: customFieldsUpdate,
   });
-  Object.assign(customFieldsUpdate, persist.custom);
+  for (const [slug, value] of Object.entries(persist.custom)) {
+    const flagField = `custom_fields.${slug}`;
+    if (isFieldLocked(fieldSourcesUpdate, flagField) && fieldSourceOf(fieldSourcesUpdate, flagField) !== "county") {
+      continue;
+    }
+    customFieldsUpdate[slug] = value;
+  }
   const industrialUpdate: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(persist.columns)) {
+    if (isFieldLocked(fieldSourcesUpdate, key) && fieldSourceOf(fieldSourcesUpdate, key) !== "county") {
+      continue;
+    }
     const current = (existing as Record<string, unknown>)[key];
     if ((current == null || current === "") && value != null) {
       industrialUpdate[key] = value;
@@ -1125,7 +1149,7 @@ export async function saveIndustrialSpec(
 
   const { data: existing } = await supabase
     .from("properties")
-    .select("custom_fields")
+    .select("custom_fields, field_sources")
     .eq("id", propertyId)
     .eq("owner_id", user.id)
     .single();
@@ -1137,6 +1161,7 @@ export async function saveIndustrialSpec(
   };
   const patch: Record<string, unknown> = {
     custom_fields: custom,
+    field_sources: tagManualIndustrial(existing.field_sources as FieldSources | null, slug),
     updated_at: new Date().toISOString(),
   };
   const column = industrialColumnForSlug(slug);
@@ -1169,7 +1194,7 @@ export type DocumentEnhancementPreview = {
 };
 
 const EXISTING_FOR_DIFF_SELECT =
-  "owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields, clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase, yard_acres, column_spacing, sprinkler_type, availability_status, asking_rent_psf, nnn_cam_psf, lease_structure";
+  "owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields, field_sources, clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase, yard_acres, column_spacing, sprinkler_type, availability_status, asking_rent_psf, nnn_cam_psf, lease_structure";
 
 async function buildDocumentContent(
   formData: FormData
@@ -1280,6 +1305,8 @@ export async function previewDocumentEnhancement(
     return { error: `AI extraction failed: ${msg}` };
   }
 
+  const sources = ((existing as { field_sources?: FieldSources | null }).field_sources) ?? {};
+
   const diff = computeDocumentDiff(
     existing as unknown as ExistingPropertyForDiff,
     extracted,
@@ -1290,8 +1317,8 @@ export async function previewDocumentEnhancement(
     preview: {
       sourceKind,
       sourceDetail,
-      changes: diff.changes,
-      conflicts: diff.conflicts,
+      changes: diff.changes.filter((e) => !isFieldLocked(sources, e.field)),
+      conflicts: diff.conflicts.filter((e) => !isFieldLocked(sources, e.field)),
       unchanged: diff.unchanged,
       extracted,
     },
@@ -1344,6 +1371,7 @@ export async function applyDocumentEnhancement(
   ).filter((f) => !touchedFieldNames.has(f.field));
 
   for (const entry of toApply) {
+    if (isFieldLocked(fieldSourcesUpdate, entry.field)) continue;
     if (entry.field.startsWith("custom_fields.")) {
       const slug = entry.field.replace("custom_fields.", "");
       customFieldsUpdate[slug] = entry.rawAfter;
@@ -1358,8 +1386,18 @@ export async function applyDocumentEnhancement(
     ...extracted,
     custom_fields: customFieldsUpdate,
   });
-  Object.assign(customFieldsUpdate, persist.custom);
-  Object.assign(update, persist.columns);
+  for (const [key, value] of Object.entries(persist.columns)) {
+    if (isFieldLocked(fieldSourcesUpdate, key)) continue;
+    const accepted = toApply.some((e) => {
+      if (isFieldLocked(fieldSourcesUpdate, e.field)) return false;
+      if (e.field === key) return true;
+      if (!e.field.startsWith("custom_fields.")) return false;
+      return industrialColumnForSlug(e.field.replace("custom_fields.", "")) === key;
+    });
+    if (!accepted) continue;
+    update[key] = value;
+    fieldSourcesUpdate[key] = sourceKind;
+  }
 
   update.custom_fields = customFieldsUpdate;
   update.field_sources = fieldSourcesUpdate;
@@ -1379,6 +1417,193 @@ export async function applyDocumentEnhancement(
   }
 
   return { ok: true, fieldsApplied: toApply.length };
+}
+
+// ─── Listing discover (search → Jina → address gate → fill-only) ──────────────
+
+const LISTING_DISCOVER_SELECT =
+  `address, city, custom_fields, field_sources, ${INDUSTRIAL_SELECT}`;
+
+function industrialColumnsFromRow(row: Record<string, unknown>): Record<string, unknown> {
+  const columns: Record<string, unknown> = {};
+  for (const key of INDUSTRIAL_FIELD_KEYS) columns[key] = row[key] ?? null;
+  return columns;
+}
+
+async function previewListingDiscoverForUser(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  propertyId: string,
+): Promise<{ preview: ListingDiscoverPreview } | { error: string }> {
+  const { data: existing } = await supabase
+    .from("properties")
+    .select(LISTING_DISCOVER_SELECT)
+    .eq("id", propertyId)
+    .eq("owner_id", userId)
+    .single();
+  if (!existing) return { error: "Property not found." };
+  if (!existing.address?.trim()) {
+    return { error: "This property needs an address before listing search." };
+  }
+
+  const fieldDefs = await propertyExtractFieldDefs(supabase, userId);
+  const preview = await discoverListingSpecs({
+    address: existing.address,
+    city: existing.city,
+    fieldDefs,
+    existingCustom: (existing.custom_fields as Record<string, string | number | null> | null) ?? {},
+    existingColumns: industrialColumnsFromRow(existing as Record<string, unknown>),
+    sources: (existing.field_sources as FieldSources | null) ?? {},
+  });
+  return { preview };
+}
+
+export async function previewListingDiscover(
+  propertyId: string,
+): Promise<{ preview: ListingDiscoverPreview } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  return previewListingDiscoverForUser(supabase, user.id, propertyId);
+}
+
+export async function applyListingDiscover(
+  propertyId: string,
+  acceptedFields: string[],
+  preview: ListingDiscoverPreview,
+): Promise<{ ok: true; fieldsApplied: number } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { data: existing } = await supabase
+    .from("properties")
+    .select(LISTING_DISCOVER_SELECT)
+    .eq("id", propertyId)
+    .eq("owner_id", user.id)
+    .single();
+  if (!existing) return { error: "Property not found." };
+
+  const planned = planListingApplyWrites(
+    preview.candidates,
+    acceptedFields,
+    (existing.custom_fields as Record<string, string | number | null> | null) ?? {},
+    industrialColumnsFromRow(existing as Record<string, unknown>),
+    (existing.field_sources as FieldSources | null) ?? {},
+  );
+  if (planned.fieldsApplied === 0) return { error: "No empty unlocked fields to apply." };
+
+  const update: Record<string, unknown> = {
+    ...planned.columns,
+    custom_fields: planned.custom,
+    field_sources: planned.nextSources,
+    updated_at: new Date().toISOString(),
+  };
+  const fieldsApplied = planned.fieldsApplied;
+
+  const { error } = await supabase
+    .from("properties")
+    .update(update)
+    .eq("id", propertyId)
+    .eq("owner_id", user.id);
+  if (error) return { error: error.message };
+  return { ok: true, fieldsApplied };
+}
+
+export async function enqueueListingDiscover(
+  propertyIds: string[],
+): Promise<{ ok: true; queued: number } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const ids = [...new Set(propertyIds)].slice(0, 25);
+  if (ids.length === 0) return { error: "Select at least one property." };
+
+  const { data: owned } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("owner_id", user.id)
+    .in("id", ids);
+  const ownedIds = new Set((owned ?? []).map((p) => p.id));
+
+  let queued = 0;
+  for (const id of ids) {
+    if (!ownedIds.has(id)) continue;
+    const result = await enqueueJob(supabase as never, user.id, "listing_discover", { propertyId: id });
+    if (result.error) return { error: result.error };
+    queued += 1;
+  }
+  return { ok: true, queued };
+}
+
+export async function runListingDiscoverJob(
+  payload: Record<string, unknown>,
+): Promise<ListingDiscoverPreview> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated.");
+  const propertyId = typeof payload.propertyId === "string" ? payload.propertyId : "";
+  if (!propertyId) throw new Error("listing_discover job missing propertyId.");
+  const result = await previewListingDiscoverForUser(supabase, user.id, propertyId);
+  if ("error" in result) throw new Error(result.error);
+  return result.preview;
+}
+
+export type ListingDiscoverJobStatus = {
+  propertyId: string;
+  status: "queued" | "running" | "done" | "failed" | "none";
+  candidateCount: number;
+  url: string | null;
+  note: string | null;
+  error: string | null;
+};
+
+export async function getListingDiscoverJobStatuses(
+  propertyIds: string[],
+): Promise<ListingDiscoverJobStatus[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const ids = [...new Set(propertyIds)].slice(0, 50);
+  if (ids.length === 0) return [];
+
+  const { data: jobs } = await supabase
+    .from("background_jobs")
+    .select("payload, status, last_error, created_at")
+    .eq("owner_id", user.id)
+    .eq("job_type", "listing_discover")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  const latest = new Map<string, ListingDiscoverJobStatus>();
+  for (const job of jobs ?? []) {
+    const payload = (job.payload ?? {}) as {
+      propertyId?: string;
+      preview?: ListingDiscoverPreview;
+    };
+    const propertyId = payload.propertyId;
+    if (!propertyId || !ids.includes(propertyId) || latest.has(propertyId)) continue;
+    const preview = payload.preview;
+    latest.set(propertyId, {
+      propertyId,
+      status: job.status as ListingDiscoverJobStatus["status"],
+      candidateCount: preview?.candidates.length ?? 0,
+      url: preview?.url ?? null,
+      note: preview?.note ?? null,
+      error: job.last_error,
+    });
+  }
+
+  return ids.map((propertyId) => latest.get(propertyId) ?? {
+    propertyId,
+    status: "none",
+    candidateCount: 0,
+    url: null,
+    note: null,
+    error: null,
+  });
 }
 
 // ─── Zoning ───────────────────────────────────────────────────────────────────

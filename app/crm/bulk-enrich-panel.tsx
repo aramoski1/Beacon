@@ -10,6 +10,8 @@ import {
   applyCountyEnhancement,
   lookupSunbiz,
   saveSunbizOwnerContacts,
+  enqueueListingDiscover,
+  getListingDiscoverJobStatuses,
   type EnhancementPreview,
 } from "@/app/properties/[id]/actions";
 import { cn } from "@/lib/utils";
@@ -26,10 +28,13 @@ export type BulkProperty = {
 
 type SunbizPerson = NonNullable<EnhancementPreview["sunbiz_result"]>["persons"][number];
 
+type EnrichMode = "county" | "listing";
+
 type ItemResult =
   | { tag: "pending" }
   | { tag: "running"; step: string }
   | { tag: "done"; countyFields: number; sunbizPersons: number; countyNote?: string }
+  | { tag: "listing"; candidateCount: number; url: string | null; note: string | null }
   | { tag: "ambiguous"; matchCount: number }
   | { tag: "error"; message: string };
 
@@ -49,6 +54,7 @@ export function BulkEnrichPanel({
   );
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
+  const [mode, setMode] = useState<EnrichMode>("county");
 
   function setResult(id: string, result: ItemResult) {
     setResults((prev) => new Map(prev).set(id, result));
@@ -151,11 +157,63 @@ export function BulkEnrichPanel({
     setDone(true);
   }
 
+  async function runListingSearch() {
+    setRunning(true);
+    const queued = await enqueueListingDiscover(properties.map((p) => p.id));
+    if ("error" in queued) {
+      for (const p of properties) {
+        setResult(p.id, { tag: "error", message: queued.error });
+      }
+      setRunning(false);
+      setDone(true);
+      return;
+    }
+
+    for (const p of properties) {
+      setResult(p.id, { tag: "running", step: "Queued listing search…" });
+    }
+
+    const ids = properties.map((p) => p.id);
+    let guard = 0;
+    while (guard++ < ids.length + 8) {
+      await fetch("/api/jobs/process", { method: "POST" });
+      const statuses = await getListingDiscoverJobStatuses(ids);
+      let pending = false;
+      for (const s of statuses) {
+        if (s.status === "queued" || s.status === "running") {
+          pending = true;
+          setResult(s.propertyId, {
+            tag: "running",
+            step: s.status === "running" ? "Searching listing pages…" : "Waiting in queue…",
+          });
+        } else if (s.status === "failed") {
+          setResult(s.propertyId, { tag: "error", message: s.error ?? "Listing search failed." });
+        } else if (s.status === "done") {
+          setResult(s.propertyId, {
+            tag: "listing",
+            candidateCount: s.candidateCount,
+            url: s.url,
+            note: s.note,
+          });
+        } else if (guard < 3) {
+          pending = true;
+          setResult(s.propertyId, { tag: "running", step: "Waiting in queue…" });
+        } else {
+          setResult(s.propertyId, { tag: "error", message: "Listing search job was not queued." });
+        }
+      }
+      if (!pending) break;
+    }
+
+    setRunning(false);
+    setDone(true);
+  }
+
   // ── Derived counts ──────────────────────────────────────────────────────────
 
   const allResults = properties.map((p) => results.get(p.id) ?? ({ tag: "pending" } as ItemResult));
   const pendingCount  = allResults.filter((r) => r.tag === "pending").length;
-  const doneCount     = allResults.filter((r) => r.tag === "done").length;
+  const doneCount     = allResults.filter((r) => r.tag === "done" || r.tag === "listing").length;
   const ambigCount    = allResults.filter((r) => r.tag === "ambiguous").length;
   const errorCount    = allResults.filter((r) => r.tag === "error").length;
   const processedCount = properties.length - pendingCount;
@@ -181,8 +239,27 @@ export function BulkEnrichPanel({
               Enrich {properties.length} {properties.length === 1 ? "property" : "properties"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              County data · Sunbiz owners · auto-applied on unambiguous match
+              {mode === "listing"
+                ? "Search public listing pages. Review cited specs on each property — nothing is auto-applied."
+                : "County data · Sunbiz owners · auto-applied on unambiguous match"}
             </p>
+            {!running && !done && (
+              <div className="mt-3 flex gap-1.5">
+                {(["county", "listing"] as EnrichMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                      mode === m ? "border-primary/40 bg-primary/5 text-foreground" : "text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    {m === "county" ? "County + Sunbiz" : "Listing specs"}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -228,7 +305,7 @@ export function BulkEnrichPanel({
                   {result.tag === "running" && (
                     <Loader2 className="size-4 animate-spin text-primary" />
                   )}
-                  {result.tag === "done" && (
+                  {(result.tag === "done" || result.tag === "listing") && (
                     <CheckCircle2 className="size-4 text-green-600" />
                   )}
                   {result.tag === "ambiguous" && (
@@ -279,6 +356,13 @@ export function BulkEnrichPanel({
                         )}
                       </div>
                     )}
+                    {result.tag === "listing" && (
+                      <p className="text-xs text-muted-foreground">
+                        {result.candidateCount > 0
+                          ? `${result.candidateCount} cited spec${result.candidateCount !== 1 ? "s" : ""} found — open the property to accept`
+                          : result.note ?? "No cited empty specs on a matching page"}
+                      </p>
+                    )}
                     {result.tag === "ambiguous" && (
                       <p className="text-xs text-amber-700 dark:text-amber-400">
                         {result.matchCount} parcels found — open property to select the correct folio
@@ -298,11 +382,11 @@ export function BulkEnrichPanel({
         <div className="shrink-0 border-t px-5 py-3 flex gap-2">
           {!running && !done && (
             <button
-              onClick={runEnrichment}
+              onClick={mode === "listing" ? runListingSearch : runEnrichment}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               <Sparkles className="size-3.5" />
-              Start enrichment
+              {mode === "listing" ? "Queue listing search" : "Start enrichment"}
             </button>
           )}
           {done && (
