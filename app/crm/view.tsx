@@ -27,6 +27,7 @@ import {
   fetchMatchingPropertyIdsFromClient,
 } from "@/lib/crm-search-filters";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { resolveCustomFieldValue } from "@/lib/custom-field-aliases";
 import { isCustomGroup } from "@/lib/industrial-fields";
 import { buildContactOccupancy } from "@/lib/contact-occupancy";
 import { ensureIndustrialSpecs } from "@/app/settings/fields/actions";
@@ -80,6 +81,13 @@ type Property = {
   source_url: string | null;
   ingested_at: string | null;
   custom_fields: Record<string, unknown> | null;
+  building_composition?: {
+    year_built?: number | null;
+    lot_size_sqft?: number | null;
+    stories?: number | null;
+    units?: number | null;
+    assessed_value?: number | null;
+  } | null;
 };
 
 type LinkedContactInfo = {
@@ -1493,7 +1501,11 @@ function PropertiesTable({
                 {/* Custom fields */}
                 {customDefs.map((f) => {
                   const slug = fieldSlug(f.field_name);
-                  const val = p.custom_fields?.[slug];
+                  const val = resolveCustomFieldValue(
+                    slug,
+                    (p.custom_fields ?? {}) as Record<string, string | number | null>,
+                    p,
+                  );
                   return (
                     <td key={f.id} className={cn(tdCls, "min-w-[100px] max-w-[160px]")}>
                       <EditableText

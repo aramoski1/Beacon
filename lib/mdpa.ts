@@ -8,6 +8,8 @@
 //
 // Folio detail still uses PaServicesProxy (GetPropertySearchByFolio still works).
 
+import type { ExtractedProperty } from "@/lib/property-pipeline";
+
 const PA_BASE =
   "https://apps.miamidadepa.gov/PApublicServiceProxy/PaServicesProxy.ashx";
 
@@ -485,4 +487,54 @@ export async function searchByCriteria(
   }
 
   return { kind: "ok", matches, totalCount };
+}
+
+export type MdpaPropertyInfo = {
+  yearBuilt: number | null;
+  lotSize: number | null;
+  stories: number | null;
+  units: number | null;
+  assessedValue: number | null;
+  buildingArea: number | null;
+};
+
+function mdpaNumber(info: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const raw = info[key];
+    const n = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/** Read structured building fields from MDPA folio JSON — no model required. */
+export function parseMdpaPropertyInfo(raw: unknown): MdpaPropertyInfo {
+  const info = (raw as { PropertyInfo?: Record<string, unknown> } | null)?.PropertyInfo ?? {};
+  return {
+    yearBuilt: mdpaNumber(info, "YearBuilt", "ActualYearBuilt", "EffectiveYearBuilt"),
+    lotSize: mdpaNumber(info, "LotSize"),
+    stories: mdpaNumber(info, "Stories", "ActualStories"),
+    units: mdpaNumber(info, "Units", "NoOfUnits"),
+    assessedValue: mdpaNumber(info, "AssessedValue"),
+    buildingArea: mdpaNumber(info, "BuildingActualArea", "BuildingAdjustedArea"),
+  };
+}
+
+/** Fill empty extract fields from MDPA PropertyInfo so custom aliases (Year Built) can copy them. */
+export function overlayMdpaOnExtracted(
+  fields: ExtractedProperty,
+  raw: unknown,
+): ExtractedProperty {
+  const info = parseMdpaPropertyInfo(raw);
+  const bc = { ...(fields.building_composition ?? {}) };
+  if (bc.year_built == null && info.yearBuilt != null) bc.year_built = info.yearBuilt;
+  if (bc.lot_size_sqft == null && info.lotSize != null) bc.lot_size_sqft = info.lotSize;
+  if (bc.stories == null && info.stories != null) bc.stories = info.stories;
+  if (bc.units == null && info.units != null) bc.units = info.units;
+  if (bc.assessed_value == null && info.assessedValue != null) bc.assessed_value = info.assessedValue;
+  return {
+    ...fields,
+    size_sqft: fields.size_sqft ?? info.buildingArea,
+    building_composition: bc,
+  };
 }

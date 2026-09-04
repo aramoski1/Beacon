@@ -5,7 +5,10 @@ import {
   searchByAddressGIS,
   buildMdpaCriteriaWhere,
   searchByCriteria,
+  parseMdpaPropertyInfo,
+  overlayMdpaOnExtracted,
 } from "../../lib/mdpa";
+import type { ExtractedProperty } from "../../lib/property-pipeline";
 
 // ─── folioToStrap ─────────────────────────────────────────────────────────────
 
@@ -609,5 +612,41 @@ describe("searchByCriteria (Miami-Dade)", () => {
     const result = await searchByCriteria({}, 200);
     if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
     expect(result.matches).toEqual([]);
+  });
+});
+
+describe("parseMdpaPropertyInfo", () => {
+  it("reads YearBuilt from PropertyInfo", () => {
+    expect(parseMdpaPropertyInfo({
+      PropertyInfo: { YearBuilt: 2019, BuildingActualArea: 42180, LotSize: 87120 },
+    })).toEqual({
+      yearBuilt: 2019,
+      lotSize: 87120,
+      stories: null,
+      units: null,
+      assessedValue: null,
+      buildingArea: 42180,
+    });
+  });
+});
+
+describe("overlayMdpaOnExtracted", () => {
+  it("fills empty year_built from PropertyInfo without clobbering size", () => {
+    const extracted: ExtractedProperty = {
+      address: "3880 W 104TH ST",
+      city: "Hialeah",
+      submarket: null,
+      owner_name: "TEST LLC",
+      ownership_type: "institutional",
+      size_sqft: 42000,
+      property_type: "industrial",
+      last_sale_date: null,
+      last_sale_price: null,
+      building_composition: { year_built: null, lot_size_sqft: null },
+      confidence_flags: [],
+    };
+    const out = overlayMdpaOnExtracted(extracted, { PropertyInfo: { YearBuilt: 2019 } });
+    expect(out.building_composition.year_built).toBe(2019);
+    expect(out.size_sqft).toBe(42000);
   });
 });

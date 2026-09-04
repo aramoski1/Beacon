@@ -15,6 +15,7 @@ import { industrialFromExtracted, type IndustrialExtractSource } from "@/lib/ind
 import { INDUSTRIAL_COLUMN_BY_SLUG, industrialColumnForSlug } from "@/lib/industrial-fields";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
+import { builtinValueForCustomSlug } from "@/lib/custom-field-aliases";
 
 export const LISTING_DISCOVER_SYSTEM_PROMPT =
   "Extract ONLY fields the listing page explicitly states. Do not infer docks, clear height, power, asking rent, or any industrial spec from lot size, tax-roll language, or a typical warehouse. If the page does not state a spec, leave it null.";
@@ -414,6 +415,7 @@ export function buildListingCandidates(
     const incoming =
       extracted.custom_fields?.[slug] ??
       (col ? industrial[col] : null) ??
+      builtinValueForCustomSlug(slug, extracted) ??
       null;
     if (!hasFieldValue(incoming) || incoming == null) continue;
 

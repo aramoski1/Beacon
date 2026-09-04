@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
+import { getPropertyDetail, extractOwnerMailing, overlayMdpaOnExtracted } from "@/lib/mdpa";
 import { extractPropertyFields, savePipelineProperty } from "@/lib/property-pipeline";
 import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { findDuplicate } from "@/lib/property-ingest";
@@ -70,14 +70,17 @@ export async function importTaxRollFolio(
 
   let fields;
   try {
-    fields = await extractPropertyFields(
-      {
-        type: "text",
-        text: JSON.stringify(detail, null, 2),
-        hint: mdpaHint(normalizedStrap, siteAddress),
-      },
-      MDPA_SYSTEM_PROMPT,
-      customExtractFields,
+    fields = overlayMdpaOnExtracted(
+      await extractPropertyFields(
+        {
+          type: "text",
+          text: JSON.stringify(detail, null, 2),
+          hint: mdpaHint(normalizedStrap, siteAddress),
+        },
+        MDPA_SYSTEM_PROMPT,
+        customExtractFields,
+      ),
+      detail,
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

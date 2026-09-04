@@ -22,6 +22,11 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import {
+  customFieldsNeedBuiltinFill,
+  fillCustomFieldsFromBuiltins,
+  resolveCustomFieldValue,
+} from "@/lib/custom-field-aliases";
 import { PropertyContactsSection, type LinkedContact } from "./contacts-section";
 import { PromoteOwnerButton } from "./promote-owner-button";
 import { paVerifyFromSourceUrl } from "@/lib/pa-verify";
@@ -233,7 +238,28 @@ export default async function PropertyPage({
   const allPropertyDefs = (fdData ?? []) as FieldDefinition[];
   const customDefs = allPropertyDefs.filter(isCustomGroup);
   const industrialDefs = allPropertyDefs.filter((d) => !isCustomGroup(d));
-  const customValues = p.custom_fields ?? {};
+  const hydratedCustom = fillCustomFieldsFromBuiltins(customDefs, p.custom_fields ?? {}, p);
+  if (customFieldsNeedBuiltinFill(p.custom_fields, hydratedCustom)) {
+    const nextSources = { ...(p.field_sources ?? {}) };
+    for (const def of customDefs) {
+      const slug = fieldSlug(def.field_name);
+      const key = `custom_fields.${slug}`;
+      if ((p.custom_fields?.[slug] == null || p.custom_fields?.[slug] === "") && hydratedCustom[slug] != null) {
+        nextSources[key] = nextSources[key] ?? "county";
+      }
+    }
+    await supabase
+      .from("properties")
+      .update({
+        custom_fields: hydratedCustom,
+        field_sources: nextSources,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("owner_id", user.id);
+    p.field_sources = nextSources;
+  }
+  const customValues = hydratedCustom;
   const industrialValues: Record<string, string | number | null> = {};
   for (const def of industrialDefs) {
     industrialValues[fieldSlug(def.field_name)] = industrialSpecValue(def, customValues, {
@@ -753,8 +779,8 @@ export default async function PropertyPage({
             <dl className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
               {customDefs.map(f => {
                 const slug = fieldSlug(f.field_name);
-                const val  = customValues[slug];
-                const reason = flagMap.get(`custom_fields.${slug}`) ?? flagMap.get(slug);
+                const val  = resolveCustomFieldValue(slug, customValues, p);
+                const reason = val != null ? undefined : (flagMap.get(`custom_fields.${slug}`) ?? flagMap.get(slug));
                 const source = fieldSourceFor(`custom_fields.${slug}`);
                 return (
                   <div key={f.id} className="space-y-0.5">

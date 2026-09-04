@@ -7,6 +7,7 @@ import { fieldSlug, type FieldDefinition } from "./custom-fields";
 import type { ExtractedProperty } from "./property-pipeline";
 import { industrialFromExtracted, type IndustrialExtractSource } from "./industrial-extract";
 import { INDUSTRIAL_COLUMN_BY_SLUG, type IndustrialFields } from "./industrial-fields";
+import { builtinValueForCustomSlug } from "./custom-field-aliases";
 
 // Authoritative fields: never silently overwritten by a document/URL/pasted
 // source when an existing value is already on record. Surfaced as individual
@@ -109,7 +110,10 @@ export function computeDocumentDiff(
     const col = INDUSTRIAL_COLUMN_BY_SLUG[slug];
     const beforeRaw = existing.custom_fields?.[slug] ?? (col ? existing[col] ?? null : null) ?? null;
     const afterRaw =
-      extracted.custom_fields?.[slug] ?? (col ? extractedIndustrial[col] : null) ?? null;
+      extracted.custom_fields?.[slug] ??
+      (col ? extractedIndustrial[col] : null) ??
+      builtinValueForCustomSlug(slug, extracted) ??
+      null;
     if (afterRaw == null) continue; // nothing to write; reason surfaced separately by the caller
     const before = beforeRaw == null ? null : String(beforeRaw);
     const after = String(afterRaw);

@@ -11,6 +11,7 @@ import type { StoredOwnerContact } from "./owner-contacts";
 import { persistIndustrialFromExtract } from "./industrial-extract";
 import { ensureIndustrialFieldDefs } from "./industrial-fields";
 import { enqueueJob } from "./jobs";
+import { fillCustomFieldsFromBuiltins } from "./custom-field-aliases";
 
 // ─── Unified tool ─────────────────────────────────────────────────────────────
 // One definition used by every ingestion path. Source-specific extraction hints
@@ -277,6 +278,19 @@ export async function savePipelineProperty(
   const bc = fields.building_composition;
   const industrialDefs = await ensureIndustrialFieldDefs(supabase, userId);
   const persist = persistIndustrialFromExtract(industrialDefs, fields);
+  const { data: propertyDefs } = await supabase
+    .from("field_definitions")
+    .select("*")
+    .eq("entity_type", "property");
+  const custom = fillCustomFieldsFromBuiltins(
+    (propertyDefs ?? []) as FieldDefinition[],
+    persist.custom,
+    {
+      size_sqft: fields.size_sqft,
+      land_sqft: bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null,
+      building_composition: bc,
+    },
+  );
   const id = await upsertProperty(supabase, userId, {
     owner_id: userId,
     address:               overrides?.address    ?? fields.address,
@@ -297,7 +311,7 @@ export async function savePipelineProperty(
     source_url:            sourceUrl ?? null,
     ingested_at:           new Date().toISOString(),
     confidence_flags:      fields.confidence_flags,
-    custom_fields:         persist.custom,
+    custom_fields:         custom,
     ...persist.columns,
   });
 

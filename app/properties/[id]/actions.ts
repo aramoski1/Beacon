@@ -10,7 +10,7 @@ import {
 } from "@/lib/owner-contacts";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFileContent } from "@/lib/costar";
-import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing } from "@/lib/mdpa";
+import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing, overlayMdpaOnExtracted } from "@/lib/mdpa";
 import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
 import {
@@ -32,7 +32,8 @@ import { extractPropertyFields, type ExtractedProperty, type PipelineContent } f
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
-import { fieldSlug } from "@/lib/custom-fields";
+import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
+import { fillCustomFieldsFromBuiltins } from "@/lib/custom-field-aliases";
 import { INDUSTRIAL_SELECT, fetchIndustrialFieldDefs, industrialColumnForSlug, propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { INDUSTRIAL_FIELD_KEYS, persistIndustrialFromExtract, yardAcresFromLandSqft } from "@/lib/industrial-extract";
 import { fetchListingText } from "@/lib/listing-fetch";
@@ -547,6 +548,10 @@ export async function previewCountyEnhancement(
   if (!existing) return { error: "Property not found." };
 
   const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
+  const { data: propertyFieldDefs } = await supabase
+    .from("field_definitions")
+    .select("*")
+    .eq("entity_type", "property");
 
   const county = countyFromStrap(strap);
 
@@ -707,10 +712,13 @@ STRICT RULES — violation is not permitted:
 
     let fields: ExtractedProperty;
     try {
-      fields = await extractPropertyFields(
-        { type: "text", text: JSON.stringify(detail, null, 2), hint },
-        MDPA_SYSTEM_PROMPT,
-        customExtractFields
+      fields = overlayMdpaOnExtracted(
+        await extractPropertyFields(
+          { type: "text", text: JSON.stringify(detail, null, 2), hint },
+          MDPA_SYSTEM_PROMPT,
+          customExtractFields
+        ),
+        detail,
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -736,6 +744,22 @@ STRICT RULES — violation is not permitted:
       })),
     };
   }
+
+  mdpaData.custom_fields = fillCustomFieldsFromBuiltins(
+    (propertyFieldDefs ?? customExtractFields) as FieldDefinition[],
+    mdpaData.custom_fields ?? {},
+    {
+      size_sqft: mdpaData.size_sqft,
+      land_sqft: mdpaData.land_sqft,
+      building_composition: mdpaData.building_composition as {
+        year_built?: number | null;
+        lot_size_sqft?: number | null;
+        stories?: number | null;
+        units?: number | null;
+        assessed_value?: number | null;
+      } | null,
+    },
+  );
 
   const allFields: EnhancementDiffEntry[] = [
     { field: "owner_name",             label: "Owner name",             before: existing.owner_name ?? null,                                 after: mdpaData.owner_name },
@@ -1006,7 +1030,27 @@ export async function applyCountyEnhancement(
     ...((existing.field_sources as Record<string, string> | null) ?? {}),
   };
 
-  for (const [slug, value] of Object.entries(mdpaData.custom_fields ?? {})) {
+  const { data: propertyFieldDefs } = await supabase
+    .from("field_definitions")
+    .select("*")
+    .eq("entity_type", "property");
+  const countyCustom = fillCustomFieldsFromBuiltins(
+    (propertyFieldDefs ?? []) as FieldDefinition[],
+    mdpaData.custom_fields ?? {},
+    {
+      size_sqft: mdpaData.size_sqft,
+      land_sqft: mdpaData.land_sqft,
+      building_composition: mdpaData.building_composition as {
+        year_built?: number | null;
+        lot_size_sqft?: number | null;
+        stories?: number | null;
+        units?: number | null;
+        assessed_value?: number | null;
+      } | null,
+    },
+  );
+
+  for (const [slug, value] of Object.entries(countyCustom)) {
     const flagField = `custom_fields.${slug}`;
     touchedCustomFieldFlags.add(flagField);
     if (value != null) {

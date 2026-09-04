@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { detectCounty, parseCityFromAddress, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
-import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing } from "@/lib/mdpa";
+import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing, overlayMdpaOnExtracted } from "@/lib/mdpa";
 import {
   getPropertyDetail as pbcpaDetail,
   extractOwnerMailing as pbcpaExtractMailing,
@@ -490,10 +490,13 @@ STRICT RULES — violation is not permitted:
 
   let fields: ExtractedProperty;
   try {
-    fields = await extractPropertyFields(
-      { type: "text", text: JSON.stringify(detail, null, 2), hint },
-      MDPA_SYSTEM_PROMPT,
-      customExtractFields
+    fields = overlayMdpaOnExtracted(
+      await extractPropertyFields(
+        { type: "text", text: JSON.stringify(detail, null, 2), hint },
+        MDPA_SYSTEM_PROMPT,
+        customExtractFields
+      ),
+      detail,
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
