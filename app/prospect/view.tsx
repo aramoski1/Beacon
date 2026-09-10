@@ -2,9 +2,16 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Loader2, AlertTriangle, Target, CheckCircle2, Inbox } from "lucide-react";
+import { Search, Loader2, AlertTriangle, Target, CheckCircle2, Inbox, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { runLeadSearch, acceptLeads, type BuyBox, type AcceptLeadsResult } from "./actions";
+import {
+  runLeadSearch,
+  interpretLeadSearch,
+  acceptLeads,
+  type BuyBox,
+  type AcceptLeadsResult,
+  type IgnoredLeadTerm,
+} from "./actions";
 import { BuyBoxPicker, SaveBuyBoxAction } from "./buy-box-bar";
 import {
   MARKET_LABELS,
@@ -94,6 +101,12 @@ type FormState = {
   leaseExpiringWithinDays: string;
 };
 
+const SENTENCE_EXAMPLES = [
+  "20-50k industrial in Hialeah",
+  "industrial in Ft Lauderdale over 10k",
+  "industrial in Boston held 10+ years",
+];
+
 const EMPTY_FORM: FormState = {
   markets: new Set(SUPPORTED_MARKETS),
   cities: "",
@@ -177,10 +190,15 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
   const [activeBuyBoxId, setActiveBuyBoxId] = useState<string | null>(null);
   const [result, setResult] = useState<LeadSearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [sentence, setSentence] = useState("");
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [ignored, setIgnored] = useState<IgnoredLeadTerm[]>([]);
   const [isSearching, startSearch] = useTransition();
+  const [isInterpreting, startInterpret] = useTransition();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAccepting, startAccepting] = useTransition();
   const [acceptResult, setAcceptResult] = useState<AcceptLeadsResult | null>(null);
+  const isBusy = isSearching || isInterpreting;
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setActiveBuyBoxId(null);
@@ -197,23 +215,49 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
     });
   }
 
-  function runSearch(criteriaOverride?: LeadSearchCriteria) {
-    setSearchError(null);
-    const criteria = criteriaOverride ?? formToCriteria(form);
+  async function executeSearch(criteria: LeadSearchCriteria) {
     if (criteria.markets.length === 0) {
       setSearchError("Select at least one market to search.");
+      setResult(null);
       return;
     }
     setSelected(new Set());
     setAcceptResult(null);
+    const res = await runLeadSearch(criteria);
+    if ("error" in res) {
+      setSearchError(res.error);
+      setResult(null);
+    } else {
+      setResult(res);
+    }
+  }
+
+  function runSearch(criteriaOverride?: LeadSearchCriteria) {
+    setSearchError(null);
+    const criteria = criteriaOverride ?? formToCriteria(form);
     startSearch(async () => {
-      const res = await runLeadSearch(criteria);
+      await executeSearch(criteria);
+    });
+  }
+
+  function runSentenceSearch(raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    setSearchError(null);
+    setExplanation(null);
+    setIgnored([]);
+    startInterpret(async () => {
+      const res = await interpretLeadSearch(trimmed);
       if ("error" in res) {
         setSearchError(res.error);
         setResult(null);
-      } else {
-        setResult(res);
+        return;
       }
+      setActiveBuyBoxId(null);
+      setForm(criteriaToForm(res.criteria));
+      setExplanation(res.explanation);
+      setIgnored(res.ignored);
+      await executeSearch(res.criteria);
     });
   }
 
@@ -250,6 +294,8 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
   function handleLoad(box: BuyBox) {
     setActiveBuyBoxId(box.id);
     setForm(criteriaToForm(box.criteria));
+    setExplanation(null);
+    setIgnored([]);
     runSearch(box.criteria);
   }
 
@@ -287,6 +333,73 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
                 setActiveBuyBoxId(box.id);
               }}
             />
+          </div>
+
+          {/* ── Sentence search ─────────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                runSentenceSearch(sentence);
+              }}
+              className="relative"
+            >
+              {isBusy ? (
+                <Loader2 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground animate-spin" />
+              ) : (
+                <Sparkles className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              )}
+              <input
+                type="text"
+                value={sentence}
+                onChange={(e) => setSentence(e.target.value)}
+                placeholder="Industrial 20-50k in Hialeah…"
+                disabled={isBusy}
+                className="w-full rounded-lg border border-border bg-background pl-9 pr-24 py-2.5 text-sm outline-none focus:ring-2 ring-ring placeholder:text-muted-foreground/60 disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                disabled={isBusy || !sentence.trim()}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
+              >
+                <Search className="size-3.5" />
+                Search
+              </button>
+            </form>
+            <div className="flex flex-wrap gap-1.5">
+              {SENTENCE_EXAMPLES.map((ex) => (
+                <button
+                  key={ex}
+                  type="button"
+                  onClick={() => {
+                    setSentence(ex);
+                    runSentenceSearch(ex);
+                  }}
+                  disabled={isBusy}
+                  className={cn(
+                    "rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground",
+                    "hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40",
+                  )}
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+            {explanation && (
+              <p className="text-xs text-muted-foreground">{explanation}</p>
+            )}
+            {ignored.length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 p-3 space-y-1.5">
+                {ignored.map((item) => (
+                  <p key={item.term} className="text-xs text-amber-800 dark:text-amber-400 flex items-start gap-1.5">
+                    <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>{item.term}</strong> — {item.reason}
+                    </span>
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ── Criteria form ───────────────────────────────────────────────── */}
@@ -417,10 +530,10 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
               <button
                 type="button"
                 onClick={() => runSearch()}
-                disabled={isSearching}
+                disabled={isBusy}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
               >
-                {isSearching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+                {isBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
                 Search
               </button>
             </div>
