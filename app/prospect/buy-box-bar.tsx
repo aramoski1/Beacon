@@ -22,11 +22,13 @@ export function BuyBoxPicker({
   activeBuyBoxId,
   onSelect,
   onDeleted,
+  onClear,
 }: {
   buyBoxes: BuyBox[];
   activeBuyBoxId: string | null;
   onSelect: (box: BuyBox) => void;
   onDeleted: (id: string) => void;
+  onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,68 +54,94 @@ export function BuyBoxPicker({
         return;
       }
       onDeleted(id);
+      setOpen(false);
     });
   }
 
   return (
-    <div ref={containerRef} className="relative min-w-[12rem] max-w-sm">
-      {error && <p className="absolute -top-5 left-0 text-xs text-destructive">{error}</p>}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "w-full flex items-center gap-2 text-xs border rounded-md px-2.5 py-1.5 bg-background hover:bg-muted/40 transition-colors text-left",
-          open && "ring-1 ring-ring",
-        )}
-      >
-        <Target className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className={cn("flex-1 truncate", !selected && "text-muted-foreground")}>
-          {selected ? selected.name : buyBoxes.length === 0 ? "No saved buy boxes yet" : "Choose a buy box…"}
-        </span>
-        <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-full min-w-[16rem] max-h-64 overflow-auto rounded-md border bg-popover shadow-md py-1">
-          {buyBoxes.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              Save your current criteria below to create one.
-            </p>
-          ) : (
-            buyBoxes.map((box) => {
-              const active = activeBuyBoxId === box.id;
-              return (
-                <div
-                  key={box.id}
-                  className={cn("flex items-center gap-1 px-1 group", active && "bg-primary/5")}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelect(box);
-                      setOpen(false);
-                    }}
-                    className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 text-xs text-left hover:bg-muted/50 rounded-sm"
-                  >
-                    <span className="truncate font-medium">{box.name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(box.id);
-                    }}
-                    disabled={isPending}
-                    className="p-1.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 shrink-0"
-                    title="Delete buy box"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              );
-            })
+    <div className="flex items-center gap-2 flex-wrap">
+      <div ref={containerRef} className="relative min-w-[12rem] max-w-sm">
+        {error && <p className="absolute -top-5 left-0 text-xs text-destructive">{error}</p>}
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={cn(
+            "w-full flex items-center gap-2 text-xs border rounded-md px-2.5 py-1.5 bg-background hover:bg-muted/40 transition-colors text-left",
+            open && "ring-1 ring-ring",
+            selected && "border-primary/30 bg-primary/5",
           )}
-        </div>
+        >
+          <Target className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className={cn("flex-1 truncate", !selected && "text-muted-foreground")}>
+            {selected ? selected.name : buyBoxes.length === 0 ? "No saved buy boxes yet" : "Choose a buy box…"}
+          </span>
+          <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </button>
+
+        {open && (
+          <div className="absolute left-0 top-full z-50 mt-1 w-full min-w-[16rem] max-h-64 overflow-auto rounded-md border bg-popover shadow-md py-1">
+            {buyBoxes.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                Save your current criteria below to create one.
+              </p>
+            ) : (
+              buyBoxes.map((box) => {
+                const active = activeBuyBoxId === box.id;
+                return (
+                  <div
+                    key={box.id}
+                    className={cn("flex items-center gap-1 px-1", active && "bg-primary/5")}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelect(box);
+                        setOpen(false);
+                      }}
+                      className="flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 text-xs text-left hover:bg-muted/50 rounded-sm"
+                    >
+                      <span className="truncate font-medium">{box.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(box.id);
+                      }}
+                      disabled={isPending}
+                      className="p-1.5 text-muted-foreground hover:text-destructive shrink-0"
+                      title="Delete buy box"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+
+      {selected && (
+        <>
+          <button
+            type="button"
+            onClick={onClear}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground border rounded-md px-2.5 py-1.5 hover:bg-muted/50 hover:text-foreground"
+          >
+            <X className="size-3.5" />
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDelete(selected.id)}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 text-xs text-destructive border border-destructive/30 rounded-md px-2.5 py-1.5 hover:bg-destructive/5 disabled:opacity-50"
+          >
+            {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Delete
+          </button>
+        </>
       )}
     </div>
   );

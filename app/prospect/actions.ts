@@ -25,8 +25,6 @@ export type BuyBox = {
   updatedAt: string;
 };
 
-export type { IgnoredLeadTerm };
-
 export type InterpretLeadSearchResult =
   | { criteria: LeadSearchCriteria; explanation: string; ignored: IgnoredLeadTerm[] }
   | { error: string };

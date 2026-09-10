@@ -10,8 +10,8 @@ import {
   acceptLeads,
   type BuyBox,
   type AcceptLeadsResult,
-  type IgnoredLeadTerm,
 } from "./actions";
+import type { IgnoredLeadTerm } from "@/lib/lead-search-interpret";
 import { BuyBoxPicker, SaveBuyBoxAction } from "./buy-box-bar";
 import {
   MARKET_LABELS,
@@ -291,6 +291,17 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
     });
   }
 
+  function handleClearBuyBox() {
+    setActiveBuyBoxId(null);
+    setForm(EMPTY_FORM);
+    setResult(null);
+    setSearchError(null);
+    setExplanation(null);
+    setIgnored([]);
+    setSelected(new Set());
+    setAcceptResult(null);
+  }
+
   function handleLoad(box: BuyBox) {
     setActiveBuyBoxId(box.id);
     setForm(criteriaToForm(box.criteria));
@@ -321,9 +332,10 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
               buyBoxes={buyBoxes}
               activeBuyBoxId={activeBuyBoxId}
               onSelect={handleLoad}
+              onClear={handleClearBuyBox}
               onDeleted={(id) => {
                 setBuyBoxes((prev) => prev.filter((b) => b.id !== id));
-                if (activeBuyBoxId === id) setActiveBuyBoxId(null);
+                if (activeBuyBoxId === id) handleClearBuyBox();
               }}
             />
             <SaveBuyBoxAction
