@@ -1,7 +1,13 @@
 "use server";
 
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { searchLeads, SUPPORTED_MARKETS, type LeadSearchCriteria, type LeadSearchResult, type MarketOutcome, type SupportedMarket } from "@/lib/lead-finder";
+import {
+  refineLeadCriteria,
+  sanitizeLeadCriteria,
+  type IgnoredLeadTerm,
+} from "@/lib/lead-search-interpret";
 import { importTaxRollFolio } from "@/lib/mdpa-folio-ingest";
 import { importBcpaFolio } from "@/lib/bcpa-folio-ingest";
 import { importPbcpaFolio } from "@/lib/pbcpa-folio-ingest";
@@ -19,38 +25,146 @@ export type BuyBox = {
   updatedAt: string;
 };
 
-function sanitizeCriteria(input: unknown): LeadSearchCriteria | null {
-  if (!input || typeof input !== "object") return null;
-  const c = input as Record<string, unknown>;
+export type { IgnoredLeadTerm };
 
-  const markets = Array.isArray(c.markets)
-    ? c.markets.filter((m): m is LeadSearchCriteria["markets"][number] =>
-        typeof m === "string" && (SUPPORTED_MARKETS as string[]).includes(m),
-      )
-    : [];
+export type InterpretLeadSearchResult =
+  | { criteria: LeadSearchCriteria; explanation: string; ignored: IgnoredLeadTerm[] }
+  | { error: string };
 
-  const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const propertyType = c.propertyType;
-  const validTypes = ["residential", "multifamily", "retail", "office", "industrial", "land"];
+const INTERPRET_LEAD_TOOL: Anthropic.Tool = {
+  name: "interpret_lead_search",
+  description: `Map a broker's sentence into county tax-roll search criteria.
+
+Live GIS filters that exist: markets (miami-dade, broward, palm-beach, massachusetts), cities, building SF min/max, land SF min/max, property type (residential, multifamily, retail, office, industrial, land), assessed value min/max, year built min/max, soldWithinYears, heldAtLeastYears, ownerPortfolioMin, leaseExpiringWithinDays.
+
+Honest limits:
+- Do NOT invent filters the tax roll cannot apply: docks, dock doors, clear height, ceiling height, parking, rail, power, "near the airport", drive-time, submarkets that are not city names, listing asking rent, cap rate, occupancy.
+- Put every such term in ignored with a one-sentence reason. Still fill the filters that do exist (city, type, size, year, sale).
+- Omit markets unless the user named a county or Massachusetts. City names are enough — a later step infers the market.
+- Never default markets to all four. Empty markets is correct when the user named a city.
+- Palm Beach has no building SF or year built. If the user asks for those, still set the numbers; do not add palm-beach unless they named Palm Beach or a Palm Beach city.
+- Massachusetts cannot search by property type alone. If they only said "industrial in Massachusetts" with no city/size/year/sale, omit massachusetts and explain in ignored.
+- "20-50k" / "20k to 50k sf" → buildingSqftMin 20000, buildingSqftMax 50000. Convert k and M.
+- "held 10+ years" / "long-held" → heldAtLeastYears, not soldWithinYears. Never set both.
+- "sold recently" / "just sold" → soldWithinYears 2 unless they named a number.
+- "leases expiring" → leaseExpiringWithinDays (90 if they said soon). This only hits addresses already in the broker's book.
+- Cities: use the spoken name (Hialeah, Ft Lauderdale). Aliases are fine.
+- Omit any field that is not clearly implied.
+- explanation: one sentence of what will actually be searched.`,
+  input_schema: {
+    type: "object" as const,
+    required: ["explanation"],
+    properties: {
+      explanation: {
+        type: "string",
+        description: "One sentence describing the tax-roll search that will run.",
+      },
+      ignored: {
+        type: "array",
+        description: "Terms the tax roll cannot filter on.",
+        items: {
+          type: "object",
+          required: ["term", "reason"],
+          properties: {
+            term: { type: "string" },
+            reason: { type: "string" },
+          },
+        },
+      },
+      markets: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: ["miami-dade", "broward", "palm-beach", "massachusetts"],
+        },
+        description: "Only if the user named a county or Massachusetts. Otherwise omit.",
+      },
+      cities: {
+        type: "array",
+        items: { type: "string" },
+        description: "City names as spoken.",
+      },
+      buildingSqftMin: { type: "number" },
+      buildingSqftMax: { type: "number" },
+      landSqftMin: { type: "number" },
+      landSqftMax: { type: "number" },
+      propertyType: {
+        type: "string",
+        enum: ["residential", "multifamily", "retail", "office", "industrial", "land"],
+      },
+      assessedValueMin: { type: "number" },
+      assessedValueMax: { type: "number" },
+      yearBuiltMin: { type: "number" },
+      yearBuiltMax: { type: "number" },
+      soldWithinYears: { type: "number", description: "Last sale within this many years." },
+      heldAtLeastYears: { type: "number", description: "Last sale at least this many years ago." },
+      ownerPortfolioMin: { type: "number", description: "Owner holds at least this many parcels in the same market." },
+      leaseExpiringWithinDays: { type: "number" },
+    },
+  },
+};
+
+function parseIgnored(raw: unknown): IgnoredLeadTerm[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IgnoredLeadTerm[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.trim()) {
+      out.push({ term: item.trim(), reason: "County tax rolls cannot filter on this." });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.term !== "string" || !row.term.trim()) continue;
+    out.push({
+      term: row.term.trim(),
+      reason: typeof row.reason === "string" && row.reason.trim()
+        ? row.reason.trim()
+        : "County tax rolls cannot filter on this.",
+    });
+  }
+  return out;
+}
+
+/** Maps a sentence to GIS buy-box criteria, then canonicalizes cities and honest market drops. */
+export async function interpretLeadSearch(query: string): Promise<InterpretLeadSearchResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const trimmed = query.trim();
+  if (!trimmed) return { error: "Enter a search." };
+
+  const anthropic = new Anthropic();
+  let message: Anthropic.Message;
+  try {
+    message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1024,
+      tools: [INTERPRET_LEAD_TOOL],
+      tool_choice: { type: "tool", name: "interpret_lead_search" },
+      messages: [{ role: "user", content: trimmed }],
+    });
+  } catch (e) {
+    return { error: `Could not interpret that search: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  const toolBlock = message.content.find((b) => b.type === "tool_use");
+  if (!toolBlock || toolBlock.type !== "tool_use") {
+    return { error: "Could not interpret your search. Try rephrasing." };
+  }
+
+  const input = toolBlock.input as Record<string, unknown>;
+  const explanation = typeof input.explanation === "string" ? input.explanation.trim() : "";
+  const raw = sanitizeLeadCriteria(input);
+  if (!raw) return { error: "Could not interpret your search. Try rephrasing." };
+
+  const refined = refineLeadCriteria(raw, trimmed, parseIgnored(input.ignored));
+  if (!refined.ok) return { error: refined.error };
 
   return {
-    markets,
-    cities: Array.isArray(c.cities) ? c.cities.filter((x): x is string => typeof x === "string") : undefined,
-    buildingSqftMin: num(c.buildingSqftMin),
-    buildingSqftMax: num(c.buildingSqftMax),
-    landSqftMin: num(c.landSqftMin),
-    landSqftMax: num(c.landSqftMax),
-    propertyType: typeof propertyType === "string" && validTypes.includes(propertyType)
-      ? (propertyType as LeadSearchCriteria["propertyType"])
-      : undefined,
-    assessedValueMin: num(c.assessedValueMin),
-    assessedValueMax: num(c.assessedValueMax),
-    yearBuiltMin: num(c.yearBuiltMin),
-    yearBuiltMax: num(c.yearBuiltMax),
-    soldWithinYears: num(c.soldWithinYears),
-    heldAtLeastYears: num(c.heldAtLeastYears),
-    ownerPortfolioMin: num(c.ownerPortfolioMin),
-    leaseExpiringWithinDays: num(c.leaseExpiringWithinDays),
+    criteria: refined.criteria,
+    explanation: explanation || "Searching county tax rolls with the filters below.",
+    ignored: refined.ignored,
   };
 }
 
@@ -124,7 +238,7 @@ export async function runLeadSearch(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
 
-  const criteria = sanitizeCriteria(rawCriteria);
+  const criteria = sanitizeLeadCriteria(rawCriteria);
   if (!criteria) return { error: "Invalid search criteria." };
   if (criteria.markets.length === 0) return { error: "Select at least one market to search." };
 
@@ -171,7 +285,7 @@ export async function saveBuyBox(
   const trimmedName = name.trim();
   if (!trimmedName) return { error: "Give this buy box a name." };
 
-  const criteria = sanitizeCriteria(rawCriteria);
+  const criteria = sanitizeLeadCriteria(rawCriteria);
   if (!criteria) return { error: "Invalid search criteria." };
 
   const { data, error } = await supabase
