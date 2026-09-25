@@ -21,3 +21,5 @@ jobs:
       # Live security tests need a dedicated Supabase project — skip in default CI.
       # Live GIS describes (MassGIS / BCPA / PBCPA) skip when CI=true (set by Actions).
       - run: npm test -- --exclude tests/security/**
+        env:
+          JEV_API_KEY: ${{ secrets.JEV_API_KEY }}

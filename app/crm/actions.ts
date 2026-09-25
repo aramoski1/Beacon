@@ -10,6 +10,7 @@ import {
 } from "@/lib/owner-contacts";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
 import { deleteDocumentsForEntity } from "@/lib/documents";
+import { interpretCrmSearchWithJev } from "@/lib/jev-crm-search";
 
 // ─── Filter shapes ────────────────────────────────────────────────────────────
 // These are the ONLY operations Claude is allowed to express.
@@ -716,6 +717,9 @@ export async function interpretSearch(query: string): Promise<SearchResponse> {
   if (!user) return { error: "Not authenticated." };
 
   if (!query.trim()) return { error: "Enter a search query." };
+
+  const viaJev = await interpretCrmSearchWithJev(query);
+  if (viaJev) return viaJev;
 
   const anthropic = new Anthropic();
   let message: Anthropic.Message;

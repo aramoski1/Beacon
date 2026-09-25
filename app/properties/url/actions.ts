@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { jevAllowsUrlIngest } from "@/lib/jev-gates";
 import { extractPropertyFields, savePipelineProperty, type ExtractedProperty } from "@/lib/property-pipeline";
 import { propertyExtractFieldDefs } from "@/lib/industrial-fields";
 import { logIngestionError } from "@/lib/ingestion-logger";
@@ -63,6 +64,14 @@ export async function ingestUrl(formData: FormData): Promise<UrlIngestResult> {
     return { error: "fetch_failed", detail: `Could not fetch the page: ${msg}` };
   }
 
+  const allowed = await jevAllowsUrlIngest({ url: url.toString(), pageText });
+  if (!allowed) {
+    return {
+      error:
+        "This page doesn't look like a specific property listing. Open the listing itself (not a search page), or paste the listing text.",
+    };
+  }
+
   const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   try {
     const fields = await extractPropertyFields(
@@ -105,6 +114,17 @@ export async function ingestPastedContent(
 
   if (!text || text.length < 50)
     return { error: "Please paste at least a few lines of listing content." };
+
+  const allowed = await jevAllowsUrlIngest({
+    url: sourceUrl || "pasted",
+    pageText: text.slice(0, 25_000),
+  });
+  if (!allowed) {
+    return {
+      error:
+        "That text doesn't look like a property listing. Paste the listing page or flyer that states the address and specs.",
+    };
+  }
 
   const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
   try {

@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_CADENCE_TIER_DAYS } from "@/lib/cadence";
+import { COPILOT_CANNOT_DO_REPLY, routeCopilotQuestion } from "@/lib/jev-copilot";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -300,6 +301,10 @@ export async function askCopilot(
   if (!user) return { error: "Not authenticated." };
   if (history.length === 0) return { error: "No message provided." };
 
+  const latest = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+  const route = await routeCopilotQuestion(latest);
+  if (route === "cannot_do") return { reply: COPILOT_CANNOT_DO_REPLY };
+
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
@@ -319,7 +324,7 @@ You have access to this broker's complete book of business through the tools bel
 Everything below is the complete, exhaustive list of what Beacon has. If something a user asks about isn't listed here, Beacon does not have it — see the fabrication rule at the end of this section.
 
 ### Features & navigation
-- **Dashboard** (/dashboard) — Daily briefing: "Do these today" queue (cadence, follow-ups, deals, ownership flips, urgent leases, option-notice dates, 1031 deadlines), ready-to-pursue properties, cadence health, Ask Beacon Copilot. A **Customize** button in the command center header lets you show/hide dashboard sections — KPIs, signals, primary, and secondary blocks — with Save and Reset to default. Changes apply immediately on Save. Show/hide only, no reordering or drag-and-drop; section order is fixed. The hero and Ask Beacon always show and can't be hidden.
+- **Dashboard** (/dashboard) — Daily briefing: "Do these today" queue (cadence, follow-ups, deals, ownership flips, urgent leases, option-notice dates, 1031 deadlines — lease/notice/1031/ownership stay deadline-ranked; cadence, follow-ups, and deals can shift slightly), ready-to-pursue properties, cadence health, Ask Beacon Copilot. A **Customize** button in the command center header lets you show/hide dashboard sections — KPIs, signals, primary, and secondary blocks — with Save and Reset to default. Changes apply immediately on Save. Show/hide only, no reordering or drag-and-drop; section order is fixed. The hero and Ask Beacon always show and can't be hidden.
 - **Workspace / CRM** (/crm) — Properties, Leases, and Contacts tabs (in that order); AI-powered natural-language search bar; inline editing; each tab has "Manage fields" (broker custom columns for that entity type — not industrial specs) and export buttons (see Exporting data below). Industrial / flex specs live on the property detail card. On Contacts, All / Owners / Tenants toggles the book; tenant rows show occupancy (property, leased SF, lease expiry, landlord).
 - **Outreach** (/outreach) — Select overdue contacts, generate AI email drafts (each becomes a separate email — Beacon never sends a group email), open the draft in your own mail client, then click "Mark as sent" to log it. Drafts merge {name}, {address}, {sf}, {landlord}, and {expiry} from the contact’s property and lease.
 - **Lease Radar** (/lease-radar) — Expiry tracker for leases within 3/6/12 months; option-notice countdown when the abstract has a notice period
@@ -341,7 +346,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Import a spreadsheet**: /onboarding
 - **Learn how Beacon works**: /how-beacon-works (also linked from Settings and onboarding)
 - **Abstract a lease**: /abstracts/new — upload a PDF, AI extracts key fields automatically
-- **Add a property**: /properties/new (address lookup, listing URL, or file upload), or "+ New" in the sidebar
+- **Add a property**: /properties/new (address lookup, listing URL, or file upload), or "+ New" in the sidebar. A listing URL or paste that is not a specific listing page is refused.
 - **Add a contact**: /contacts/new, or "+ New" in the sidebar — Book (owner / tenant / other) is required
 - **Find off-book owners**: /prospect — type a sentence or load a buy box, then Accept leads
 - **This week's list**: This week in the main nav — pin a Contacts smart list, then Generate drafts
@@ -352,7 +357,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Set sender name**: Settings → Outreach → Sender name
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact). That does not control industrial specs.
 - **Customize industrial specs**: open a property → Industrial / flex specs → **Customize** (add, rename, or delete defaults). Listing/document extract fills a spec only when the source states it.
-- **Find listing specs**: open a property → Enrich → **Find listing specs** (or the empty-spec CTA on the industrial card). Searches public listing pages for the address (Brave snippets when LoopNet/Crexi block a full fetch), requires an address match (11 vs 11th Street counts), and fills empty unlocked fields only — never overwrites county, Sunbiz, or broker-entered values. Workspace **Enrich selected → Listing specs** and **Add property** save queue the same job and **apply** empty fields; the property page polls so values show up. Needs BRAVE_SEARCH_API_KEY (JINA_API_KEY optional for full-page fetch).
+- **Find listing specs**: open a property → Enrich → **Find listing specs** (or the empty-spec CTA on the industrial card). Searches public listing pages for the address (Brave snippets when LoopNet/Crexi block a full fetch), requires an address match (11 vs 11th Street counts), skips pages that are clearly not this property's listing, and fills empty unlocked fields only — never overwrites county, Sunbiz, or broker-entered values. Enrich from a URL or paste is refused when the source is not a listing or property document for this address. Workspace **Enrich selected → Listing specs** and **Add property** save queue the same job and **apply** empty fields; the property page polls so values show up. Needs BRAVE_SEARCH_API_KEY (JINA_API_KEY optional for full-page fetch).
 - **Prospect sentence search**: /prospect → type “industrial in Ft Lauderdale over 10k” → form fills → GIS runs. Use Clear to exit a buy box without deleting it.
 - **Custom fields from county**: Year Built / stories / units / lot size / assessed value / building SF on the property card copy from county data when those custom cells are empty.
 - **Log an activity**: Open any contact or property page → Timeline section → Log activity

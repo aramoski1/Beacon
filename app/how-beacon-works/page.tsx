@@ -235,8 +235,10 @@ export default async function HowBeaconWorksPage({
           <li>
             Industrial / flex specs are on the property page (Customize to add/remove fields). County
             tax roll will not invent docks or clear height — use **Find listing specs** or a flyer
-            extract when the listing states them. Workspace listing enrich and new-property save
-            fill empty unlocked specs the same way.
+            extract when the listing states them. Pages that are clearly not this property's
+            listing are skipped; a URL or paste that is not a listing/document for the address
+            is refused. Workspace listing enrich and new-property save fill empty unlocked specs
+            the same way.
           </li>
           <li>
             Prospect sentence search only maps to tax-roll filters that exist (city, size, type,

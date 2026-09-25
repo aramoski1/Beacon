@@ -8,6 +8,7 @@ import {
   sanitizeLeadCriteria,
   type IgnoredLeadTerm,
 } from "@/lib/lead-search-interpret";
+import { interpretLeadSearchWithJev } from "@/lib/jev-lead-search";
 import { importTaxRollFolio } from "@/lib/mdpa-folio-ingest";
 import { importBcpaFolio } from "@/lib/bcpa-folio-ingest";
 import { importPbcpaFolio } from "@/lib/pbcpa-folio-ingest";
@@ -131,6 +132,9 @@ export async function interpretLeadSearch(query: string): Promise<InterpretLeadS
 
   const trimmed = query.trim();
   if (!trimmed) return { error: "Enter a search." };
+
+  const viaJev = await interpretLeadSearchWithJev(trimmed);
+  if (viaJev) return viaJev;
 
   const anthropic = new Anthropic();
   let message: Anthropic.Message;

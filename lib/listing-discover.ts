@@ -13,6 +13,7 @@ import {
 } from "@/lib/field-lock";
 import { industrialFromExtracted, type IndustrialExtractSource } from "@/lib/industrial-extract";
 import { INDUSTRIAL_COLUMN_BY_SLUG, industrialColumnForSlug } from "@/lib/industrial-fields";
+import { jevAllowsListingExtract } from "@/lib/jev-gates";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
 import { builtinValueForCustomSlug } from "@/lib/custom-field-aliases";
@@ -615,6 +616,16 @@ export async function discoverListingSpecs(
       continue;
     }
     const url = hit.url;
+    const allowed = await jevAllowsListingExtract({
+      address: input.address,
+      city: input.city,
+      url,
+      pageText,
+    });
+    if (!allowed) {
+      skippedPages += 1;
+      continue;
+    }
     matchedUrl = matchedUrl ?? url;
 
     let extracted: ExtractedProperty;

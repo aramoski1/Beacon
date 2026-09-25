@@ -17,6 +17,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 DATABASE_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
 ANTHROPIC_API_KEY=sk-ant-...
+JEV_API_KEY=                        # server-only TypeSafe Jev (or TYPESAFE_API_KEY). Same value as a GitHub Actions secret and a Vercel Production Sensitive env — never commit .env*
 JINA_API_KEY=                       # optional; listing page fetch
 BRAVE_SEARCH_API_KEY=               # optional; listing discover (preferred)
 SERPER_API_KEY=                     # optional; listing discover fallback

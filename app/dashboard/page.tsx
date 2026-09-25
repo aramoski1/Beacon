@@ -43,6 +43,7 @@ import {
 import { StaleTier1OwnersPanel } from "./stale-owner-panel";
 import { signalPriorityScore } from "@/lib/action-item-signals";
 import { aggregateLeaseExposure } from "@/lib/dashboard-kpis";
+import { refineTodayDeskItems } from "@/lib/jev-today-desk";
 import { buildTodayDeskItems } from "@/lib/today-desk";
 import { daysUntilIso, nearestNoticeDeadline } from "@/lib/lease-export";
 import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
@@ -264,8 +265,9 @@ export default async function DashboardPage() {
     }),
     limit: 12,
   });
+  const rankedTodayDeskItems = await refineTodayDeskItems(todayDeskItems);
 
-  const attentionCount = todayDeskItems.length;
+  const attentionCount = rankedTodayDeskItems.length;
 
   const briefing = await getBriefingMetrics(
     overdueOutreach,
@@ -345,7 +347,7 @@ export default async function DashboardPage() {
                     href="/outreach"
                     hrefLabel="Outreach →"
                   />
-                  <TodayDesk items={todayDeskItems} />
+                  <TodayDesk items={rankedTodayDeskItems} />
                 </section>
               </IfVisible>
 

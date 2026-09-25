@@ -28,6 +28,7 @@ import {
   maSaleDate,
   type MARecord,
 } from "@/lib/magis";
+import { jevAllowsDocumentExtract } from "@/lib/jev-gates";
 import { extractPropertyFields, type ExtractedProperty, type PipelineContent } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
@@ -1238,7 +1239,7 @@ export type DocumentEnhancementPreview = {
 };
 
 const EXISTING_FOR_DIFF_SELECT =
-  "owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields, field_sources, clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase, yard_acres, column_spacing, sprinkler_type, availability_status, asking_rent_psf, nnn_cam_psf, lease_structure";
+  "address, owner_name, size_sqft, land_sqft, asset_description, last_sale_date, last_sale_price, custom_fields, field_sources, clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase, yard_acres, column_spacing, sprinkler_type, availability_status, asking_rent_psf, nnn_cam_psf, lease_structure";
 
 async function buildDocumentContent(
   formData: FormData
@@ -1340,6 +1341,19 @@ export async function previewDocumentEnhancement(
   const { content, sourceKind, sourceDetail } = built;
 
   const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
+
+  const textForGate = content.type === "text" ? content.text : null;
+  const allowed = await jevAllowsDocumentExtract({
+    address: (existing as { address?: string | null }).address ?? null,
+    sourceKind,
+    text: textForGate,
+  });
+  if (!allowed) {
+    return {
+      error:
+        "This source doesn't look like a listing or property document for this address. Try a listing URL, flyer, or paste the page that states the specs.",
+    };
+  }
 
   let extracted: ExtractedProperty;
   try {
