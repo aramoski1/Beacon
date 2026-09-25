@@ -11,6 +11,7 @@ import {
   type ModuleId,
 } from "@/lib/dashboard-layout";
 import { saveDashboardLayout, resetDashboardLayout } from "./actions";
+import { useDashboardVisible } from "./dashboard-visibility";
 
 /**
  * Dashboard show/hide customization. Visibility only — no drag-and-drop, no
@@ -31,19 +32,32 @@ export function DashboardCustomize({
   variant?: "button" | "hint";
 }) {
   const router = useRouter();
+  const { visible, setVisible } = useDashboardVisible();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Record<ModuleId, boolean>>(initialVisible);
+  const [openedFrom, setOpenedFrom] = useState<Record<ModuleId, boolean>>(initialVisible);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function openSheet() {
-    setDraft(initialVisible);
+    setDraft(visible);
+    setOpenedFrom(visible);
     setError(null);
     setOpen(true);
   }
 
+  function closeSheet() {
+    if (saving) return;
+    setVisible(openedFrom);
+    setOpen(false);
+  }
+
   function toggle(id: ModuleId) {
-    setDraft((prev) => ({ ...prev, [id]: !prev[id] }));
+    setDraft((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      setVisible(next);
+      return next;
+    });
   }
 
   async function handleSave() {
@@ -52,6 +66,7 @@ export function DashboardCustomize({
     const res = await saveDashboardLayout(draft);
     setSaving(false);
     if ("error" in res) { setError(res.error); return; }
+    setVisible(draft);
     setOpen(false);
     router.refresh();
   }
@@ -62,7 +77,9 @@ export function DashboardCustomize({
     const res = await resetDashboardLayout();
     setSaving(false);
     if ("error" in res) { setError(res.error); return; }
-    setDraft({ ...DEFAULT_VISIBLE });
+    const next = { ...DEFAULT_VISIBLE };
+    setDraft(next);
+    setVisible(next);
     setOpen(false);
     router.refresh();
   }
@@ -92,7 +109,7 @@ export function DashboardCustomize({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => !saving && setOpen(false)}
+            onClick={() => closeSheet()}
           />
           <div className="relative z-10 w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border bg-card shadow-xl">
             <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b shrink-0">
@@ -102,7 +119,7 @@ export function DashboardCustomize({
               </div>
               <button
                 type="button"
-                onClick={() => !saving && setOpen(false)}
+                onClick={() => closeSheet()}
                 className="text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="size-4" />
@@ -160,7 +177,7 @@ export function DashboardCustomize({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={() => closeSheet()}
                   disabled={saving}
                   className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors text-muted-foreground disabled:opacity-50"
                 >

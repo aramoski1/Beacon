@@ -63,6 +63,7 @@ export function DashboardHero({
   portfolio,
   cadence,
   search,
+  customize,
 }: {
   name: string;
   date: string;
@@ -73,6 +74,7 @@ export function DashboardHero({
   portfolio: PortfolioSnapshot;
   cadence: CadenceHealth;
   search?: React.ReactNode;
+  customize?: React.ReactNode;
 }) {
   // Broader book-wide signals — unworked opportunities, data issues, cold
   // Tier-1 contacts — that briefing.actionItems used to fold into this same
@@ -98,25 +100,26 @@ export function DashboardHero({
 
   return (
     <div className="dashboard-hero p-6 md:p-8">
-      <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-start">
-        <div className="space-y-4 min-w-0">
-          <div>
+      <div className="space-y-4 min-w-0">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
               Command center
             </p>
             <h1 className="text-xl font-semibold tracking-tight">{name}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">{date}</p>
           </div>
-          <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">{playbookLine}</p>
-          {search && (
-            <div className="max-w-md pt-1 space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Ask Beacon
-              </p>
-              {search}
-            </div>
-          )}
+          {customize}
         </div>
+        <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">{playbookLine}</p>
+        {search && (
+          <div className="max-w-md pt-1 space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Ask Beacon
+            </p>
+            {search}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -196,8 +199,19 @@ export function BrokerKpiStrip({
 
   if (cells.length === 0) return null;
 
+  const cols =
+    cells.length >= 5
+      ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-5"
+      : cells.length === 4
+        ? "grid-cols-2 xl:grid-cols-4"
+        : cells.length === 3
+          ? "grid-cols-1 sm:grid-cols-3"
+          : cells.length === 2
+            ? "grid-cols-2"
+            : "grid-cols-1";
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+    <div className={cn("grid gap-3", cols)}>
       {cells.map((c) => (
         <Link
           key={c.label}

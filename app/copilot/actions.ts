@@ -319,7 +319,7 @@ You have access to this broker's complete book of business through the tools bel
 Everything below is the complete, exhaustive list of what Beacon has. If something a user asks about isn't listed here, Beacon does not have it — see the fabrication rule at the end of this section.
 
 ### Features & navigation
-- **Dashboard** (/dashboard) — Daily briefing: "Do these today" queue (cadence, follow-ups, deals, ownership flips, urgent leases, option-notice dates, 1031 deadlines), ready-to-pursue properties, cadence health, Ask Beacon Copilot. A **Customize** button (top right, above the KPI strip) lets you show/hide dashboard sections — KPIs, signals, primary, and secondary blocks — with Save and Reset to default. Show/hide only, no reordering or drag-and-drop; section order is fixed. The hero and Ask Beacon always show and can't be hidden.
+- **Dashboard** (/dashboard) — Daily briefing: "Do these today" queue (cadence, follow-ups, deals, ownership flips, urgent leases, option-notice dates, 1031 deadlines), ready-to-pursue properties, cadence health, Ask Beacon Copilot. A **Customize** button in the command center header lets you show/hide dashboard sections — KPIs, signals, primary, and secondary blocks — with Save and Reset to default. Changes apply immediately on Save. Show/hide only, no reordering or drag-and-drop; section order is fixed. The hero and Ask Beacon always show and can't be hidden.
 - **Workspace / CRM** (/crm) — Properties, Leases, and Contacts tabs (in that order); AI-powered natural-language search bar; inline editing; each tab has "Manage fields" (broker custom columns for that entity type — not industrial specs) and export buttons (see Exporting data below). Industrial / flex specs live on the property detail card. On Contacts, All / Owners / Tenants toggles the book; tenant rows show occupancy (property, leased SF, lease expiry, landlord).
 - **Outreach** (/outreach) — Select overdue contacts, generate AI email drafts (each becomes a separate email — Beacon never sends a group email), open the draft in your own mail client, then click "Mark as sent" to log it. Drafts merge {name}, {address}, {sf}, {landlord}, and {expiry} from the contact’s property and lease.
 - **Lease Radar** (/lease-radar) — Expiry tracker for leases within 3/6/12 months; option-notice countdown when the abstract has a notice period
@@ -328,7 +328,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **All tasks** (/follow-ups) — Follow-up task list with due dates; found under "Advanced" in the sidebar, not the main nav row
 - **Tours** (/tours) — Schedule property tours with attendees and prep notes (Advanced in the sidebar). Calendar sync stays off until Settings → Connections has OAuth keys.
 - **Book map** (/book-map) — Corridor buckets plus a pin map of geocoded properties. **Geocode missing pins** stores lat/lng via OpenStreetMap Nominatim (no Mapbox key).
-- **Prospect** (/prospect) — Find off-book industrial / flex owners from county tax rolls
+- **Prospect** (/prospect) — Find off-book owners on county tax rolls. Type a sentence (e.g. “20-50k industrial in Hialeah”) to fill the buy-box form and run GIS. Ignored terms (docks, clear height, airport) are shown, not invented. Clear or Delete a selected buy box. Type-only across multiple markets is refused. Palm Beach has no building SF/year built; Massachusetts cannot search by type alone. Lease-expiring-soon only hits addresses already in your book. Accept leads to import.
 - **Settings** (/settings) — sections: Account (name/email/password; Delete account — type DELETE — permanently removes all data and the login), Brokerage (company info), Data & Sources (connected ingestion sources; CoStar upload toggle), Outreach (sender name, cadence days per tier), Connections (Gmail/Outlook send, Google/Outlook calendar, DocuSign — stubs that return 501 until OAuth env vars are set on Vercel; token exchange is not wired yet), Data Management (data exports — see below), Appearance (light/dark theme), Danger Zone (Delete all data — type DELETE — wipes CRM data but keeps login credentials; to remove login too use Account → Delete account). Settings header also links to **How Beacon works** (/how-beacon-works)
 - **How Beacon works** (/how-beacon-works) — product overview plus **page-by-page guides for every screen**: table of contents by category, step-by-step walkthrough and feature list per route (Dashboard, Workspace, Deals, Prospect, Lease radar, Outreach, All tasks, This week, Book map, audit/errors, add flows, detail pages, owner portfolio, settings/team, admin, join, access-revoked). Also covers the three loops, day-1 path, redirect notes (/abstracts, /contacts, etc.), and honest limits. Linked from Settings and onboarding (Welcome / Done). Not in the main nav. When opened from onboarding, shows a Back to setup link. **Every page also has a floating ? button (bottom-right)** that opens the same guide for the current screen without leaving the page.
 
@@ -343,6 +343,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Abstract a lease**: /abstracts/new — upload a PDF, AI extracts key fields automatically
 - **Add a property**: /properties/new (address lookup, listing URL, or file upload), or "+ New" in the sidebar
 - **Add a contact**: /contacts/new, or "+ New" in the sidebar — Book (owner / tenant / other) is required
+- **Find off-book owners**: /prospect — type a sentence or load a buy box, then Accept leads
 - **This week's list**: This week in the main nav — pin a Contacts smart list, then Generate drafts
 - **Owner vs tenant book**: Workspace → Contacts → All / Owners / Tenants
 - **Export data**: see "Exporting data" above
@@ -351,9 +352,11 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Set sender name**: Settings → Outreach → Sender name
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact). That does not control industrial specs.
 - **Customize industrial specs**: open a property → Industrial / flex specs → **Customize** (add, rename, or delete defaults). Listing/document extract fills a spec only when the source states it.
-- **Find listing specs**: open a property → Enrich → **Find listing specs** (or the empty-spec CTA on the industrial card). Searches public listing pages for the address, requires an address match and a citation, and fills empty unlocked fields only — never overwrites county, Sunbiz, or broker-entered values. Workspace **Enrich selected** can queue the same job; results are not auto-applied. Needs BRAVE_SEARCH_API_KEY or SERPER_API_KEY (DuckDuckGo HTML is an unauthenticated fallback).
+- **Find listing specs**: open a property → Enrich → **Find listing specs** (or the empty-spec CTA on the industrial card). Searches public listing pages for the address (Brave snippets when LoopNet/Crexi block a full fetch), requires an address match (11 vs 11th Street counts), and fills empty unlocked fields only — never overwrites county, Sunbiz, or broker-entered values. Workspace **Enrich selected → Listing specs** and **Add property** save queue the same job and **apply** empty fields; the property page polls so values show up. Needs BRAVE_SEARCH_API_KEY (JINA_API_KEY optional for full-page fetch).
+- **Prospect sentence search**: /prospect → type “industrial in Ft Lauderdale over 10k” → form fills → GIS runs. Use Clear to exit a buy box without deleting it.
+- **Custom fields from county**: Year Built / stories / units / lot size / assessed value / building SF on the property card copy from county data when those custom cells are empty.
 - **Log an activity**: Open any contact or property page → Timeline section → Log activity
-- **Customize the dashboard**: Dashboard → Customize (top right) → check/uncheck sections → Save (or Reset to default to restore everything)
+- **Customize the dashboard**: Dashboard → **Customize** (command center header) → check/uncheck sections → Save (or Reset to default to restore everything)
 - **Schedule a tour**: /tours → date/time, optional property/contact, Save tour
 - **Download a draft LOI**: open a deal → **Download LOI** (Word file from deal + property fields; not legal advice)
 - **Industrial specs / rent notebook**: open a property → Industrial / flex specs and Rent notebook (seed South Florida bands, not live CoStar)
@@ -376,6 +379,8 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - No live CoStar rent comps (rent notebook uses static tri-county seed bands plus broker-entered comps)
 - No CoStar / LoopNet login scrape — listing discover only fetches public pages
 - Find listing specs does not invent a full industrial card for every tax-roll folio; empty stays empty if no cited page states the spec
+- Prospect GIS cannot filter docks, clear height, parking, rail, or “near the airport”; those terms are ignored
+- Prospect will not run a type-only search across multiple markets — add a city or a size/year/sale/value filter
 - No Mapbox — pin map uses OSM/Leaflet
 
 ## Fabrication — hard rule, not a preference

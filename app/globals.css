@@ -151,3 +151,23 @@
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) * 1.4);
 }
+
+/* 2-col only when two+ modules remain — hiding one no longer leaves a hole. */
+.dashboard-module-grid {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 1024px) {
+  .dashboard-module-grid--primary:has(> :nth-child(2)) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 1280px) {
+  .dashboard-module-grid--secondary:has(> :nth-child(2)) {
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -144,7 +144,8 @@ export default async function HowBeaconWorksPage({
         <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground leading-relaxed">
           <li>
             <span className="text-foreground">Import or add properties</span> — spreadsheet in
-            onboarding, address lookup under + New, or Prospect lead finder.
+            onboarding, address lookup under + New, or Prospect (sentence search or a saved buy
+            box) to find off-book owners on the tax roll.
           </li>
           <li>
             <span className="text-foreground">Enrich + promote</span> — county folio, Sunbiz
@@ -233,8 +234,16 @@ export default async function HowBeaconWorksPage({
           <li>Comps come from tax-roll sales, your lease abstracts, and the rent notebook — not live CoStar market data.</li>
           <li>
             Industrial / flex specs are on the property page (Customize to add/remove fields). County
-            tax roll will not invent docks or clear height — re-run a listing or document extract
-            when the flyer has them.
+            tax roll will not invent docks or clear height — use **Find listing specs** or a flyer
+            extract when the listing states them. Workspace listing enrich and new-property save
+            fill empty unlocked specs the same way.
+          </li>
+          <li>
+            Prospect sentence search only maps to tax-roll filters that exist (city, size, type,
+            year, sale, value). It will not search docks, clear height, or “near the airport.” Palm
+            Beach is dropped when year/SF is set and you did not name it; Massachusetts cannot
+            search by property type alone. Type-only across several markets is too broad — add a
+            city or a size/year/sale constraint.
           </li>
           <li>
             Entity/LLC lookup (Sunbiz) is Florida-only — Massachusetts has no equivalent wired up yet.

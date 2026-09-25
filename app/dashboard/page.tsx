@@ -32,7 +32,6 @@ import { getDealsDashboard } from "@/app/deals/actions";
 import {
   DashboardHero,
   ActivityTimeline,
-  BrokerKpiStrip,
   SectionHeader,
   PriorityPills,
   CadencePanel,
@@ -50,7 +49,20 @@ import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
 import { TodayDesk } from "./today-desk";
 import { OwnershipWatchBatchButton } from "./ownership-watch-batch";
 import { DashboardCustomize } from "./customize-dashboard";
-import { resolveVisible, type DashboardLayoutPrefs } from "@/lib/dashboard-layout";
+import {
+  DashboardVisibilityProvider,
+  IfAnyVisible,
+  IfNoneVisible,
+  IfVisible,
+  VisibleKpiStrip,
+} from "./dashboard-visibility";
+import {
+  PRIMARY_MODULE_IDS,
+  SECONDARY_MODULE_IDS,
+  SIGNAL_MODULE_IDS,
+  resolveVisible,
+  type DashboardLayoutPrefs,
+} from "@/lib/dashboard-layout";
 
 function greeting() {
   const h = new Date().getHours();
@@ -276,24 +288,10 @@ export default async function DashboardPage() {
   });
   const heroName = name ? `${greeting()}, ${name}` : greeting();
 
-  // Dashboard show/hide customization — group-level visibility so a whole
-  // grid row/column is omitted (not left as an empty shell) when nothing in
-  // it is visible. stale_tier1_owners keeps its original data-driven
-  // condition (staleTier1Owners.length > 0) ANDed with the toggle, same as
-  // before this feature existed.
-  const primaryLeftVisible = visible.today_desk || visible.upcoming_followups;
-  const primaryRightVisible =
-    visible.ready_to_pursue ||
-    visible.cold_tier1 ||
-    (visible.stale_tier1_owners && staleTier1Owners.length > 0);
-  const primaryAnyVisible = primaryLeftVisible || primaryRightVisible;
-
-  const secondaryRow1Visible = visible.pipeline || visible.lease_exposure;
-  const bookOwnersCadenceVisible = visible.book_owners || visible.cadence;
-  const opsRecentVisible = visible.ops_health || visible.recent_activity;
-  const secondaryRow2Visible = bookOwnersCadenceVisible || opsRecentVisible;
+  const staleOwnersRequire = { stale_tier1_owners: staleTier1Owners.length > 0 } as const;
 
   return (
+    <DashboardVisibilityProvider initialVisible={visible}>
     <div className="dashboard-page px-4 py-6 sm:px-6 sm:py-8 max-w-[80rem] mx-auto space-y-8">
 
       <DashboardHero
@@ -304,13 +302,10 @@ export default async function DashboardPage() {
         portfolio={portfolio}
         cadence={cadence}
         search={<BeaconCopilot />}
+        customize={<DashboardCustomize initialVisible={visible} />}
       />
 
-      <div className="flex justify-end">
-        <DashboardCustomize initialVisible={visible} />
-      </div>
-
-      <BrokerKpiStrip
+      <VisibleKpiStrip
         activePursuits={dealsDashboard.activeCount}
         estimatedCommission={dealsDashboard.estimatedCommissionTotal}
         leaseExposure={leaseExposure}
@@ -318,25 +313,25 @@ export default async function DashboardPage() {
         ownershipChanges={ownershipChangedProperties.length}
         bookProperties={stats.properties}
         bookSqft={portfolio.totalSqft}
-        visible={{
-          kpi_pursuits: visible.kpi_pursuits,
-          kpi_leases_90: visible.kpi_leases_90,
-          kpi_tier1_overdue: visible.kpi_tier1_overdue,
-          kpi_ownership: visible.kpi_ownership,
-          kpi_book: visible.kpi_book,
-        }}
       />
 
-      {visible.priority_pills && <PriorityPills metrics={briefing} />}
-      {visible.week_momentum && <WeekMomentumBar momentum={momentum} />}
-      {visible.since_last_visit && <SinceLastVisit />}
+      <IfAnyVisible ids={SIGNAL_MODULE_IDS}>
+        <div className="space-y-3">
+          <IfVisible id="priority_pills"><PriorityPills metrics={briefing} /></IfVisible>
+          <IfVisible id="week_momentum"><WeekMomentumBar momentum={momentum} /></IfVisible>
+          <IfVisible id="since_last_visit"><SinceLastVisit /></IfVisible>
+        </div>
+      </IfAnyVisible>
 
       {/* PRIMARY — do today */}
-      {primaryAnyVisible ? (
-        <div className="grid lg:grid-cols-2 gap-6 items-start">
-          {primaryLeftVisible && (
+      <IfAnyVisible
+        ids={PRIMARY_MODULE_IDS}
+        require={staleOwnersRequire}
+      >
+        <div className="dashboard-module-grid dashboard-module-grid--primary">
+          <IfAnyVisible ids={["today_desk", "upcoming_followups"]}>
             <div className="space-y-6">
-              {visible.today_desk && (
+              <IfVisible id="today_desk">
                 <section className="space-y-3">
                   <SectionHeader
                     title="Do these today"
@@ -352,9 +347,9 @@ export default async function DashboardPage() {
                   />
                   <TodayDesk items={todayDeskItems} />
                 </section>
-              )}
+              </IfVisible>
 
-              {visible.upcoming_followups && (
+              <IfVisible id="upcoming_followups">
                 <section className="space-y-3">
                   <SectionHeader
                     title="Upcoming follow-ups"
@@ -363,13 +358,16 @@ export default async function DashboardPage() {
                   />
                   <UpcomingFollowUpList items={upcomingFollowUps} />
                 </section>
-              )}
+              </IfVisible>
             </div>
-          )}
+          </IfAnyVisible>
 
-          {primaryRightVisible && (
+          <IfAnyVisible
+            ids={["ready_to_pursue", "cold_tier1", "stale_tier1_owners"]}
+            require={staleOwnersRequire}
+          >
             <div className="space-y-6">
-              {visible.ready_to_pursue && (
+              <IfVisible id="ready_to_pursue">
                 <section id="unworked" className="space-y-3 scroll-mt-8">
                   <SectionHeader
                     title="Ready to pursue"
@@ -385,9 +383,9 @@ export default async function DashboardPage() {
                   />
                   <UnworkedOpportunitiesPanel items={unworked} />
                 </section>
-              )}
+              </IfVisible>
 
-              {visible.cold_tier1 && (
+              <IfVisible id="cold_tier1">
                 <section className="space-y-3">
                   <SectionHeader
                     title="Tier 1 going cold"
@@ -403,9 +401,9 @@ export default async function DashboardPage() {
                   />
                   <ColdTier1Panel items={coldTier1} />
                 </section>
-              )}
+              </IfVisible>
 
-              {visible.stale_tier1_owners && staleTier1Owners.length > 0 && (
+              <IfVisible id="stale_tier1_owners" when={staleTier1Owners.length > 0}>
                 <section className="space-y-3">
                   <SectionHeader
                     title="Tier-1 owners not contacted"
@@ -419,95 +417,89 @@ export default async function DashboardPage() {
                   />
                   <StaleTier1OwnersPanel items={staleTier1Owners} userEmail={user.email} />
                 </section>
-              )}
+              </IfVisible>
             </div>
-          )}
+          </IfAnyVisible>
         </div>
-      ) : (
+      </IfAnyVisible>
+      <IfNoneVisible ids={PRIMARY_MODULE_IDS} require={staleOwnersRequire}>
         <div className="rounded-lg border border-dashed px-4 py-3 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-          <span>Primary sections are hidden.</span>
+          <span>Today&apos;s work sections are hidden.</span>
           <DashboardCustomize initialVisible={visible} variant="hint" />
         </div>
-      )}
+      </IfNoneVisible>
 
-      {/* SECONDARY */}
-      {secondaryRow1Visible && (
-        <div className="grid xl:grid-cols-2 gap-6 items-start">
-          {visible.pipeline && (
-            <section className="space-y-3">
-              <SectionHeader
-                title="Pipeline"
-                href="/deals"
-                hrefLabel="All pursuits →"
+      {/* SECONDARY — each module is its own card so hiding one does not nest leftovers */}
+      <IfAnyVisible ids={SECONDARY_MODULE_IDS}>
+      <div className="dashboard-module-grid dashboard-module-grid--secondary">
+        <IfVisible id="pipeline">
+          <section className="space-y-3">
+            <SectionHeader
+              title="Pipeline"
+              href="/deals"
+              hrefLabel="All pursuits →"
+            />
+            <DealsDashboardPanel summary={dealsDashboard} />
+          </section>
+        </IfVisible>
+
+        <IfVisible id="lease_exposure">
+          <section className="space-y-3">
+            <SectionHeader
+              title="Lease exposure"
+              badge={
+                leaseRadar.urgentCount > 0 ? (
+                  <span className="rounded-full bg-red-500/15 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
+                    {leaseRadar.urgentCount} ≤90d
+                  </span>
+                ) : undefined
+              }
+              href="/lease-radar"
+              hrefLabel="Full radar →"
+            />
+            <LeaseRadarView data={leaseRadar} compact />
+            <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
+          </section>
+        </IfVisible>
+
+        <IfVisible id="book_owners">
+          <section className="space-y-3">
+            <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
+            <PortfolioPanel portfolio={portfolio} />
+            <div className="space-y-2">
+              <OwnershipWatchBatchButton />
+              <OwnershipChangedPanel
+                items={ownershipChangedProperties}
+                emptyCopy={ownershipWatchEmptyCopy({
+                  openSignals: ownershipChangedProperties.length,
+                  enrolledCount: ownershipWatchStats.enrolledCount,
+                  everChecked: ownershipWatchStats.everChecked,
+                })}
               />
-              <DealsDashboardPanel summary={dealsDashboard} />
-            </section>
-          )}
+            </div>
+          </section>
+        </IfVisible>
 
-          {visible.lease_exposure && (
-            <section className="space-y-3">
-              <SectionHeader
-                title="Lease exposure"
-                badge={
-                  leaseRadar.urgentCount > 0 ? (
-                    <span className="rounded-full bg-red-500/15 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
-                      {leaseRadar.urgentCount} ≤90d
-                    </span>
-                  ) : undefined
-                }
-                href="/lease-radar"
-                hrefLabel="Full radar →"
-              />
-              <LeaseRadarView data={leaseRadar} compact />
-              <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
-            </section>
-          )}
-        </div>
-      )}
+        <IfVisible id="cadence">
+          <CadencePanel cadence={cadence} />
+        </IfVisible>
 
-      {secondaryRow2Visible && (
-        <div className="grid xl:grid-cols-2 gap-6 items-start">
-          {bookOwnersCadenceVisible && (
-            <section className="space-y-3">
-              {visible.book_owners && (
-                <>
-                  <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
-                  <PortfolioPanel portfolio={portfolio} />
-                  <div className="space-y-2">
-                    <OwnershipWatchBatchButton />
-                    <OwnershipChangedPanel
-                      items={ownershipChangedProperties}
-                      emptyCopy={ownershipWatchEmptyCopy({
-                        openSignals: ownershipChangedProperties.length,
-                        enrolledCount: ownershipWatchStats.enrolledCount,
-                        everChecked: ownershipWatchStats.everChecked,
-                      })}
-                    />
-                  </div>
-                </>
-              )}
-              {visible.cadence && <CadencePanel cadence={cadence} />}
-            </section>
-          )}
+        <IfVisible id="ops_health">
+          <section className="space-y-3">
+            <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
+            <DataHealthPanel health={dataHealth} />
+          </section>
+        </IfVisible>
 
-          {opsRecentVisible && (
-            <section className="space-y-3">
-              {visible.ops_health && (
-                <>
-                  <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
-                  <DataHealthPanel health={dataHealth} />
-                </>
-              )}
-              {visible.recent_activity && (
-                <section className="space-y-3">
-                  <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
-                  <ActivityTimeline activities={recentActivities} />
-                </section>
-              )}
-            </section>
-          )}
-        </div>
-      )}
+        <IfVisible id="recent_activity">
+          <section className="space-y-3">
+            <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
+            <ActivityTimeline activities={recentActivities} />
+          </section>
+        </IfVisible>
+      </div>
+      </IfAnyVisible>
     </div>
+    </DashboardVisibilityProvider>
   );
 }
