@@ -64,7 +64,7 @@ export function WeekMomentumBar({ momentum }: { momentum: WeekMomentum }) {
 export function UnworkedOpportunitiesPanel({ items }: { items: UnworkedOpportunity[] }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border bg-card px-4 py-6 text-center">
+      <div className="rounded-xl border bg-card px-4 py-4 text-center">
         <p className="text-sm text-muted-foreground">Every property with owner data has a linked contact.</p>
       </div>
     );
@@ -101,7 +101,7 @@ export function UnworkedOpportunitiesPanel({ items }: { items: UnworkedOpportuni
 export function ColdTier1Panel({ items }: { items: ColdTier1Contact[] }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border bg-card px-4 py-6 text-center">
+      <div className="rounded-xl border bg-card px-4 py-4 text-center">
         <p className="text-sm text-muted-foreground">All Tier 1 relationships are on cadence.</p>
       </div>
     );
@@ -239,7 +239,7 @@ export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[];
 export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
   if (summary.activeCount === 0) {
     return (
-      <div className="rounded-xl border bg-card px-4 py-8 text-center">
+      <div className="rounded-xl border bg-card px-4 py-4 text-center">
         <Briefcase className="size-7 text-muted-foreground/40 mx-auto mb-2" />
         <p className="text-sm text-muted-foreground">No active pursuits yet.</p>
         <Link

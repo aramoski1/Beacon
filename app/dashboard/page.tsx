@@ -21,7 +21,6 @@ import { BeaconCopilot } from "@/components/beacon-copilot";
 import { UpcomingFollowUpList } from "./follow-up-list";
 import { SinceLastVisit } from "./since-last-visit";
 import { getLeaseRadarData } from "@/app/lease-radar/actions";
-import { LeaseRadarView } from "@/app/lease-radar/lease-radar-view";
 import {
   WeekMomentumBar,
   UnworkedOpportunitiesPanel,
@@ -294,31 +293,33 @@ export default async function DashboardPage() {
 
   return (
     <DashboardVisibilityProvider initialVisible={visible}>
-    <div className="dashboard-page px-4 py-6 sm:px-6 sm:py-8 max-w-[80rem] mx-auto space-y-8">
+    <div className="dashboard-page px-4 py-4 sm:px-6 sm:py-5 max-w-[80rem] mx-auto space-y-5">
 
-      <DashboardHero
-        name={heroName}
-        date={today}
-        briefing={briefing}
-        attentionCount={attentionCount}
-        portfolio={portfolio}
-        cadence={cadence}
-        search={<BeaconCopilot />}
-        customize={<DashboardCustomize initialVisible={visible} />}
-      />
+      <div className="space-y-3">
+        <DashboardHero
+          name={heroName}
+          date={today}
+          briefing={briefing}
+          attentionCount={attentionCount}
+          portfolio={portfolio}
+          cadence={cadence}
+          search={<BeaconCopilot />}
+          customize={<DashboardCustomize initialVisible={visible} />}
+        />
 
-      <VisibleKpiStrip
-        activePursuits={dealsDashboard.activeCount}
-        estimatedCommission={dealsDashboard.estimatedCommissionTotal}
-        leaseExposure={leaseExposure}
-        tier1Overdue={tier1Overdue}
-        ownershipChanges={ownershipChangedProperties.length}
-        bookProperties={stats.properties}
-        bookSqft={portfolio.totalSqft}
-      />
+        <VisibleKpiStrip
+          activePursuits={dealsDashboard.activeCount}
+          estimatedCommission={dealsDashboard.estimatedCommissionTotal}
+          leaseExposure={leaseExposure}
+          tier1Overdue={tier1Overdue}
+          ownershipChanges={ownershipChangedProperties.length}
+          bookProperties={stats.properties}
+          bookSqft={portfolio.totalSqft}
+        />
+      </div>
 
       <IfAnyVisible ids={SIGNAL_MODULE_IDS}>
-        <div className="space-y-3">
+        <div className="dashboard-signal-row">
           <IfVisible id="priority_pills"><PriorityPills metrics={briefing} /></IfVisible>
           <IfVisible id="week_momentum"><WeekMomentumBar momentum={momentum} /></IfVisible>
           <IfVisible id="since_last_visit"><SinceLastVisit /></IfVisible>
@@ -332,9 +333,9 @@ export default async function DashboardPage() {
       >
         <div className="dashboard-module-grid dashboard-module-grid--primary">
           <IfAnyVisible ids={["today_desk", "upcoming_followups"]}>
-            <div className="space-y-6">
+            <div className="space-y-4">
               <IfVisible id="today_desk">
-                <section className="space-y-3">
+                <section className="space-y-2">
                   <SectionHeader
                     title="Do these today"
                     badge={
@@ -352,7 +353,7 @@ export default async function DashboardPage() {
               </IfVisible>
 
               <IfVisible id="upcoming_followups">
-                <section className="space-y-3">
+                <section className="space-y-2">
                   <SectionHeader
                     title="Upcoming follow-ups"
                     href="/follow-ups"
@@ -368,9 +369,9 @@ export default async function DashboardPage() {
             ids={["ready_to_pursue", "cold_tier1", "stale_tier1_owners"]}
             require={staleOwnersRequire}
           >
-            <div className="space-y-6">
+            <div className="space-y-4">
               <IfVisible id="ready_to_pursue">
-                <section id="unworked" className="space-y-3 scroll-mt-8">
+                <section id="unworked" className="space-y-2 scroll-mt-8">
                   <SectionHeader
                     title="Ready to pursue"
                     badge={
@@ -388,7 +389,7 @@ export default async function DashboardPage() {
               </IfVisible>
 
               <IfVisible id="cold_tier1">
-                <section className="space-y-3">
+                <section className="space-y-2">
                   <SectionHeader
                     title="Tier 1 going cold"
                     badge={
@@ -406,7 +407,7 @@ export default async function DashboardPage() {
               </IfVisible>
 
               <IfVisible id="stale_tier1_owners" when={staleTier1Owners.length > 0}>
-                <section className="space-y-3">
+                <section className="space-y-2">
                   <SectionHeader
                     title="Tier-1 owners not contacted"
                     badge={
@@ -435,7 +436,7 @@ export default async function DashboardPage() {
       <IfAnyVisible ids={SECONDARY_MODULE_IDS}>
       <div className="dashboard-module-grid dashboard-module-grid--secondary">
         <IfVisible id="pipeline">
-          <section className="space-y-3">
+          <section className="space-y-2">
             <SectionHeader
               title="Pipeline"
               href="/deals"
@@ -446,7 +447,7 @@ export default async function DashboardPage() {
         </IfVisible>
 
         <IfVisible id="lease_exposure">
-          <section className="space-y-3">
+          <section className="space-y-2">
             <SectionHeader
               title="Lease exposure"
               badge={
@@ -459,13 +460,12 @@ export default async function DashboardPage() {
               href="/lease-radar"
               hrefLabel="Full radar →"
             />
-            <LeaseRadarView data={leaseRadar} compact />
             <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
           </section>
         </IfVisible>
 
         <IfVisible id="book_owners">
-          <section className="space-y-3">
+          <section className="space-y-2">
             <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
             <PortfolioPanel portfolio={portfolio} />
             <div className="space-y-2">
@@ -487,14 +487,14 @@ export default async function DashboardPage() {
         </IfVisible>
 
         <IfVisible id="ops_health">
-          <section className="space-y-3">
+          <section className="space-y-2">
             <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
             <DataHealthPanel health={dataHealth} />
           </section>
         </IfVisible>
 
         <IfVisible id="recent_activity">
-          <section className="space-y-3">
+          <section className="space-y-2">
             <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
             <ActivityTimeline activities={recentActivities} />
           </section>

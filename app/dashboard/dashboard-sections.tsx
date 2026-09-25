@@ -99,8 +99,8 @@ export function DashboardHero({
           : "No fires today. Good time to prospect or enrich your pipeline.";
 
   return (
-    <div className="dashboard-hero p-6 md:p-8">
-      <div className="space-y-4 min-w-0">
+    <div className="dashboard-hero px-5 py-4 md:px-6 md:py-5">
+      <div className="space-y-3 min-w-0">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
@@ -211,7 +211,7 @@ export function BrokerKpiStrip({
             : "grid-cols-1";
 
   return (
-    <div className={cn("grid gap-3", cols)}>
+    <div className={cn("grid gap-2", cols)}>
       {cells.map((c) => (
         <Link
           key={c.label}

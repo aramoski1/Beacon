@@ -22,7 +22,7 @@ const KIND_CLS: Record<TodayDeskKind, string> = {
 export function TodayDesk({ items }: { items: TodayDeskItem[] }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border bg-card px-5 py-8 text-center">
+      <div className="rounded-xl border bg-card px-4 py-5 text-center">
         <CheckCircle2 className="size-8 mx-auto mb-2 text-emerald-600/80" />
         <p className="text-sm font-medium">Nothing due</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">

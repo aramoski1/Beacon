@@ -152,16 +152,27 @@
   border-radius: calc(var(--radius) * 1.4);
 }
 
-/* 2-col only when two+ modules remain — hiding one no longer leaves a hole. */
+/* Columns only when two+ modules remain — hiding one no longer leaves a hole.
+   align-items: start so a short card does not stretch beside a tall one. */
 .dashboard-module-grid {
   display: grid;
-  gap: 1.5rem;
+  gap: 1rem;
   align-items: start;
   grid-template-columns: 1fr;
 }
 
+.dashboard-signal-row {
+  display: grid;
+  gap: 0.75rem;
+  align-items: start;
+}
+
 @media (min-width: 1024px) {
   .dashboard-module-grid--primary:has(> :nth-child(2)) {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dashboard-signal-row:has(> :nth-child(2)) {
     grid-template-columns: 1fr 1fr;
   }
 }
@@ -169,5 +180,13 @@
 @media (min-width: 1280px) {
   .dashboard-module-grid--secondary:has(> :nth-child(2)) {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .dashboard-module-grid--secondary:has(> :nth-child(3)) {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .dashboard-signal-row:has(> :nth-child(3)) {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
   }
 }
