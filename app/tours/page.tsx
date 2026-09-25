@@ -23,7 +23,7 @@ export default async function ToursPage() {
           <h1 className="text-xl font-semibold tracking-tight">Tours</h1>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Schedule property tours with attendees and prep notes. Calendar sync stays off until you connect Google or Outlook in Settings.
+          Schedule property tours with attendees and prep notes. Calendar sync is not available in this build.
         </p>
       </div>
       <ToursView

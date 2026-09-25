@@ -75,10 +75,12 @@ export function listingDetailRank(url: string): number {
 function snippetQuality(hit: ListingSearchHit): number {
   const t = listingSearchHitText(hit).toLowerCase();
   let score = 0;
-  if (t.includes("clear height") || t.includes("clearance")) score += 3;
+  if (t.includes("clear height") || t.includes("clearance") || t.includes("-foot") || t.includes(" ft")) score += 3;
   if (t.includes("dock")) score += 2;
+  if (t.includes("drive-in") || t.includes("drive in")) score += 2;
   if (t.includes("/sf") || t.includes("psf") || t.includes("asking")) score += 1;
   if (t.includes("esfr") || t.includes("amp")) score += 1;
+  if (hit.snippets.length > 0) score += 1;
   return score;
 }
 
@@ -309,7 +311,15 @@ export function excerptForValue(pageText: string, value: string | number): strin
   if (!raw) return null;
   const candidates = [raw];
   if (typeof value === "number") {
-    candidates.push(`${value}'`, `${value} ft`, `${value}ft`, value.toLocaleString("en-US"));
+    candidates.push(
+      `${value}'`,
+      `${value} ft`,
+      `${value}ft`,
+      `${value}-ft`,
+      `${value}-foot`,
+      `${value} foot`,
+      value.toLocaleString("en-US"),
+    );
     const word = SMALL_NUMBER_WORDS[value];
     if (word) candidates.push(word);
   }

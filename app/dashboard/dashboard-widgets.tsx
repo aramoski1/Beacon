@@ -156,9 +156,9 @@ function leaseLabel(path: string | null) {
   return name.length > 36 ? name.slice(0, 34) + "…" : name;
 }
 
-function rolloverAction(days: number): string {
+function rolloverAction(days: number, hasProperty: boolean): string {
   if (days <= 30) return "Start renewal conversation";
-  if (days <= 60) return "Review market comps";
+  if (days <= 60) return hasProperty ? "Check comps / rent" : "Open lease";
   return "Add to rollover pipeline";
 }
 
@@ -210,7 +210,16 @@ export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[];
               )}
               <p className="text-xs text-primary/80 flex items-center gap-1">
                 <Target className="size-3 shrink-0" />
-                {rolloverAction(l.daysUntilExpiry)}
+                {l.daysUntilExpiry > 30 && l.daysUntilExpiry <= 60 && l.property_id ? (
+                  <Link
+                    href={`/properties/${l.property_id}`}
+                    className="hover:underline underline-offset-2"
+                  >
+                    Check comps / rent
+                  </Link>
+                ) : (
+                  rolloverAction(l.daysUntilExpiry, !!l.property_id)
+                )}
                 <span className="text-muted-foreground">
                   · Exp {new Date(l.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </span>

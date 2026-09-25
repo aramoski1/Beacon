@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { geocodeAddress } from "../../lib/geocode";
+import { geocodeAddress, geocodeStateFromProperty, nominatimQuery } from "../../lib/geocode";
 
 describe("geocodeAddress", () => {
   afterEach(() => {
@@ -44,5 +44,23 @@ describe("geocodeAddress", () => {
     await geocodeAddress("627 SW 4th Ave", "Boynton Beach", "FL");
     const decoded = decodeURIComponent(capturedUrl.replace(/\+/g, " "));
     expect(decoded).toContain("627 SW 4th Ave, Boynton Beach, FL");
+  });
+});
+
+describe("nominatimQuery / geocodeStateFromProperty", () => {
+  it("does not hardcode Florida when state is omitted", () => {
+    expect(nominatimQuery("700 Boylston St", "Boston")).toBe("700 Boylston St, Boston, USA");
+    expect(nominatimQuery("1 NW 87th Ave", "Doral", "FL")).toBe("1 NW 87th Ave, Doral, FL, USA");
+    expect(nominatimQuery("700 Boylston St", "Boston", "MA")).toBe("700 Boylston St, Boston, MA, USA");
+  });
+
+  it("maps folio prefix and geographic category to FL or MA", () => {
+    expect(geocodeStateFromProperty({ source_url: "magis:123" })).toBe("MA");
+    expect(geocodeStateFromProperty({ source_url: "mdpa:30-4015-011-0010" })).toBe("FL");
+    expect(geocodeStateFromProperty({ geographic_category: "Massachusetts" })).toBe("MA");
+    expect(geocodeStateFromProperty({ geographic_category: "Miami-Dade" })).toBe("FL");
+    expect(geocodeStateFromProperty({ geographic_category: "Unknown" })).toBeNull();
+    expect(geocodeStateFromProperty({ city: "Boston" })).toBe("MA");
+    expect(geocodeStateFromProperty({ city: "Doral" })).toBe("FL");
   });
 });

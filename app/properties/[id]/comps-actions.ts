@@ -46,7 +46,7 @@ export async function getTaxRollCompsForProperty(input: {
   if (!mdpaFolio && !bcpaFolio && !pbcpaFolio && !magisFolio) {
     return {
       error:
-        "Tax-roll comps need a Miami-Dade, Broward, Palm Beach, or Massachusetts folio (enrich from county first).",
+        "Tax-roll comps need a county folio. Use Enrich on this property first — Beacon will not invent a folio.",
     };
   }
 

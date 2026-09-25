@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { geocodeNominatim } from "@/lib/geocode";
+import { geocodeNominatim, geocodeStateFromProperty } from "@/lib/geocode";
 import { enqueueJob } from "@/lib/jobs";
 
 export async function geocodeMissingProperties(limit = 25): Promise<{
@@ -16,7 +16,7 @@ export async function geocodeMissingProperties(limit = 25): Promise<{
 
   const { data: rows } = await supabase
     .from("properties")
-    .select("id, address, city")
+    .select("id, address, city, geographic_category, source_url")
     .eq("owner_id", user.id)
     .is("latitude", null)
     .not("address", "is", null)
@@ -26,7 +26,12 @@ export async function geocodeMissingProperties(limit = 25): Promise<{
   let failed = 0;
   for (const p of rows ?? []) {
     if (!p.address) continue;
-    const result = await geocodeNominatim(p.address, p.city);
+    const state = geocodeStateFromProperty({
+      geographic_category: p.geographic_category,
+      source_url: p.source_url,
+      city: p.city,
+    });
+    const result = await geocodeNominatim(p.address, p.city, state);
     if ("error" in result) {
       failed += 1;
       continue;

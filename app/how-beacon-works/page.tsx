@@ -149,8 +149,9 @@ export default async function HowBeaconWorksPage({
           </li>
           <li>
             <span className="text-foreground">Enrich + promote</span> — county folio, Sunbiz
-            contacts, Promote to CRM, set Tier 1 on priorities. On industrial assets, open the
-            property and use **Industrial / flex specs** or Enrich → **Find listing specs**.
+            contacts, Promote to CRM, set Tier 1 on priorities. County Enrich also queues a
+            listing-spec search for empty industrial fields. On industrial assets, open the
+            property and use Industrial / flex specs or Enrich → Find listing specs.
           </li>
           <li>
             <span className="text-foreground">Abstract leases</span> — upload PDFs linked to a
@@ -231,14 +232,18 @@ export default async function HowBeaconWorksPage({
             County enrichment covers South Florida (Miami-Dade, Broward, Palm Beach) and the Boston
             metro area (Massachusetts).
           </li>
-          <li>Comps come from tax-roll sales, your lease abstracts, and the rent notebook — not live CoStar market data.</li>
+          <li>
+            Comps live on the property page (tax-roll sales, your lease abstracts, and the rent
+            notebook) — not live CoStar market data. Tax-roll comps and ownership watch need a
+            county folio from Enrich; demo seed rows do not invent one.
+          </li>
           <li>
             Industrial / flex specs are on the property page (Customize to add/remove fields). County
-            tax roll will not invent docks or clear height — use **Find listing specs** or a flyer
-            extract when the listing states them. Pages that are clearly not this property's
-            listing are skipped; a URL or paste that is not a listing/document for the address
-            is refused. Workspace listing enrich and new-property save fill empty unlocked specs
-            the same way.
+            tax roll will not invent docks or clear height — use Find listing specs or a flyer
+            extract when the listing states them. County Enrich, Workspace listing enrich, and
+            new-property save also queue that search and fill empty unlocked specs. Pages that are
+            clearly not this property's listing are skipped; a URL or paste that is not a
+            listing/document for the address is refused.
           </li>
           <li>
             Prospect sentence search only maps to tax-roll filters that exist (city, size, type,
@@ -251,7 +256,13 @@ export default async function HowBeaconWorksPage({
             Entity/LLC lookup (Sunbiz) is Florida-only — Massachusetts has no equivalent wired up yet.
           </li>
           <li>
-            Gmail, Outlook, calendar, and DocuSign connections are stubs until OAuth env vars are set.
+            Gmail, Outlook, calendar, and DocuSign connections show status only. Token exchange is
+            not wired — Connect is disabled and does not open a dead callback. Outreach stays Open
+            in email.
+          </li>
+          <li>
+            Book-map geocode uses Florida or Massachusetts from the property market or folio. It
+            does not assume every address is in Florida.
           </li>
           <li>
             Stuck on where something lives? Ask Copilot on the Dashboard — or use the page guides

@@ -522,12 +522,17 @@ export default async function PropertyPage({
       )}
 
       {/* Re-check ownership against the county (only for county-enhanced properties with a folio/strap) */}
-      {existingFolio && (
+      {existingFolio ? (
         <OwnershipCheckPanel
           propertyId={id}
           watchEnrolled={!!(p as { ownership_watch_enrolled_at?: string | null }).ownership_watch_enrolled_at}
           lastCheckedAt={(p as { ownership_last_checked_at?: string | null }).ownership_last_checked_at ?? null}
         />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Ownership watch and tax-roll comps need a county folio — use <span className="font-medium text-foreground">Enrich</span> first.
+          Demo or manual rows without a folio stay empty here on purpose.
+        </p>
       )}
 
       {/* Data sources — where this property's data came from and what's been enriched */}

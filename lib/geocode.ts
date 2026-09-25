@@ -11,6 +11,8 @@
 // returns real WGS84 (wkid 4326) coordinates for a one-line US address with no
 // API key or auth of any kind.
 
+import { detectCounty } from "@/lib/county-router";
+
 const CENSUS_GEOCODER_URL =
   "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress";
 
@@ -43,11 +45,47 @@ export async function geocodeAddress(
 /** Nominatim (OSM) — used to store property lat/lng for the book pin map. No API key. */
 export type NominatimResult = { lat: number; lng: number } | { error: string };
 
+export function nominatimQuery(
+  address: string,
+  city?: string | null,
+  state?: string | null,
+): string {
+  return [address, city, state, "USA"].filter((p) => Boolean(p && String(p).trim())).join(", ");
+}
+
+export function geocodeStateFromProperty(input: {
+  geographic_category?: string | null;
+  source_url?: string | null;
+  city?: string | null;
+}): string | null {
+  const url = input.source_url ?? "";
+  if (url.startsWith("magis:")) return "MA";
+  if (url.startsWith("mdpa:") || url.startsWith("bcpa:") || url.startsWith("pbcpa:")) return "FL";
+  const cat = (input.geographic_category ?? "").toLowerCase();
+  if (cat.includes("massachusetts") || cat.includes("boston") || cat === "ma") return "MA";
+  if (
+    cat.includes("miami") ||
+    cat.includes("broward") ||
+    cat.includes("palm beach") ||
+    cat.includes("florida") ||
+    cat.includes("dade")
+  ) {
+    return "FL";
+  }
+  if (input.city?.trim()) {
+    const county = detectCounty(input.city);
+    if (county === "massachusetts") return "MA";
+    if (county) return "FL";
+  }
+  return null;
+}
+
 export async function geocodeNominatim(
   address: string,
   city?: string | null,
+  state?: string | null,
 ): Promise<NominatimResult> {
-  const q = [address, city, "Florida", "USA"].filter(Boolean).join(", ");
+  const q = nominatimQuery(address, city, state);
   if (!address.trim()) return { error: "No address" };
 
   const url = new URL("https://nominatim.openstreetmap.org/search");

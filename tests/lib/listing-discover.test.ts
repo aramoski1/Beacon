@@ -186,6 +186,17 @@ describe("excerptForValue", () => {
     expect(excerptForValue("32' clear height and two dock-high doors.", 2)?.toLowerCase()).toContain("dock");
     expect(excerptForValue("32' clear height only.", 2)).toBeNull();
   });
+
+  it("cites hyphenated and spelled-out foot heights", () => {
+    expect(excerptForValue("Featuring a 32-foot clear height.", 32)?.toLowerCase()).toContain("clear");
+    expect(excerptForValue("32-ft clear height, ESFR.", 32)?.toLowerCase()).toContain("32");
+    expect(excerptForValue("32 foot clear height listed.", 32)?.toLowerCase()).toContain("clear");
+  });
+
+  it("does not invent a dock count from dock-high language alone", () => {
+    expect(excerptForValue("The building has dock-high doors and a ramp.", 2)).toBeNull();
+    expect(excerptForValue("The building has dock-high doors and a ramp.", 8)).toBeNull();
+  });
 });
 
 describe("search result parsers", () => {
@@ -229,6 +240,27 @@ describe("search result parsers", () => {
     expect(hits[0]?.url).toContain("/Listing/");
     expect(listingSearchHitText(hits[0]!)).toContain("32'");
     expect(listingDetailRank(hits[0]!.url)).toBeLessThan(listingDetailRank(hits[1]!.url));
+  });
+
+  it("ranks listing pages with spec extra_snippets ahead of spec-less listing URLs", () => {
+    const hits = parseBraveHits({
+      web: {
+        results: [
+          {
+            url: "https://www.loopnet.com/Listing/no-specs/1",
+            title: "Available",
+            description: "Industrial building for lease",
+          },
+          {
+            url: "https://www.loopnet.com/Listing/with-specs/2",
+            title: "Available",
+            description: "Industrial building for lease",
+            extra_snippets: ["32-foot clear height and 8 dock-high doors"],
+          },
+        ],
+      },
+    });
+    expect(hits[0]?.url).toContain("with-specs");
   });
 });
 

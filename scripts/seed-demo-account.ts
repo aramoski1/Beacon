@@ -596,6 +596,9 @@ async function main() {
   }
 
   // ── Properties (~100) clustered under portfolios ───────────────────────────
+  // source_url is omitted on purpose. Seed rows are synthetic — do not invent
+  // mdpa:/bcpa: folios (live GIS would 404 and comps/watch would look broken).
+  // Ownership watch + tax-roll comps unlock after the broker runs Enrich.
   const PROP_COUNT = 100;
   const propertyIds: string[] = [];
   const propertyMeta: {

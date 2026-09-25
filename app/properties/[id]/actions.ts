@@ -1187,6 +1187,12 @@ export async function applyCountyEnhancement(
     zoning = { kind: "error", message: e instanceof Error ? e.message : String(e) };
   }
 
+  // Same automatic listing pass as tax-roll / new-property save. Best-effort:
+  // county apply already succeeded if this queue insert fails.
+  if (existing.address?.trim()) {
+    await enqueueJob(supabase as never, user.id, "listing_discover", { propertyId });
+  }
+
   return { ok: true, owner_contacts_saved, zoning };
 }
 
