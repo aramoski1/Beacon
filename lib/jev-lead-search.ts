@@ -114,6 +114,16 @@ export async function interpretLeadSearchWithJev(query: string): Promise<JevLead
       instructions:
         "The sentence asks for docks, clear height, parking, rail, power, asking rent, cap rate, or near-the-airport — filters the tax roll cannot apply.",
     },
+    lauderdale_city: {
+      type: "choice",
+      instructions:
+        "If the sentence says Lauderdale without Fort/Ft or Lauderhill, which city? unspecified if it already named Fort Lauderdale or Lauderhill, or did not say Lauderdale.",
+      criteria: {
+        "Fort Lauderdale": "Fort Lauderdale (Broward)",
+        Lauderhill: "Lauderhill (Broward)",
+        unspecified: "Already specific, or not about Lauderdale",
+      },
+    },
   };
 
   const decided = await jevDecide({ query }, questions);
@@ -132,6 +142,17 @@ export async function interpretLeadSearchWithJev(query: string): Promise<JevLead
   }
   if (jevIsYes(jevNoul(decided, "lease_expiring"), 0.7) && raw.leaseExpiringWithinDays == null) {
     raw.leaseExpiringWithinDays = 90;
+  }
+  const lauderdale = jevChoice(decided, "lauderdale_city");
+  const saidLauderdale = /\blauderdale\b/i.test(query) && !/\b(fort|ft\.?)\s+lauderdale\b/i.test(query);
+  if (
+    saidLauderdale &&
+    lauderdale &&
+    lauderdale.choice !== "unspecified" &&
+    lauderdale.confidence >= 0.6 &&
+    !raw.cities?.length
+  ) {
+    raw.cities = [lauderdale.choice];
   }
 
   const priorIgnored: IgnoredLeadTerm[] = [];

@@ -2,7 +2,7 @@
 // error, or a middling noul all proceed. Only skip when Jev is confident
 // the source is the wrong page / not a property document.
 
-import { jevDecide, jevEnabled, jevNoul, jevTextPreview } from "@/lib/jev";
+import { jevChoice, jevDecide, jevEnabled, jevNoul, jevTextPreview } from "@/lib/jev";
 
 /** Skip only when Jev is fairly sure this is NOT a match. */
 const REJECT_BELOW = 0.3;
@@ -68,4 +68,41 @@ export async function jevAllowsUrlIngest(input: {
     "is_listing_page",
     "This page is a specific commercial property listing or offering memo (has an address and stated specs), not a search SERP, directory homepage, login wall, or news article.",
   );
+}
+
+export const JEV_DOC_KINDS = [
+  "lease",
+  "om",
+  "costar",
+  "loi",
+  "tax_bill",
+  "listing",
+  "junk",
+] as const;
+export type JevDocKind = (typeof JEV_DOC_KINDS)[number];
+
+export async function jevClassifyDocument(
+  text: string | null | undefined,
+): Promise<{ kind: JevDocKind; confidence: number } | null> {
+  if (!text || !jevEnabled()) return null;
+  const decided = await jevDecide(
+    { page: jevTextPreview(text) },
+    {
+      kind: {
+        type: "choice",
+        instructions:
+          "What is this source? lease = executed lease; om = offering memo; costar = CoStar/owner-tenant export; loi = letter of intent; tax_bill = tax roll / bill; listing = public listing or flyer; junk = search page, login, homepage, or unrelated.",
+        criteria: Object.fromEntries(JEV_DOC_KINDS.map((k) => [k, k])),
+      },
+    },
+  );
+  const pick = jevChoice(decided, "kind");
+  if (!pick || !JEV_DOC_KINDS.includes(pick.choice as JevDocKind)) return null;
+  return { kind: pick.choice as JevDocKind, confidence: pick.confidence };
+}
+
+export function jevRejectsJunkDocument(
+  classified: { kind: JevDocKind; confidence: number } | null,
+): boolean {
+  return classified?.kind === "junk" && classified.confidence >= 0.75;
 }

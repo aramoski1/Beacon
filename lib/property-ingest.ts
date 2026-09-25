@@ -1,5 +1,6 @@
 // Shared dedup + upsert logic used by every property ingestion path.
 
+import { jevPickDuplicateId, streetNumber } from "./jev-identity";
 import type { StoredOwnerContact } from "./owner-contacts";
 import { syncPropertyEntity } from "./entities";
 
@@ -28,7 +29,8 @@ export async function findDuplicate(
   supabase: any,
   userId: string,
   sourceUrl: string | null,
-  address: string | null
+  address: string | null,
+  city?: string | null,
 ): Promise<string | null> {
   if (sourceUrl) {
     const { data } = await supabase
@@ -51,6 +53,18 @@ export async function findDuplicate(
         .maybeSingle();
       if (data?.id) return data.id as string;
     }
+  }
+
+  const num = streetNumber(address);
+  if (num && address && normalizeAddress(address).length > 3) {
+    const { data: near } = await supabase
+      .from("properties")
+      .select("id, address, city")
+      .eq("owner_id", userId)
+      .ilike("address", `${num}%`)
+      .limit(8);
+    const picked = await jevPickDuplicateId(address, city ?? null, near ?? []);
+    if (picked) return picked;
   }
 
   return null;
@@ -104,7 +118,8 @@ export async function upsertProperty(
     supabase,
     userId,
     payload.source_url,
-    payload.address
+    payload.address,
+    payload.city,
   );
 
   if (existingId) {

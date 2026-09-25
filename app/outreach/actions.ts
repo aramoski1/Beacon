@@ -7,6 +7,7 @@ import { getUserSettings } from "@/app/settings/actions";
 import { validateOutreach } from "@/lib/validation";
 import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
 import { cadenceMapFromSettings, suggestedCadenceDays } from "@/lib/cadence";
+import { qaOutreachDrafts } from "@/lib/jev-outreach-qa";
 import {
   applyOutreachMerge,
   DEFAULT_MERGE_SUBJECT,
@@ -49,6 +50,7 @@ export type EmailDraft = {
   subject: string;
   body: string;
   mergePreview?: OutreachMergeVars;
+  warning?: string;
 };
 
 export type GenerateDraftsOptions = {
@@ -553,6 +555,11 @@ ${JSON.stringify(chunk, null, 2)}`,
         mergePreview: vars,
       });
     }
+  }
+
+  const warnings = await qaOutreachDrafts(allDrafts);
+  for (const d of allDrafts) {
+    if (warnings[d.contactId]) d.warning = warnings[d.contactId];
   }
 
   return { drafts: allDrafts, senderNameMissing };

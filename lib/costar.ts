@@ -3,6 +3,7 @@
 // Model only structures what the file contains; never invents data.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { jevClassifyDocument, jevRejectsJunkDocument } from "@/lib/jev-gates";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,15 @@ type ExtractOutput = {
 export async function extractCoStarOwner(
   content: CoStarFileContent
 ): Promise<CoStarOwner> {
+  if (content.type === "text") {
+    const kind = await jevClassifyDocument(content.text);
+    if (jevRejectsJunkDocument(kind)) {
+      throw new Error(
+        "This file does not look like a CoStar owner or tenant export. Upload the CoStar file or paste that export.",
+      );
+    }
+  }
+
   const anthropic = new Anthropic();
   const prompt =
     "Extract all owner and contact information from this CoStar export using the extract_costar_owner tool.";

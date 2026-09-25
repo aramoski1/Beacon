@@ -4,7 +4,8 @@ import { jevDecide, jevEnabled, jevNoul } from "@/lib/jev";
 import { interpretCrmSearchWithJev } from "@/lib/jev-crm-search";
 import { interpretLeadSearchWithJev } from "@/lib/jev-lead-search";
 import { routeCopilotQuestion } from "@/lib/jev-copilot";
-import { jevAllowsListingExtract, jevAllowsUrlIngest } from "@/lib/jev-gates";
+import { jevAllowsListingExtract, jevAllowsUrlIngest, jevClassifyDocument } from "@/lib/jev-gates";
+import { fillUnmappedHeadersWithJev } from "@/lib/jev-import-map";
 
 const live = jevEnabled();
 
@@ -56,5 +57,21 @@ describe.skipIf(!live)("Jev live API", () => {
         "Search industrial listings in Miami. 1–25 of 4,812 results. Refine by size, price, and submarket.",
     });
     expect(ok).toBe(false);
+  }, 20_000);
+
+  it("classifies a search SERP as junk", async () => {
+    const kind = await jevClassifyDocument(
+      "Search industrial listings in Miami. 1–25 of 4,812 results. Refine by size.",
+    );
+    expect(kind?.kind).toBe("junk");
+  }, 20_000);
+
+  it("maps a leftover Bldg SF header", async () => {
+    const mapping = await fillUnmappedHeadersWithJev(
+      ["Street", "Bldg SF"],
+      "property",
+      { address: "Street" },
+    );
+    expect(mapping.size_sqft).toBe("Bldg SF");
   }, 20_000);
 });

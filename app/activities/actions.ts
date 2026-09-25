@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { shouldBumpLastContacted, type TouchActivityType } from "@/lib/activity-touch";
 import { contactIdsForProperty } from "@/lib/contact-properties";
+import { jevRefineActivityType } from "@/lib/jev-activity";
 import {
   isPropertyActivityField,
   mergePropertyActivityPatch,
@@ -81,6 +82,7 @@ export async function createActivity(params: {
   }
 
   const activityDate = params.activity_date ?? new Date().toISOString();
+  const activityType = await jevRefineActivityType(params.activity_type, params.notes);
 
   const { data, error } = await supabase
     .from("activities")
@@ -89,7 +91,7 @@ export async function createActivity(params: {
       contact_id: params.contact_id ?? null,
       property_id: params.property_id ?? null,
       deal_id: params.deal_id ?? null,
-      activity_type: params.activity_type,
+      activity_type: activityType,
       activity_date: activityDate,
       notes: params.notes ?? null,
     })
@@ -100,7 +102,7 @@ export async function createActivity(params: {
 
   if (
     params.contact_id &&
-    shouldBumpLastContacted(params.activity_type as TouchActivityType)
+    shouldBumpLastContacted(activityType as TouchActivityType)
   ) {
     await supabase
       .from("contacts")

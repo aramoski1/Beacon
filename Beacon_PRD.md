@@ -32,7 +32,7 @@ The app is South Florida–centric. Primary county sources: Miami-Dade Property 
 | React Compiler | `reactCompiler: true` in `next.config.ts` — auto-memoization, experimental |
 | Auth + DB | Supabase (email/password, PostgreSQL, RLS, Storage) |
 | Styling | Tailwind CSS v4 + shadcn/ui (Nova preset) |
-| AI | Anthropic Claude SDK — `claude-opus-4-8` for extraction, `claude-haiku-4-5-20251001` for NLP/drafts/briefings. TypeSafe Jev (`jev-1.13.0`) for typed search/copilot routing, listing/document gates, and Today-desk cadence nudges when `JEV_API_KEY` is set; Haiku and rule scores remain the fallback. |
+| AI | Anthropic Claude SDK — `claude-opus-4-8` for extraction, `claude-haiku-4-5-20251001` for NLP/drafts/briefings. TypeSafe Jev (`jev-1.13.0`) for typed search/copilot routing, listing/document/import/identity/outreach-QA gates, and Today-desk cadence nudges when `JEV_API_KEY` is set; Haiku and rule scores remain the fallback. |
 | Drag-and-drop | `@dnd-kit/core` — deals kanban board |
 | Testing | Vitest v4 (unit tests for pure functions only) |
 | Spreadsheet export | `xlsx` library |

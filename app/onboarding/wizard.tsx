@@ -13,7 +13,7 @@ import {
   type ParsedFile,
   type ImportResult,
 } from "@/lib/import-mapper";
-import { parseImportFile, runImport, completeOnboarding, fetchImportedPropertiesForEnrich } from "./actions";
+import { parseImportFile, suggestImportMapping, runImport, completeOnboarding, fetchImportedPropertiesForEnrich } from "./actions";
 import { BulkEnrichPanel, type BulkProperty } from "@/app/crm/bulk-enrich-panel";
 import { planEnrichJobs, summarizeEnrichPlan } from "@/lib/enrich-queue";
 
@@ -138,7 +138,12 @@ function UploadStep({
         return;
       }
       const suggestedMapping = autoSuggestMapping(result.headers, entityType);
-      onFileParsed(file.name, result, suggestedMapping);
+      const jevMapping = await suggestImportMapping({
+        headers: result.headers,
+        entityType,
+        mapping: suggestedMapping,
+      });
+      onFileParsed(file.name, result, "error" in jevMapping ? suggestedMapping : jevMapping);
     });
   }
 
@@ -634,7 +639,13 @@ export function OnboardingWizard() {
       setEnrichError(res.error);
       return;
     }
-    const plans = planEnrichJobs(res.properties);
+    const extra = new Set(res.extraSunbizIds ?? []);
+    const plans = planEnrichJobs(res.properties).map((plan) => {
+      if (extra.has(plan.propertyId) && !plan.needsSunbiz) {
+        return { ...plan, needsSunbiz: true, skipReason: undefined };
+      }
+      return plan;
+    });
     const summary = summarizeEnrichPlan(plans);
     setEnrichSummary(
       `${summary.county} county · ${summary.sunbiz} Sunbiz · ${summary.skipped} skipped`,

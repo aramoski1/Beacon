@@ -118,6 +118,7 @@ function mockClient(responses: Array<{ data: { id: string } | null }>) {
         return chain;
       },
       maybeSingle: () => Promise.resolve(resp),
+      limit: () => Promise.resolve({ data: resp.data ? [resp.data] : [] }),
     };
     return chain;
   }
@@ -167,7 +168,7 @@ describe("findDuplicate", () => {
   });
 
   it("returns null when neither source_url nor address matches", async () => {
-    const db = mockClient([{ data: null }, { data: null }]);
+    const db = mockClient([{ data: null }, { data: null }, { data: null }]);
     const result = await findDuplicate(
       db,
       USER,
@@ -178,7 +179,7 @@ describe("findDuplicate", () => {
   });
 
   it("returns null when source_url is null and address produces no match", async () => {
-    const db = mockClient([{ data: null }]);
+    const db = mockClient([{ data: null }, { data: null }]);
     const result = await findDuplicate(db, USER, null, "1221 Brickell Ave");
     expect(result).toBeNull();
   });

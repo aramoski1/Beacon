@@ -781,6 +781,11 @@ export default function OutreachView({
                         className="w-full border border-border rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 ring-ring bg-background disabled:opacity-50"
                       />
                     </div>
+                    {draft.warning && (
+                      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                        {draft.warning}
+                      </p>
+                    )}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                         Body

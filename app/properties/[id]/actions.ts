@@ -28,7 +28,8 @@ import {
   maSaleDate,
   type MARecord,
 } from "@/lib/magis";
-import { jevAllowsDocumentExtract } from "@/lib/jev-gates";
+import { jevLooksLikeEntityOwner, shouldLookupSunbizName } from "@/lib/jev-enrich";
+import { jevAllowsDocumentExtract, jevClassifyDocument, jevRejectsJunkDocument } from "@/lib/jev-gates";
 import { extractPropertyFields, type ExtractedProperty, type PipelineContent } from "@/lib/property-pipeline";
 import { syncPropertyEntity, linkContactToEntity } from "@/lib/entities";
 import { linkContactPropertyAndSync } from "@/lib/contact-properties";
@@ -134,6 +135,13 @@ export async function lookupSunbiz(
   const nameToSearch = searchTermOverride?.trim() || prop.owner_name?.trim();
   if (!nameToSearch) {
     return { error: "No entity name to search. Enter the name as it appears on Sunbiz." };
+  }
+
+  if (
+    !searchTermOverride &&
+    !shouldLookupSunbizName(nameToSearch, await jevLooksLikeEntityOwner(nameToSearch))
+  ) {
+    return { error: "Owner name does not look like a Florida entity. Enter the Sunbiz name to search anyway." };
   }
 
   try {
@@ -1352,6 +1360,12 @@ export async function previewDocumentEnhancement(
     return {
       error:
         "This source doesn't look like a listing or property document for this address. Try a listing URL, flyer, or paste the page that states the specs.",
+    };
+  }
+  if (textForGate && jevRejectsJunkDocument(await jevClassifyDocument(textForGate))) {
+    return {
+      error:
+        "This source looks like a search page or unrelated document, not a listing or property file for this address.",
     };
   }
 

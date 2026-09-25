@@ -343,7 +343,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - Exports are XLSX only — there is no CSV export, no scheduled/automatic export, and no export beyond these three entity types.
 
 ### How to do common things
-- **Import a spreadsheet**: /onboarding
+- **Import a spreadsheet**: /onboarding — Map columns suggests aliases first, then leftover headers; you confirm before import. Similar street-number addresses may merge into an existing property.
 - **Learn how Beacon works**: /how-beacon-works (also linked from Settings and onboarding)
 - **Abstract a lease**: /abstracts/new — upload a PDF, AI extracts key fields automatically
 - **Add a property**: /properties/new (address lookup, listing URL, or file upload), or "+ New" in the sidebar. A listing URL or paste that is not a specific listing page is refused.
@@ -352,7 +352,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **This week's list**: This week in the main nav — pin a Contacts smart list, then Generate drafts
 - **Owner vs tenant book**: Workspace → Contacts → All / Owners / Tenants
 - **Export data**: see "Exporting data" above
-- **Start outreach**: /outreach → pick contacts → Generate drafts → Open in email → Mark as sent
+- **Start outreach**: /outreach → pick contacts → Generate drafts → review (yellow warning if a draft looks generic or may invent a spec) → Open in email → Mark as sent. Beacon never sends.
 - **Set outreach cadence**: Settings → Outreach → Cadence (days between outreach), per tier
 - **Set sender name**: Settings → Outreach → Sender name
 - **Add a custom field**: In Workspace (/crm), click "Manage fields" on the tab for that entity type (property, lease, or contact). That does not control industrial specs.
@@ -360,7 +360,7 @@ Everything below is the complete, exhaustive list of what Beacon has. If somethi
 - **Find listing specs**: open a property → Enrich → **Find listing specs** (or the empty-spec CTA on the industrial card). Searches public listing pages for the address (Brave snippets when LoopNet/Crexi block a full fetch), requires an address match (11 vs 11th Street counts), skips pages that are clearly not this property's listing, and fills empty unlocked fields only — never overwrites county, Sunbiz, or broker-entered values. Enrich from a URL or paste is refused when the source is not a listing or property document for this address. Workspace **Enrich selected → Listing specs** and **Add property** save queue the same job and **apply** empty fields; the property page polls so values show up. Needs BRAVE_SEARCH_API_KEY (JINA_API_KEY optional for full-page fetch).
 - **Prospect sentence search**: /prospect → type “industrial in Ft Lauderdale over 10k” → form fills → GIS runs. Use Clear to exit a buy box without deleting it.
 - **Custom fields from county**: Year Built / stories / units / lot size / assessed value / building SF on the property card copy from county data when those custom cells are empty.
-- **Log an activity**: Open any contact or property page → Timeline section → Log activity
+- **Log an activity**: Open any contact or property page → Timeline section → Log activity. A dumped **note** that is clearly a call/email/meeting may be saved as that type.
 - **Customize the dashboard**: Dashboard → **Customize** (command center header) → check/uncheck sections → Save (or Reset to default to restore everything)
 - **Schedule a tour**: /tours → date/time, optional property/contact, Save tour
 - **Download a draft LOI**: open a deal → **Download LOI** (Word file from deal + property fields; not legal advice)

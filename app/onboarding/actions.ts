@@ -9,6 +9,8 @@ import {
   type ParsedFile,
   type ImportResult,
 } from "@/lib/import-mapper";
+import { fillUnmappedHeadersWithJev } from "@/lib/jev-import-map";
+import { jevLooksLikeEntityOwner } from "@/lib/jev-enrich";
 import { upsertProperty } from "@/lib/property-ingest";
 
 const MAX_ROWS = 500;
@@ -61,6 +63,18 @@ export async function parseImportFile(
     totalRows: rawRows.length,
     truncated: rawRows.length > MAX_ROWS,
   };
+}
+
+/** Fills leftover CSV headers after alias auto-suggest. Broker still confirms. */
+export async function suggestImportMapping(params: {
+  headers: string[];
+  entityType: "property" | "contact";
+  mapping: Mapping;
+}): Promise<Mapping | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  return fillUnmappedHeadersWithJev(params.headers, params.entityType, params.mapping);
 }
 
 // ─── Run the import with a confirmed mapping ──────────────────────────────────
@@ -219,6 +233,7 @@ export async function fetchImportedPropertiesForEnrich(
         source_url: string | null;
         owner_name: string | null;
       }[];
+      extraSunbizIds: string[];
     }
   | { error: string }
 > {
@@ -227,7 +242,7 @@ export async function fetchImportedPropertiesForEnrich(
   if (!user) return { error: "Not authenticated." };
 
   const ids = propertyIds.filter(Boolean).slice(0, 50);
-  if (ids.length === 0) return { properties: [] };
+  if (ids.length === 0) return { properties: [], extraSunbizIds: [] };
 
   const { data, error } = await supabase
     .from("properties")
@@ -236,6 +251,11 @@ export async function fetchImportedPropertiesForEnrich(
     .in("id", ids);
 
   if (error) return { error: error.message };
-  return { properties: data ?? [] };
+  const properties = data ?? [];
+  const extraSunbizIds: string[] = [];
+  for (const p of properties) {
+    if (await jevLooksLikeEntityOwner(p.owner_name)) extraSunbizIds.push(p.id);
+  }
+  return { properties, extraSunbizIds };
 }
 

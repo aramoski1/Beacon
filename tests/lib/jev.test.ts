@@ -3,6 +3,12 @@ import { jevChoice, jevDecide, jevEnabled, jevNoul, jevTextPreview } from "@/lib
 import { jevAllowsListingExtract, jevAllowsUrlIngest } from "@/lib/jev-gates";
 import { parseCrmSearchHints } from "@/lib/jev-crm-search";
 import { parseLeadSearchHints } from "@/lib/jev-lead-search";
+import { applyJevHeaderChoices } from "@/lib/jev-import-map";
+import { pickDuplicateFromChoice, streetNumber } from "@/lib/jev-identity";
+import { outreachWarningFromNouls } from "@/lib/jev-outreach-qa";
+import { pickActivityType } from "@/lib/jev-activity";
+import { shouldLookupSunbizName } from "@/lib/jev-enrich";
+import { jevRejectsJunkDocument } from "@/lib/jev-gates";
 import { blendTodayDeskScores } from "@/lib/jev-today-desk";
 import type { TodayDeskItem } from "@/lib/today-desk";
 
@@ -172,5 +178,51 @@ describe("blendTodayDeskScores", () => {
     expect(out.find((i) => i.id === "lease:1")?.score).toBe(100);
     expect(out.find((i) => i.id === "out:1")?.score).toBeLessThan(30);
     expect(out[0]?.id).toBe("lease:1");
+  });
+});
+
+describe("import / identity / QA helpers", () => {
+  it("fills leftover headers without stealing mapped ones", () => {
+    const next = applyJevHeaderChoices(
+      { address: "Street" },
+      [
+        { header: "Bldg SF", field: "size_sqft", confidence: 0.9 },
+        { header: "Street", field: "city", confidence: 0.99 },
+        { header: "Notes", field: "skip", confidence: 0.99 },
+      ],
+    );
+    expect(next.address).toBe("Street");
+    expect(next.size_sqft).toBe("Bldg SF");
+    expect(next.city).toBeUndefined();
+  });
+
+  it("only merges a high-confidence same parcel", () => {
+    expect(streetNumber("7900 NW 27th Ave")).toBe("7900");
+    expect(pickDuplicateFromChoice("abc", 0.9, ["abc"])).toBe("abc");
+    expect(pickDuplicateFromChoice("abc", 0.4, ["abc"])).toBeNull();
+    expect(pickDuplicateFromChoice("none", 0.99, ["abc"])).toBeNull();
+  });
+
+  it("warns on invented-spec drafts and ignores middling nouls", () => {
+    expect(outreachWarningFromNouls({ invented: 0.9 })).toMatch(/invent/i);
+    expect(outreachWarningFromNouls({ generic: 0.2 })).toBeNull();
+  });
+
+  it("reclassifies dumped notes only at high confidence", () => {
+    expect(pickActivityType("note", "call", 0.9)).toBe("call");
+    expect(pickActivityType("note", "call", 0.4)).toBe("note");
+    expect(pickActivityType("email", "call", 0.99)).toBe("email");
+  });
+
+  it("adds Sunbiz only for regex or Jev-yes names", () => {
+    expect(shouldLookupSunbizName("ACME LLC", null)).toBe(true);
+    expect(shouldLookupSunbizName("Jane Smith", null)).toBe(false);
+    expect(shouldLookupSunbizName("Harbor Trust", true)).toBe(true);
+  });
+
+  it("rejects junk documents only when confident", () => {
+    expect(jevRejectsJunkDocument({ kind: "junk", confidence: 0.8 })).toBe(true);
+    expect(jevRejectsJunkDocument({ kind: "listing", confidence: 0.99 })).toBe(false);
+    expect(jevRejectsJunkDocument({ kind: "junk", confidence: 0.4 })).toBe(false);
   });
 });
