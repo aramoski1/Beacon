@@ -17,6 +17,7 @@ import {
   getFollowUps,
   listFollowUpLinkOptions,
   snoozeFollowUps,
+  markFollowUpsDone,
   type FollowUpRow,
 } from "./actions";
 
@@ -343,6 +344,12 @@ function FollowUpTable({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (rows.length === 0) return null;
+  const grouped = [...rows].sort((a, b) => {
+    const pa = a.property_address ?? "";
+    const pb = b.property_address ?? "";
+    if (pa !== pb) return pa.localeCompare(pb);
+    return a.due_date.localeCompare(b.due_date);
+  });
   return (
     <div className="space-y-1 scroll-mt-14 lg:scroll-mt-4">
       <SectionHeader
@@ -357,7 +364,7 @@ function FollowUpTable({
         <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
             <tbody className="divide-y">
-              {rows.map((r) => (
+              {grouped.map((r) => (
                 <FollowUpItemRow key={r.id} row={r} onDone={onDone} userEmail={userEmail} />
               ))}
             </tbody>
@@ -431,21 +438,38 @@ export function FollowUpsView({
           </p>
         </div>
         {overdue.length > 0 && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={isLoading}
-            onClick={() => {
-              startTransition(async () => {
-                await snoozeFollowUps(overdue.map((r) => r.id), 7);
-                const all = await getFollowUps("open");
-                setFollowUps(all);
-              });
-            }}
-          >
-            Snooze overdue 7d
-          </Button>
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isLoading}
+              onClick={() => {
+                startTransition(async () => {
+                  await snoozeFollowUps(overdue.map((r) => r.id), 7);
+                  const all = await getFollowUps("open");
+                  setFollowUps(all);
+                });
+              }}
+            >
+              Snooze overdue 7d
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isLoading}
+              onClick={() => {
+                startTransition(async () => {
+                  await markFollowUpsDone(overdue.map((r) => r.id));
+                  const all = await getFollowUps("open");
+                  setFollowUps(all);
+                });
+              }}
+            >
+              Complete overdue
+            </Button>
+          </>
         )}
         <Button
           onClick={() => setShowAdd((v) => !v)}

@@ -172,6 +172,21 @@ export async function markFollowUpDone(id: string): Promise<{ error?: string }> 
   return error ? { error: error.message } : {};
 }
 
+export async function markFollowUpsDone(ids: string[]): Promise<{ error?: string; updated?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  if (ids.length === 0) return { updated: 0 };
+
+  const { error, count } = await supabase
+    .from("follow_ups")
+    .update({ done: true, done_at: new Date().toISOString() }, { count: "exact" })
+    .eq("owner_id", user.id)
+    .in("id", ids);
+
+  return error ? { error: error.message } : { updated: count ?? ids.length };
+}
+
 // ─── getFollowUps ─────────────────────────────────────────────────────────────
 
 export async function getFollowUps(

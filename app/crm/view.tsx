@@ -41,6 +41,7 @@ import { ownerPortfolioHref } from "@/lib/owner-portfolio";
 import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
 import { formatPsf } from "@/lib/format-money";
 import { formatLocalDate } from "@/lib/dates";
+import { leaseDisplayTitle } from "@/lib/lease-radar";
 import {
   GRID_ACTIVITY_TIP,
   isPropertyActivityField,
@@ -141,9 +142,12 @@ type LeaseAbstract = {
   expiration_date: string | null;
   term: string | null;
   base_rate: number | null;
+  leased_sf: number | null;
+  tenant_contact_id: string | null;
   created_at: string;
   linked_property: string | null;
   property_address?: string | null;
+  tenant_name?: string | null;
 };
 
 type PropFilters = {
@@ -298,8 +302,9 @@ const CON_COL_DEFS: ColDef[] = [
 ];
 
 const LEASE_COL_DEFS: ColDef[] = [
-  { id: "doc",      label: "Document",   alwaysOn: true },
+  { id: "doc",      label: "Tenant",     alwaysOn: true },
   { id: "property", label: "Property" },
+  { id: "leasedsf", label: "Tenant SF" },
   { id: "status",   label: "Status" },
   { id: "exec",     label: "Execution" },
   { id: "exp",      label: "Expiration" },
@@ -2130,8 +2135,9 @@ function LeasesTable({
       <table className="w-full text-xs border-collapse">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={thCls} style={lColStyle("doc")}>Document<RH col="doc" onStart={lStartResize} /></th>
+            <th className={thCls} style={lColStyle("doc")}>Tenant<RH col="doc" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("property"))} style={lColStyle("property")}>Property<RH col="property" onStart={lStartResize} /></th>
+            <th className={cn(thR, col("leasedsf"))} style={lColStyle("leasedsf")}>Tenant SF<RH col="leasedsf" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("status"))} style={lColStyle("status")}>Status<RH col="status" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("exec"))} style={lColStyle("exec")}>Execution<RH col="exec" onStart={lStartResize} /></th>
             <th className={cn(thCls, col("exp"))} style={lColStyle("exp")}>Expiration<RH col="exp" onStart={lStartResize} /></th>
@@ -2150,10 +2156,18 @@ function LeasesTable({
                   <Link
                     href={`/abstracts/${a.id}`}
                     className="font-medium hover:underline underline-offset-2 flex items-center gap-1.5 max-w-64 truncate"
-                    title={sourceFileName(a.source_document)}
+                    title={leaseDisplayTitle({
+                      tenant_contact: a.tenant_name ? { id: a.tenant_contact_id ?? "", name: a.tenant_name, email: null, company: null } : null,
+                      property_address: a.property_address,
+                      source_document: a.source_document,
+                    })}
                   >
                     <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                    {sourceFileName(a.source_document)}
+                    {leaseDisplayTitle({
+                      tenant_contact: a.tenant_name ? { id: a.tenant_contact_id ?? "", name: a.tenant_name, email: null, company: null } : null,
+                      property_address: a.property_address,
+                      source_document: a.source_document,
+                    })}
                   </Link>
                   {ownerName?.(a.owner_id) && (
                     <span
@@ -2177,6 +2191,9 @@ function LeasesTable({
                   ) : (
                     <span className="text-muted-foreground/60">—</span>
                   )}
+                </td>
+                <td className={cn(tdR, col("leasedsf"))}>
+                  {a.leased_sf != null ? Math.round(Number(a.leased_sf)).toLocaleString() : "—"}
                 </td>
                 <td className={cn(tdCls, col("status"))}>
                   <span className={cn("text-xs font-medium rounded-full px-2 py-0.5", LEASE_STATUS_CLS[status])}>
@@ -2762,7 +2779,7 @@ export default function CRMView({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = supabase
       .from("lease_abstracts")
-      .select("id, owner_id, source_document, execution_date, expiration_date, term, base_rate, created_at, linked_property", { count: "exact" })
+      .select("id, owner_id, source_document, execution_date, expiration_date, term, base_rate, leased_sf, tenant_contact_id, created_at, linked_property", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
@@ -2794,21 +2811,30 @@ export default function CRMView({
     const propIds = Array.from(
       new Set(leaseRows.map((l) => l.linked_property).filter((id): id is string => Boolean(id))),
     );
-    if (propIds.length > 0) {
-      const { data: props } = await supabase
-        .from("properties")
-        .select("id, address, city")
-        .in("id", propIds);
-      const addrById = new Map(
-        (props ?? []).map((p: { id: string; address: string | null; city: string | null }) => [
-          p.id,
-          [p.address, p.city].filter(Boolean).join(", ") || null,
-        ]),
-      );
-      for (const row of leaseRows) {
-        if (row.linked_property) {
-          row.property_address = addrById.get(row.linked_property) ?? null;
-        }
+    const tenantIds = Array.from(
+      new Set(leaseRows.map((l) => l.tenant_contact_id).filter((id): id is string => Boolean(id))),
+    );
+    const [propsRes, tenantsRes] = await Promise.all([
+      propIds.length > 0
+        ? supabase.from("properties").select("id, address, city").in("id", propIds)
+        : Promise.resolve({ data: [] as { id: string; address: string | null; city: string | null }[] }),
+      tenantIds.length > 0
+        ? supabase.from("contacts").select("id, name").in("id", tenantIds)
+        : Promise.resolve({ data: [] as { id: string; name: string | null }[] }),
+    ]);
+    const addrById = new Map(
+      (propsRes.data ?? []).map((p) => [
+        p.id,
+        [p.address, p.city].filter(Boolean).join(", ") || null,
+      ]),
+    );
+    const nameById = new Map((tenantsRes.data ?? []).map((c) => [c.id, c.name]));
+    for (const row of leaseRows) {
+      if (row.linked_property) {
+        row.property_address = addrById.get(row.linked_property) ?? null;
+      }
+      if (row.tenant_contact_id) {
+        row.tenant_name = nameById.get(row.tenant_contact_id) ?? null;
       }
     }
     setLeases(leaseRows);

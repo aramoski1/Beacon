@@ -235,6 +235,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
     setSelected(new Set());
     setAcceptResult(null);
     setPage(0);
+    setResult(null);
     const res = await runLeadSearch(criteria);
     if ("error" in res) {
       setSearchError(res.error);

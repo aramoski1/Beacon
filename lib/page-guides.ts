@@ -152,6 +152,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       "Pagination (50 rows per page)",
       "Properties: Promote to CRM (hidden until Beacon finishes checking linked contacts), county Enhance, owner portfolio, delete",
       "Contacts: Log call, compose email, create deal",
+      "Leases: tenant name and tenant SF — never a seed:demo filename",
       "Manage fields — broker-defined custom columns only (not industrial specs)",
       "Bulk export XLSX, bulk enrich selected properties (county + Sunbiz, or listing-spec search that fills empty fields)",
       "Send selected contacts to Outreach",
@@ -300,7 +301,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     purpose: "Open task list — manual follow-ups and auto-created lease-expiry tasks.",
     walkthrough: [
       "Scan **Overdue**, **Due today**, and **Upcoming** sections (Upcoming collapses when urgent items exist).",
-      "Click **Snooze overdue 7d** to push every overdue due date out a week.",
+      "Click **Snooze overdue 7d** to push every overdue due date out a week, or **Complete overdue** to mark them all done. Rows are grouped by property.",
       "Click the checkbox to **mark done** on any task.",
       "Click the mail icon to compose outreach inline when a contact is linked.",
       "Click **Add follow-up** — enter description, due date, and link a contact or property.",
