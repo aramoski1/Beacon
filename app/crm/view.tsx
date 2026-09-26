@@ -1029,6 +1029,7 @@ function PropertiesTable({
     field: "name" | "email" | "mailing_address";
     value: string | null;
   } | null>(null);
+  const { startResize, cs: colStyle } = useColResize();
 
   function handleConfirmContactFieldEdit() {
     if (!contactFieldConfirm) return;
@@ -1149,7 +1150,6 @@ function PropertiesTable({
     );
   }
 
-  const { startResize, cs: colStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
 
   return (
@@ -2126,6 +2126,7 @@ function LeasesTable({
   colVis: ReturnType<typeof useColVis>;
   ownerName?: (ownerId: string | undefined) => string | null;
 }) {
+  const { startResize: lStartResize, cs: lColStyle } = useColResize();
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
@@ -2138,7 +2139,6 @@ function LeasesTable({
     );
   }
 
-  const { startResize: lStartResize, cs: lColStyle } = useColResize();
   function col(id: string) { return !colVis.isVis(id) ? "hidden" : undefined; }
 
   return (
