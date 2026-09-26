@@ -1,6 +1,7 @@
 // Pure helpers for lease field review — no React, safe to import in tests.
 
 import { isValidDate } from "@/lib/validation";
+import { roundPsf } from "@/lib/format-money";
 
 export type ReviewStatus = "pending" | "accepted" | "rejected" | "corrected";
 
@@ -137,7 +138,7 @@ export function columnPatchForCorrection(
     if (!Number.isFinite(num)) {
       return { error: "Base rate must be a number." };
     }
-    return { patch: { base_rate: num } };
+    return { patch: { base_rate: roundPsf(num) } };
   }
 
   if (fieldKey === "leased_sf") {

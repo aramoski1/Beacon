@@ -120,9 +120,6 @@ function AccountSection({
   const [pwSaved, setPwSaved] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
 
-  const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -159,21 +156,6 @@ function AccountSection({
       }
     } finally {
       setPwPending(false);
-    }
-  }
-
-  async function handleDeleteAccount(e: React.FormEvent) {
-    e.preventDefault();
-    setDeleteError(null);
-    if (deleteConfirm !== "DELETE") return;
-    setDeletePending(true);
-    try {
-      const result = await deleteAccount();
-      if (result?.error) setDeleteError(result.error);
-    } catch {
-      // redirect() throws; treat as success navigation
-    } finally {
-      setDeletePending(false);
     }
   }
 
@@ -258,42 +240,6 @@ function AccountSection({
         </Button>
       </div>
 
-      <div className="border-t pt-6">
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-5 space-y-4 max-w-md">
-          <div>
-            <p className="text-sm font-semibold text-destructive">Delete account</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Permanently deletes all of your data and your login. This cannot be undone.
-              To wipe data but keep this email/password, use Danger Zone instead.
-            </p>
-          </div>
-          <form onSubmit={handleDeleteAccount} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="account_delete_confirm" className="text-xs">
-                Type <span className="font-mono font-semibold">DELETE</span> to confirm
-              </Label>
-              <Input
-                id="account_delete_confirm"
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder="DELETE"
-                disabled={deletePending}
-                className="font-mono max-w-[160px]"
-              />
-            </div>
-            {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
-            <Button
-              type="submit"
-              variant="destructive"
-              size="sm"
-              disabled={deleteConfirm !== "DELETE" || deletePending}
-            >
-              {deletePending && <Loader2 className="animate-spin" />}
-              Delete account
-            </Button>
-          </form>
-        </div>
-      </div>
     </div>
   );
 }
@@ -798,6 +744,9 @@ function DangerZoneSection() {
   const [confirm, setConfirm] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accountConfirm, setAccountConfirm] = useState("");
+  const [accountPending, setAccountPending] = useState(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
 
   async function handleDelete(e: React.FormEvent) {
     e.preventDefault();
@@ -813,6 +762,21 @@ function DangerZoneSection() {
     }
   }
 
+  async function handleDeleteAccount(e: React.FormEvent) {
+    e.preventDefault();
+    setAccountError(null);
+    if (accountConfirm !== "DELETE") return;
+    setAccountPending(true);
+    try {
+      const result = await deleteAccount();
+      if (result?.error) setAccountError(result.error);
+    } catch {
+      // redirect() throws; treat as success navigation
+    } finally {
+      setAccountPending(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeading title="Danger Zone" description="Irreversible actions that permanently delete your data." />
@@ -822,7 +786,7 @@ function DangerZoneSection() {
           <p className="text-xs text-muted-foreground mt-1">
             Permanently deletes all properties, contacts, leases, activities, follow-ups, and custom
             fields. This cannot be undone. Your login credentials are preserved. To remove your
-            login too, use Account → Delete account.
+            login too, use Delete account below.
           </p>
         </div>
         <form onSubmit={handleDelete} className="space-y-3">
@@ -848,6 +812,39 @@ function DangerZoneSection() {
           >
             {isPending && <Loader2 className="animate-spin" />}
             Delete all data
+          </Button>
+        </form>
+      </div>
+      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-5 space-y-4 max-w-md">
+        <div>
+          <p className="text-sm font-semibold text-destructive">Delete account</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Permanently deletes all of your data and your login. This cannot be undone.
+          </p>
+        </div>
+        <form onSubmit={handleDeleteAccount} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="account_delete_confirm" className="text-xs">
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm
+            </Label>
+            <Input
+              id="account_delete_confirm"
+              value={accountConfirm}
+              onChange={(e) => setAccountConfirm(e.target.value)}
+              placeholder="DELETE"
+              disabled={accountPending}
+              className="font-mono max-w-[160px]"
+            />
+          </div>
+          {accountError && <p className="text-sm text-destructive">{accountError}</p>}
+          <Button
+            type="submit"
+            variant="destructive"
+            size="sm"
+            disabled={accountConfirm !== "DELETE" || accountPending}
+          >
+            {accountPending && <Loader2 className="animate-spin" />}
+            Delete account
           </Button>
         </form>
       </div>
@@ -903,7 +900,7 @@ export default function SettingsPage() {
 
       <div className="flex gap-8">
         <nav className="w-44 shrink-0 space-y-0.5">
-          {SECTIONS.map((s) => {
+          {SECTIONS.filter((s) => s.key !== "danger").map((s) => {
             const Icon = s.icon;
             return (
               <button
@@ -934,6 +931,30 @@ export default function SettingsPage() {
             <Users className="size-3.5 shrink-0 text-muted-foreground/70" />
             Team
           </Link>
+          {SECTIONS.filter((s) => s.key === "danger").map((s) => {
+            const Icon = s.icon;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => setSection(s.key)}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-md transition-colors text-left",
+                  section === s.key
+                    ? "bg-primary/8 text-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    section === s.key ? "text-primary" : "text-muted-foreground/70"
+                  )}
+                />
+                {s.label}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="flex-1 min-w-0">

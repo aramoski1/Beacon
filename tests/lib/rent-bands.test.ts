@@ -6,5 +6,6 @@ describe("lookupRentBand aliases", () => {
     expect(lookupRentBand("Doral")?.submarket).toBe("Airport West / Doral");
     expect(lookupRentBand("Homestead")?.submarket).toBe("South Dade / Homestead");
     expect(lookupRentBand("Pembroke Pines")?.submarket).toBe("Miramar / Pembroke");
+    expect(lookupRentBand("Flagler")?.submarket).toBe("Flagler");
   });
 });

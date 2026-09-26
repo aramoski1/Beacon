@@ -4,14 +4,10 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { createTour, updateTourStatus, type TourRow } from "./actions";
 import { stripDemoLabel } from "@/lib/demo-display";
+import { formatLocalDateTime } from "@/lib/dates";
 
 function fmtTourWhen(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatLocalDateTime(iso) ?? iso;
 }
 
 export function ToursView({
@@ -28,6 +24,7 @@ export function ToursView({
   const [propertyId, setPropertyId] = useState("");
   const [propertyQuery, setPropertyQuery] = useState("");
   const [contactId, setContactId] = useState("");
+  const [contactQuery, setContactQuery] = useState("");
   const [attendees, setAttendees] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -86,16 +83,24 @@ export function ToursView({
               ))}
             </datalist>
           </div>
-          <select
-            value={contactId}
-            onChange={(e) => setContactId(e.target.value)}
-            className="text-sm border rounded-md px-2 py-1.5 bg-background"
-          >
-            <option value="">Contact (optional)</option>
-            {contacts.map((c) => (
-              <option key={c.id} value={c.id}>{c.name ?? c.id}</option>
-            ))}
-          </select>
+          <div>
+            <input
+              list="tour-contacts"
+              value={contactQuery}
+              onChange={(e) => {
+                setContactQuery(e.target.value);
+                const hit = contacts.find((c) => (c.name ?? "") === e.target.value);
+                setContactId(hit?.id ?? "");
+              }}
+              placeholder="Search contact…"
+              className="text-sm border rounded-md px-2 py-1.5 bg-background w-full"
+            />
+            <datalist id="tour-contacts">
+              {contacts.map((c) => (
+                <option key={c.id} value={c.name ?? c.id} />
+              ))}
+            </datalist>
+          </div>
           <input
             placeholder="Attendees"
             value={attendees}

@@ -8,7 +8,7 @@ function fmtPct(n: number): string {
 }
 
 export function ForecastPanel({ forecast }: { forecast: DealsForecast }) {
-  const { weightedPipelineValue, totalPipelineValue, byStage, winRate, winRateWon, winRateDecided, staleCount, agingDeals } = forecast;
+  const { weightedPipelineValue, totalPipelineValue, byStage, byMonth, winRate, winRateWon, winRateDecided, staleCount, agingDeals } = forecast;
 
   const tiles: { label: string; value: string; sub?: string }[] = [
     {
@@ -66,6 +66,34 @@ export function ForecastPanel({ forecast }: { forecast: DealsForecast }) {
                 <span className="ml-auto text-sm font-medium tabular-nums">{fmtCommission(s.value)}</span>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="px-4 py-2.5 border-b bg-muted/30">
+          <p className="text-xs font-semibold text-muted-foreground">Forecast by expected close month</p>
+        </div>
+        {!byMonth || byMonth.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-muted-foreground text-center">
+            No expected close dates on active deals.
+          </p>
+        ) : (
+          <div className="divide-y">
+            {byMonth.map((m) => {
+              const [y, mo] = m.month.split("-");
+              const label = new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString("en-US", {
+                month: "short",
+                year: "numeric",
+              });
+              return (
+                <div key={m.month} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="text-sm font-medium tabular-nums">{label}</span>
+                  <span className="text-xs text-muted-foreground">{m.count} deal{m.count === 1 ? "" : "s"}</span>
+                  <span className="ml-auto text-sm font-medium tabular-nums">{fmtCommission(m.value)}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

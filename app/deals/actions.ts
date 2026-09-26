@@ -144,6 +144,7 @@ export type DealsForecast = {
   weightedPipelineValue: number;
   totalPipelineValue: number;
   byStage: { stage: DealStage; count: number; value: number }[];
+  byMonth: { month: string; count: number; value: number }[];
   winRate: number;
   winRateWon: number;
   winRateDecided: number;
@@ -159,6 +160,7 @@ export async function getDealsForecast(): Promise<DealsForecast> {
       weightedPipelineValue: 0,
       totalPipelineValue: 0,
       byStage: [],
+      byMonth: [],
       winRate: 0,
       winRateWon: 0,
       winRateDecided: 0,
@@ -191,6 +193,19 @@ export async function getDealsForecast(): Promise<DealsForecast> {
     };
   }).filter((s) => s.count > 0);
 
+  const monthBuckets = new Map<string, { count: number; value: number }>();
+  for (const d of active) {
+    if (!d.expected_close_date) continue;
+    const key = d.expected_close_date.slice(0, 7);
+    const cur = monthBuckets.get(key) ?? { count: 0, value: 0 };
+    cur.count += 1;
+    cur.value += Number.isFinite(d.estimated_commission ?? NaN) ? (d.estimated_commission ?? 0) : 0;
+    monthBuckets.set(key, cur);
+  }
+  const byMonth = [...monthBuckets.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, v]) => ({ month, ...v }));
+
   const closedCount = deals.filter((d) => d.stage === "closed").length;
   const lostCount = deals.filter((d) => d.stage === "lost").length;
   const winRate = closedCount + lostCount > 0 ? closedCount / (closedCount + lostCount) : 0;
@@ -201,6 +216,7 @@ export async function getDealsForecast(): Promise<DealsForecast> {
     weightedPipelineValue,
     totalPipelineValue,
     byStage,
+    byMonth,
     winRate,
     winRateWon: closedCount,
     winRateDecided: closedCount + lostCount,

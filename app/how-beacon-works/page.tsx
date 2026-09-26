@@ -265,7 +265,8 @@ export default async function HowBeaconWorksPage({
             do not say Outreach stays Open in email. All tasks is in the main nav. Prospect shows
             the first 100 of a large county hit (not only “narrow your criteria”). Lease radar
             titles the tenant or property and shows tenant SF plus in-place vs market when a
-            rent band matches. Dates use the local calendar day.
+            rent band matches. Dates use the local calendar day. Settings → Team sits above
+            Danger Zone; Delete account lives only in Danger Zone (not on Account).
           </li>
           <li>
             Book-map geocode uses Florida or Massachusetts from the property market or folio. It

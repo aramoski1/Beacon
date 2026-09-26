@@ -30,6 +30,24 @@ export function formatLocalDate(
   return d.toLocaleDateString("en-US", opts);
 }
 
+/** Full timestamps (tours, activity). Date-only values still parse as local midnight. */
+export function formatLocalDateTime(
+  value: string | null | undefined,
+  opts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  },
+): string | null {
+  if (!value) return null;
+  const d = DATE_ONLY.test(value.slice(0, 10)) && value.length <= 10
+    ? parseLocalDate(value)
+    : new Date(value);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString("en-US", opts);
+}
+
 export function differenceInCalendarDays(
   later: string | Date,
   earlier: string | Date,

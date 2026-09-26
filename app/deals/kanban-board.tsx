@@ -269,7 +269,7 @@ function StageColumn({
   return (
     <div
       className={cn(
-        "w-56 shrink-0 flex flex-col gap-2",
+        "w-[280px] shrink-0 flex flex-col gap-2",
         isTerminal && "opacity-80"
       )}
     >

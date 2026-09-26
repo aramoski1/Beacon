@@ -54,6 +54,7 @@ import { listDocuments } from "@/lib/documents";
 import { DocumentsSection } from "@/components/documents-section";
 import { formatPsf } from "@/lib/format-money";
 import { formatLocalDate } from "@/lib/dates";
+import { leaseDisplayTitle } from "@/lib/lease-radar";
 import type { ZoningInfo } from "@/lib/zoning";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -130,12 +131,7 @@ function fmt(n: number | null, opts?: Intl.NumberFormatOptions) {
   return n.toLocaleString("en-US", opts);
 }
 function fmtDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return formatLocalDate(iso, { year: "numeric", month: "long", day: "numeric" }) ?? "—";
 }
 // Returns true when an owner name looks like a Florida-registered corporate entity
 function isEntityName(name: string | null): boolean {
@@ -177,6 +173,17 @@ function listingUrl(source: string | null, sUrl: string | null) {
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data } = await supabase.from("properties").select("address").eq("id", id).maybeSingle();
+  return { title: data?.address ? `${data.address} · Beacon` : "Property · Beacon" };
+}
 
 export default async function PropertyPage({
   params,
@@ -223,7 +230,7 @@ export default async function PropertyPage({
     fetchActivitiesByProperty(id),
     supabase
       .from("lease_abstracts")
-      .select("id, source_document, expiration_date, execution_date, base_rate, term")
+      .select("id, source_document, expiration_date, execution_date, base_rate, term, tenant_contact:contacts!tenant_contact_id(name)")
       .eq("linked_property", id)
       .eq("owner_id", user.id)
       .order("created_at", { ascending: false }),
@@ -374,7 +381,7 @@ export default async function PropertyPage({
     : "Not yet run";
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 space-y-6 overflow-x-hidden">
       {/* Back link */}
       <Link
         href="/crm"
@@ -391,7 +398,13 @@ export default async function PropertyPage({
           </h1>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1 flex-wrap">
             <MapPin className="size-3.5 shrink-0" />
-            {[p.city, p.submarket].filter(Boolean).join(" · ") || "Unknown location"}
+            {p.city || "Unknown location"}
+            {p.submarket && (
+              <span className="text-muted-foreground">
+                <span className="text-muted-foreground/40"> · </span>
+                {p.submarket} submarket
+              </span>
+            )}
             {p.prospect_number != null && (
               <>
                 <span className="text-muted-foreground/40">·</span>
@@ -518,7 +531,7 @@ export default async function PropertyPage({
               </p>
             )}
             <p className="text-xs opacity-70 mt-1">
-              Detected {new Date(p.ownership_change_detected_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.
+              Detected {formatLocalDate(p.ownership_change_detected_at, { month: "long", day: "numeric", year: "numeric" }) ?? "—"}.
               Re-enrich below to update the record.
             </p>
           </AlertDescription>
@@ -851,7 +864,11 @@ export default async function PropertyPage({
                 const status = !exp ? "unknown" : exp < now ? "expired" : exp < now + 90 * 86_400_000 ? "expiring" : "active";
                 const statusCls = status === "active" ? "bg-green-100 text-green-700" : status === "expiring" ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground";
                 const statusLabel = status === "active" ? "Active" : status === "expiring" ? "Expiring soon" : status === "expired" ? "Expired" : "No expiry";
-                const fileName = la.source_document ? (la.source_document.split("/").pop() ?? la.source_document) : "Unnamed lease";
+                const title = leaseDisplayTitle({
+                  tenant_contact: (la as { tenant_contact?: { name: string | null } | null }).tenant_contact,
+                  property_address: p.address,
+                  source_document: la.source_document,
+                });
                 return (
                   <Link
                     key={la.id}
@@ -859,7 +876,7 @@ export default async function PropertyPage({
                     className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2 hover:bg-muted/50 transition-colors"
                   >
                     <span className={`shrink-0 text-xs font-medium rounded-full px-2 py-0.5 ${statusCls}`}>{statusLabel}</span>
-                    <span className="flex-1 text-sm font-medium truncate">{fileName}</span>
+                    <span className="flex-1 text-sm font-medium truncate">{title}</span>
                     {la.expiration_date && (
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
                         Exp. {formatLocalDate(la.expiration_date)}

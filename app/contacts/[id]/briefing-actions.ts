@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadPropertyIdsForContact } from "@/lib/contact-properties";
 import { cadenceMapFromSettings, cadenceDaysForTier } from "@/lib/cadence";
 import { getUserSettings } from "@/app/settings/actions";
+import { formatLocalDate } from "@/lib/dates";
 
 /** Cheaper model — briefings run on demand and may refresh often. */
 const BRIEFING_MODEL = "claude-haiku-4-5-20251001";
@@ -16,11 +17,7 @@ export type RelationshipBriefing = {
 };
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatLocalDate(iso) ?? iso.slice(0, 10);
 }
 
 function daysSince(iso: string | null): number | null {
@@ -73,7 +70,7 @@ async function gatherBriefingContext(contactId: string, userId: string) {
     propertyIds.length > 0
       ? supabase
           .from("lease_abstracts")
-          .select("id, linked_property, source_document, expiration_date, execution_date, base_rate, term, properties(address)")
+          .select("id, linked_property, source_document, expiration_date, execution_date, base_rate, term, leased_sf, properties(address)")
           .eq("owner_id", userId)
           .in("linked_property", propertyIds)
           .order("expiration_date", { ascending: true })
@@ -159,6 +156,7 @@ async function gatherBriefingContext(contactId: string, userId: string) {
       leases: leases.map((l) => ({
         property: propAddress(l),
         document: l.source_document?.split("/").pop() ?? "Lease abstract",
+        leased_sf: l.leased_sf ?? null,
         execution_date: l.execution_date ? fmtDate(l.execution_date) : null,
         expiration_date: l.expiration_date ? fmtDate(l.expiration_date) : null,
         base_rate: l.base_rate,
@@ -218,6 +216,8 @@ export async function generateRelationshipBriefing(
           content: `You are briefing a commercial real estate broker before they reach out to a contact.
 
 Write a concise relationship briefing from the CRM data below. Be specific — cite property addresses, lease expirations, activity dates, and outreach subjects when relevant. Do not invent facts not in the data.
+
+When describing this contact's footprint or occupancy, use leases[].leased_sf (their leased square footage). Do not use linked_properties[].sqft (that is the whole building). If leased_sf is missing, say the lease SF is unknown — do not substitute building SF.
 
 Tone: direct, professional, like a sharp associate summarizing the file. No filler phrases.
 

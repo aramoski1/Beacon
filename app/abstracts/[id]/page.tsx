@@ -48,6 +48,24 @@ type LeaseAbstract = {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("lease_abstracts")
+    .select("source_document, tenant_contact:contacts!tenant_contact_id(name), properties(address)")
+    .eq("id", id)
+    .maybeSingle();
+  const tenant = (data?.tenant_contact as { name?: string | null } | null)?.name;
+  const address = (data?.properties as { address?: string | null } | { address?: string | null }[] | null);
+  const addr = Array.isArray(address) ? address[0]?.address : address?.address;
+  return { title: tenant || addr ? `${tenant ?? addr} · Beacon` : "Lease abstract · Beacon" };
+}
+
 export default async function AbstractPage({
   params,
 }: {

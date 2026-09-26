@@ -35,6 +35,7 @@ import { DocumentsSection } from "@/components/documents-section";
 import { CreProfileSection } from "./cre-profile-section";
 import { BuyerCriteriaSection } from "./buyer-criteria-section";
 import { LinkPropertySection } from "./link-property-section";
+import { formatLocalDate, todayLocal } from "@/lib/dates";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,8 +96,7 @@ type LinkedProperty = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return formatLocalDate(iso);
 }
 
 function daysSince(iso: string | null): number | null {
@@ -154,6 +154,17 @@ const OWNERSHIP_ROLE_LABELS: Record<string, string> = {
 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data } = await supabase.from("contacts").select("name").eq("id", id).maybeSingle();
+  return { title: data?.name ? `${data.name} · Beacon` : "Contact · Beacon" };
+}
 
 export default async function ContactPage({
   params,
@@ -246,7 +257,7 @@ export default async function ContactPage({
   const showPursuitNudge = outreachTouchCount >= PURSUIT_NUDGE_TOUCH_THRESHOLD && (dealCount ?? 0) === 0;
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 space-y-6 overflow-x-hidden">
       {/* Back link */}
       <Link
         href="/crm?tab=contacts"
@@ -356,6 +367,8 @@ export default async function ContactPage({
         />
       )}
 
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-start">
+      <div className="space-y-6 min-w-0">
       <RelationshipBriefingPanel contactId={id} />
 
       {/* Quick actions */}
@@ -586,6 +599,8 @@ export default async function ContactPage({
         }))}
         initialOutreach={(c.outreach_history ?? []) as OutreachEntry[]}
       />
+      </div>
+      </div>
     </main>
   );
 }
@@ -629,9 +644,8 @@ function PursuitNudgeBanner({
 }
 
 function NextFollowUpBanner({ date }: { date: string }) {
-  const d = new Date(date);
-  const isOverdue = d < new Date();
-  const label = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const isOverdue = date.slice(0, 10) < todayLocal();
+  const label = formatLocalDate(date, { weekday: "long", month: "long", day: "numeric" }) ?? date;
 
   return (
     <div

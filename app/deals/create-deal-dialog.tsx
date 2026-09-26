@@ -41,7 +41,23 @@ export function CreateDealDialog({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [dealType, setDealType] = useState<DealType>(deal?.deal_type ?? "tenant_rep");
+  const [calcSf, setCalcSf] = useState("");
+  const [calcRate, setCalcRate] = useState("");
+  const [calcYears, setCalcYears] = useState("");
+  const [calcPct, setCalcPct] = useState("3");
+  const [commission, setCommission] = useState(
+    deal?.estimated_commission != null ? String(deal.estimated_commission) : "",
+  );
   const nameRef = useRef<HTMLInputElement>(null);
+
+  function applyCommissionCalc() {
+    const sf = Number(calcSf);
+    const rate = Number(calcRate);
+    const years = Number(calcYears);
+    const pct = Number(calcPct);
+    if (![sf, rate, years, pct].every((n) => Number.isFinite(n) && n > 0)) return;
+    setCommission(String(Math.round(sf * rate * years * (pct / 100))));
+  }
 
   useEffect(() => {
     if (open) setTimeout(() => nameRef.current?.focus(), 50);
@@ -250,7 +266,8 @@ export function CreateDealDialog({
                     type="number"
                     min="0"
                     step="any"
-                    defaultValue={deal?.estimated_commission ?? undefined}
+                    value={commission}
+                    onChange={(e) => setCommission(e.target.value)}
                     placeholder="e.g. 25000"
                     className={cn(
                       "w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
@@ -260,6 +277,54 @@ export function CreateDealDialog({
                   {fieldErrors.estimated_commission && (
                     <p className="text-xs text-destructive">{fieldErrors.estimated_commission}</p>
                   )}
+                  <div className="grid grid-cols-4 gap-1 pt-1">
+                    <input
+                      type="number"
+                      min="0"
+                      value={calcSf}
+                      onChange={(e) => setCalcSf(e.target.value)}
+                      placeholder="SF"
+                      aria-label="Commission SF"
+                      className="rounded-md border bg-background px-1.5 py-1 text-[11px]"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={calcRate}
+                      onChange={(e) => setCalcRate(e.target.value)}
+                      placeholder="$/SF"
+                      aria-label="Commission rate"
+                      className="rounded-md border bg-background px-1.5 py-1 text-[11px]"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={calcYears}
+                      onChange={(e) => setCalcYears(e.target.value)}
+                      placeholder="Years"
+                      aria-label="Commission term years"
+                      className="rounded-md border bg-background px-1.5 py-1 text-[11px]"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={calcPct}
+                      onChange={(e) => setCalcPct(e.target.value)}
+                      placeholder="%"
+                      aria-label="Commission percent"
+                      className="rounded-md border bg-background px-1.5 py-1 text-[11px]"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applyCommissionCalc}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  >
+                    Calculate from SF × rate × years × %
+                  </button>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-foreground" htmlFor="deal-next-action-due">

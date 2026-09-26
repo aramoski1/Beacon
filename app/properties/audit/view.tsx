@@ -346,9 +346,9 @@ export default function AuditView() {
             <AlertTriangle className="size-3" /> Bad address
           </span>
           <span className="text-muted-foreground">
-            Address is <span className="font-mono text-foreground">&quot;111 NW 1 ST&quot;</span> — the
-            Miami-Dade Government Center placeholder returned by the broken
-            PA proxy for every lookup.
+            Address is a county placeholder (for example the Miami-Dade Government
+            Center) instead of the real street. Re-enrich the property from the
+            county source.
           </span>
         </div>
         <div className="flex items-start gap-2">
@@ -356,8 +356,7 @@ export default function AuditView() {
             <ShieldAlert className="size-3" /> Govt owner
           </span>
           <span className="text-muted-foreground">
-            <code className="text-foreground">owner_name</code> matches a
-            Miami-Dade County government entity you likely didn&apos;t intend to track.
+            Owner name matches a county government entity you likely didn&apos;t intend to track.
           </span>
         </div>
         <div className="flex items-start gap-2">
@@ -365,8 +364,7 @@ export default function AuditView() {
             <AlertTriangle className="size-3" /> Missing core
           </span>
           <span className="text-muted-foreground">
-            <code className="text-foreground">confidence_flags</code> shows
-            that address, owner name, or size was never found in the source
+            Address, owner name, or building size was never found in the source
             record — the extracted data may be unreliable.
           </span>
         </div>

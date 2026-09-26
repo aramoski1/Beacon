@@ -3,6 +3,7 @@ import {
   addCalendarDays,
   differenceInCalendarDays,
   formatLocalDate,
+  formatLocalDateTime,
   parseLocalDate,
 } from "../../lib/dates";
 
@@ -31,5 +32,11 @@ describe("formatLocalDate", () => {
 describe("addCalendarDays", () => {
   it("adds across month bounds", () => {
     expect(addCalendarDays("2026-10-30", 5)).toBe("2026-11-04");
+  });
+});
+
+describe("formatLocalDateTime", () => {
+  it("formats a date-only value without a UTC shift", () => {
+    expect(formatLocalDateTime("2026-10-04", { month: "short", day: "numeric" })).toBe("Oct 4");
   });
 });

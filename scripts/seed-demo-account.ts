@@ -206,6 +206,27 @@ function sizeForType(ptype: string): { sqft: number; cat: string } {
   };
 }
 
+const CITY_SUBMARKETS: Record<string, string[]> = {
+  Miami: ["Flagler", "Northwest"],
+  Doral: ["Doral", "Airport West", "Beacon Lakes"],
+  Hialeah: ["Hialeah"],
+  Medley: ["Medley"],
+  "Miami Lakes": ["Northwest"],
+  "Opa-locka": ["Northwest"],
+  Homestead: ["South Dade"],
+  "Coral Gables": ["Flagler"],
+  Kendall: ["South Dade"],
+  Aventura: ["Northwest"],
+};
+
+const PRIOR_OWNERS = [
+  "WEST DADE INDUSTRIAL LLC",
+  "TAMIAMI WAREHOUSE PARTNERS",
+  "PALMETTO COMMERCE LLC",
+  "AIRPORT WEST HOLDINGS INC",
+  "SOUTH DADE LOGISTICS LLC",
+];
+
 const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   Miami: { lat: 25.7617, lng: -80.1918 },
   Doral: { lat: 25.8195, lng: -80.3553 },
@@ -617,7 +638,7 @@ async function main() {
     const ptype = pick(PROPERTY_TYPES);
     const { sqft, cat } = sizeForType(ptype);
     const city = pick(CITIES);
-    const submarket = pick(SUBMARKETS);
+    const submarket = pick(CITY_SUBMARKETS[city] ?? SUBMARKETS);
     const id = randomUUID();
     const address = `${randInt(1000, 18999)} ${pick(STREETS)}`;
     const createdAt = daysAgo(randInt(1, 120));
@@ -640,7 +661,8 @@ async function main() {
          clear_height_ft, dock_doors, drive_in_doors, power_amps, power_phase,
          yard_acres, column_spacing, sprinkler_type, availability_status,
          asking_rent_psf, nnn_cam_psf, lease_structure,
-         latitude, longitude, geocoded_at, custom_fields
+         latitude, longitude, geocoded_at, custom_fields,
+         land_sqft, building_composition
        ) VALUES (
          $1,$2,$3,$4,$5,$6,
          $7,$8,$9,$10,$11,
@@ -653,7 +675,8 @@ async function main() {
          $26,$27,$28,$29,$30,
          $31,$32,$33,$34,
          $35,$36,$37,
-         $38,$39,$40,$41::jsonb
+         $38,$39,$40,$41::jsonb,
+         $42,$43::jsonb
        )`,
       [
         id,
@@ -664,7 +687,7 @@ async function main() {
         "Miami-Dade",
         portfolio.llc,
         pick(OWNERSHIP_TYPES),
-        sqft,
+        ptype === "land" ? null : sqft,
         cat,
         storedType,
         `${ptype.charAt(0).toUpperCase() + ptype.slice(1)} — ${city}`,
@@ -672,7 +695,7 @@ async function main() {
         Math.random() > 0.35 ? randInt(850000, 28000000) : null,
         DEMO_SOURCE,
         prospect++,
-        `${randInt(100, 900)} Brickell Ave, Miami FL 33131`,
+        `${randInt(100, 900)} ${pick(STREETS)}, ${portfolio.city} FL`,
         portfolio.human,
         portfolio.email,
         entityIds[portfolio.llc],
@@ -681,10 +704,10 @@ async function main() {
         ownershipFlip ? daysAgo(randInt(1, 14)).toISOString() : null,
         ownershipFlip
           ? JSON.stringify({
-              previous_owner: "PRIOR OWNER LLC",
+              previous_owner: pick(PRIOR_OWNERS),
               new_owner: portfolio.llc,
-              detected_via: "seed:demo",
-              note: "Synthetic ownership change for Today desk",
+              detected_via: "county_compare",
+              note: "Ownership change vs prior tax-roll owner",
             })
           : null,
         createdAt.toISOString(),
@@ -704,6 +727,12 @@ async function main() {
         lng,
         createdAt.toISOString(),
         JSON.stringify(specs.custom_fields),
+        ptype === "land" ? sqft : randInt(20000, 180000),
+        JSON.stringify({
+          year_built: ptype === "land" ? null : randInt(1978, 2022),
+          lot_size_sqft: ptype === "land" ? sqft : randInt(20000, 180000),
+          stories: ptype === "land" ? null : randInt(1, 3),
+        }),
       ],
     );
 
@@ -764,7 +793,11 @@ async function main() {
         Math.round(prop.sqft * (0.4 + Math.random() * 0.5)),
         PORTFOLIOS[prop.portfolioIdx].llc,
         JSON.stringify([{ type: "annual", amount: "3%" }]),
-        JSON.stringify([{ type: "renewal", description: "Two 5-year renewals", notice_period: "6 months" }]),
+        JSON.stringify([{
+          type: "renewal",
+          description: "Two 5-year renewals",
+          notice_period: `${Math.max(14, Math.min(90, Math.floor(days * 0.45)))} days`,
+        }]),
         JSON.stringify([
           { provision: `Tenant: ${tenant.name}` },
           { provision: "Use: Warehousing and distribution" },
@@ -808,10 +841,15 @@ async function main() {
   for (let i = 0; i < DEAL_SPECS.length; i++) {
     const spec = DEAL_SPECS[i];
     const prop = propertyMeta[i * 7 % propertyMeta.length];
+    const tenantMatch = TENANTS.find((t) =>
+      spec.name.toLowerCase().includes(t.company.split(" ")[0].toLowerCase()),
+    );
     const contactId =
       spec.deal_type === "listing" || spec.deal_type === "investment_sale"
         ? ownerContactIds[i % ownerContactIds.length]
-        : tenantContactIds[i % tenantContactIds.length];
+        : tenantMatch
+          ? tenantContactIds[TENANTS.indexOf(tenantMatch)]
+          : tenantContactIds[i % tenantContactIds.length];
     const did = randomUUID();
     const dueOffset = spec.stage === "closed" || spec.stage === "lost" ? null : randInt(-3, 21);
     await db.query(
@@ -944,45 +982,7 @@ async function main() {
     );
   }
 
-  for (const lease of leaseIds.filter((l) => ["30", "60", "90"].includes(l.bucket)).slice(0, 8)) {
-    await db.query(
-      `INSERT INTO follow_ups (
-         owner_id, contact_id, property_id, lease_id, lease_bucket,
-         due_date, description, done, source_type, visibility
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,false,'seed:demo','private')
-       ON CONFLICT DO NOTHING`,
-      [
-        userId,
-        lease.tenantContactId,
-        lease.propertyId,
-        lease.id,
-        lease.bucket,
-        lease.exp,
-        `[Demo] Lease rollover (${lease.bucket}d) — outreach tenant/owner`,
-      ],
-    ).catch(async () => {
-      await db.query(
-        `INSERT INTO follow_ups (
-           owner_id, contact_id, property_id, lease_id, lease_bucket,
-           due_date, description, done, source_type, visibility
-         )
-         SELECT $1,$2,$3,$4,$5,$6,$7,false,'seed:demo','private'
-         WHERE NOT EXISTS (
-           SELECT 1 FROM follow_ups
-           WHERE owner_id = $1 AND lease_id = $4 AND lease_bucket = $5 AND contact_id = $2
-         )`,
-        [
-          userId,
-          lease.tenantContactId,
-          lease.propertyId,
-          lease.id,
-          lease.bucket,
-          lease.exp,
-          `[Demo] Lease rollover (${lease.bucket}d) — outreach tenant/owner`,
-        ],
-      );
-    });
-  }
+  // Lease follow-ups are created by syncLeaseFollowUps (one per lease). Do not seed extras.
 
   // Counts
   const counts: Record<string, number> = {};

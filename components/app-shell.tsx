@@ -452,7 +452,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       />
 
       {/* pt-14 on mobile pushes content below the fixed top bar; lg resets it */}
-      <main className="flex-1 overflow-auto min-w-0 bg-background pt-14 lg:pt-0">
+      <main className="flex-1 overflow-auto overflow-x-hidden min-w-0 bg-background pt-14 lg:pt-0">
         {children}
       </main>
       <PageHelpButton />

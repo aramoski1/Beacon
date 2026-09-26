@@ -13,6 +13,7 @@ export const TRI_COUNTY_INDUSTRIAL_RENT_BANDS: RentBand[] = [
   { county: "miami-dade", submarket: "Medley", nnnPsfLow: 14, nnnPsfHigh: 19, notes: "Older stock + newer infill" },
   { county: "miami-dade", submarket: "Hialeah", nnnPsfLow: 13, nnnPsfHigh: 18, notes: "Mixed vintage" },
   { county: "miami-dade", submarket: "South Dade / Homestead", nnnPsfLow: 12, nnnPsfHigh: 16, notes: "Agriculture-adjacent industrial" },
+  { county: "miami-dade", submarket: "Flagler", nnnPsfLow: 15, nnnPsfHigh: 21, notes: "Flagler / Tamiami industrial" },
   { county: "broward", submarket: "Pompano / Copans", nnnPsfLow: 13, nnnPsfHigh: 18, notes: "I-95 warehouse corridor" },
   { county: "broward", submarket: "Miramar / Pembroke", nnnPsfLow: 14, nnnPsfHigh: 19, notes: "Turnpike / I-75" },
   { county: "broward", submarket: "Port Everglades / Ft Lauderdale", nnnPsfLow: 15, nnnPsfHigh: 21, notes: "Port-adjacent" },
@@ -23,6 +24,7 @@ export const TRI_COUNTY_INDUSTRIAL_RENT_BANDS: RentBand[] = [
 
 const SUBMARKET_ALIASES: Record<string, string[]> = {
   "airport west / doral": ["doral", "airport west", "medley west"],
+  flagler: ["flagler", "tamiami", "flagler st"],
   "south dade / homestead": ["south dade", "homestead", "naranja"],
   "pompano / copans": ["pompano", "copans", "pompano beach"],
   "miramar / pembroke": ["miramar", "pembroke", "pembroke pines"],

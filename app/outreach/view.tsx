@@ -23,21 +23,18 @@ import {
   DEFAULT_MERGE_TEMPLATE,
   MERGE_TOKENS,
 } from "@/lib/outreach-merge";
+import { formatLocalDate } from "@/lib/dates";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null) {
   if (!iso) return "Never contacted";
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatLocalDate(iso) ?? "Never contacted";
 }
 
 function tierCls(tier: number | null) {
-  if (tier === 1) return "bg-orange-100 text-orange-700";
-  if (tier === 2) return "bg-blue-100 text-blue-700";
+  if (tier === 1) return "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-400";
+  if (tier === 2) return "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400";
   return "bg-muted text-muted-foreground";
 }
 
@@ -1091,7 +1088,7 @@ function ContactRow({
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {overdueLabel} · {fmtDate(c.last_contacted_at)}
+          {overdueLabel} · last contact {fmtDate(c.last_contacted_at)}
         </p>
       </div>
       <span

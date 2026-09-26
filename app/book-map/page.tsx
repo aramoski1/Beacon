@@ -69,6 +69,7 @@ export default async function BookMapPage({
             address: p.address,
             lat: Number(p.latitude),
             lng: Number(p.longitude),
+            propertyType: p.property_type,
           }))}
       />
     </div>

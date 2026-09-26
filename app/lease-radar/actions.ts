@@ -178,10 +178,8 @@ function followUpDescription(
 }
 
 /**
- * Creates follow-ups aligned to action type:
- * - tenant_contact → tenant rollover task
- * - owner CRM contact on property → owner renewal/vacancy task
- * Idempotent via unique index on (owner_id, lease_id, lease_bucket, contact_id).
+ * One open lease_expiry follow-up per lease. Prefer tenant contact, else owner.
+ * Updates the existing row when the radar bucket changes.
  */
 export async function syncLeaseFollowUps(): Promise<void> {
   const supabase = await createClient();
@@ -250,44 +248,63 @@ export async function syncLeaseFollowUps(): Promise<void> {
 
     const tenantContactId = row.tenant_contact_id as string | null;
     const ownerContact = propertyId ? ownerByProperty.get(propertyId) : undefined;
-    if (ownerContact && ownerContact.id !== tenantContactId) {
-      candidates.push({
-        lease_id: row.id,
-        bucket,
-        contact_id: ownerContact.id,
-        property_id: propertyId,
-        address,
-        role: "owner",
-      });
-    }
-    if (tenantContactId) {
-      candidates.push({
-        lease_id: row.id,
-        bucket,
-        contact_id: tenantContactId,
-        property_id: propertyId,
-        address,
-        role: "tenant",
-      });
-    }
+    // One open task per lease. Prefer the tenant; fall back to the owner.
+    const contactId = tenantContactId ?? ownerContact?.id ?? null;
+    const role: "owner" | "tenant" = tenantContactId ? "tenant" : "owner";
+    if (!contactId) continue;
+    candidates.push({
+      lease_id: row.id,
+      bucket,
+      contact_id: contactId,
+      property_id: propertyId,
+      address,
+      role,
+    });
   }
 
   if (candidates.length === 0) return;
 
   const { data: existing } = await supabase
     .from("follow_ups")
-    .select("lease_id, lease_bucket, contact_id")
+    .select("id, lease_id, lease_bucket, contact_id, done")
     .eq("owner_id", user.id)
     .eq("source_type", "lease_expiry")
+    .eq("done", false)
     .not("lease_id", "is", null);
 
-  const existingKeys = new Set(
-    (existing ?? []).map((r) => `${r.lease_id}|${r.contact_id}`),
-  );
+  const existingByLease = new Map<string, { id: string; lease_bucket: string | null; contact_id: string }>();
+  for (const r of existing ?? []) {
+    if (!r.lease_id) continue;
+    if (!existingByLease.has(r.lease_id)) {
+      existingByLease.set(r.lease_id, {
+        id: r.id,
+        lease_bucket: r.lease_bucket,
+        contact_id: r.contact_id,
+      });
+    }
+  }
 
-  const toCreate = candidates.filter(
-    (c) => !existingKeys.has(`${c.lease_id}|${c.contact_id}`),
-  );
+  const toCreate = candidates.filter((c) => !existingByLease.has(c.lease_id));
+  const toUpdate = candidates.filter((c) => {
+    const row = existingByLease.get(c.lease_id);
+    return row && row.lease_bucket !== c.bucket;
+  });
+
+  for (const c of toUpdate) {
+    const row = existingByLease.get(c.lease_id);
+    if (!row) continue;
+    await supabase
+      .from("follow_ups")
+      .update({
+        due_date: followUpDueDate(c.bucket),
+        description: followUpDescription(c.bucket, c.address, c.role),
+        lease_bucket: c.bucket,
+        contact_id: c.contact_id,
+        property_id: c.property_id,
+      })
+      .eq("id", row.id)
+      .eq("owner_id", user.id);
+  }
 
   if (toCreate.length === 0) return;
 

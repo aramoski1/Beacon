@@ -236,7 +236,27 @@ export function DealsView({
         <CustomFieldsPanel entityType="deal" onClose={() => setShowFieldsPanel(false)} />
       )}
 
-      {view === "kanban" && (
+      {view === "kanban" && typeFilter === "all" && (
+        <div className="space-y-8">
+          {DEAL_TYPES.map((t) => {
+            const typeDeals = filteredDeals.filter((d) => (d.deal_type ?? "tenant_rep") === t);
+            if (typeDeals.length === 0) return null;
+            return (
+              <div key={t} className="space-y-3">
+                <h2 className="text-sm font-semibold">{DEAL_TYPE_LABELS[t]}</h2>
+                <KanbanBoard
+                  deals={typeDeals}
+                  stages={stagesForDealType(t)}
+                  onStageChange={handleStageChange}
+                  onDelete={handleDelete}
+                  updatingId={updatingId}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {view === "kanban" && typeFilter !== "all" && (
         <KanbanBoard
           deals={filteredDeals}
           stages={kanbanStages}

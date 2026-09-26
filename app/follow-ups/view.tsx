@@ -20,21 +20,18 @@ import {
   markFollowUpsDone,
   type FollowUpRow,
 } from "./actions";
+import { addCalendarDays, differenceInCalendarDays, formatLocalDate, todayLocal } from "@/lib/dates";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    weekday: "short", month: "short", day: "numeric",
-  });
+  return formatLocalDate(iso, { weekday: "short", month: "short", day: "numeric" }) ?? iso;
 }
 
 function dueBadge(due: string) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   if (due < today) {
-    const diff = Math.floor(
-      (new Date(today).getTime() - new Date(due).getTime()) / 86_400_000
-    );
+    const diff = differenceInCalendarDays(today, due);
     return { label: `${diff}d overdue`, cls: "bg-destructive/10 text-destructive font-semibold" };
   }
   if (due === today) return { label: "Due today", cls: "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-400 font-medium" };
@@ -54,7 +51,7 @@ function FollowUpItemRow({
 }) {
   const [isPending, startTransition] = useTransition();
   const [composeOpen, setComposeOpen] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   const isOverdue = row.due_date < today;
   const badge = dueBadge(row.due_date);
   const canCompose = !!row.contact_id;
@@ -210,7 +207,7 @@ function AddFollowUpForm({
     properties: { id: string; address: string | null }[];
   }>({ contacts: [], properties: [] });
 
-  const defaultDate = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  const defaultDate = addCalendarDays(todayLocal(), 14);
   const missingLink = !contactId && !propertyId;
 
   useEffect(() => {
@@ -389,7 +386,7 @@ export function FollowUpsView({
   const [showAdd, setShowAdd]     = useState(false);
   const [isLoading, startTransition] = useTransition();
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
 
   const overdue  = followUps.filter((r) => !r.done && r.due_date < today);
   const dueToday = followUps.filter((r) => !r.done && r.due_date === today);
@@ -548,7 +545,7 @@ export function FollowUpsView({
                     <td className="px-4 py-2.5 hidden md:table-cell text-sm text-muted-foreground truncate max-w-[180px]">{r.property_address ?? "—"}</td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
                       {r.done_at
-                        ? new Date(r.done_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                        ? formatLocalDate(r.done_at, { month: "short", day: "numeric" })
                         : "—"}
                     </td>
                   </tr>

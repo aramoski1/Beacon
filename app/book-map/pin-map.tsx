@@ -8,7 +8,23 @@ export type MapPin = {
   address: string | null;
   lat: number;
   lng: number;
+  propertyType?: string | null;
 };
+
+const TYPE_COLOR: Record<string, string> = {
+  industrial: "#2563eb",
+  warehouse: "#2563eb",
+  flex: "#0d9488",
+  office: "#7c3aed",
+  retail: "#d97706",
+  land: "#16a34a",
+  multifamily: "#db2777",
+};
+
+function pinColor(type: string | null | undefined): string {
+  if (!type) return "#64748b";
+  return TYPE_COLOR[type.toLowerCase()] ?? "#64748b";
+}
 
 export function BookPinMap({ pins }: { pins: MapPin[] }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -43,10 +59,17 @@ export function BookPinMap({ pins }: { pins: MapPin[] }) {
       }).addTo(m);
       const bounds: [number, number][] = [];
       for (const p of pins) {
-        L.marker([p.lat, p.lng])
+        const color = pinColor(p.propertyType);
+        L.circleMarker([p.lat, p.lng], {
+          radius: 7,
+          color,
+          fillColor: color,
+          fillOpacity: 0.9,
+          weight: 1,
+        })
           .addTo(m)
           .bindPopup(
-            `<a href="/properties/${p.id}">${(p.address ?? "Property").replace(/</g, "")}</a>`,
+            `<a href="/properties/${p.id}">${(p.address ?? "Property").replace(/</g, "")}</a><br/><span style="color:#94a3b8">${(p.propertyType ?? "Property").replace(/</g, "")}</span>`,
           );
         bounds.push([p.lat, p.lng]);
       }
@@ -94,6 +117,10 @@ declare global {
       map: (el: HTMLElement) => LeafletMap;
       tileLayer: (url: string, opts: { attribution: string }) => { addTo: (m: LeafletMap) => void };
       marker: (ll: [number, number]) => { addTo: (m: LeafletMap) => { bindPopup: (html: string) => void } };
+      circleMarker: (
+        ll: [number, number],
+        opts: { radius: number; color: string; fillColor: string; fillOpacity: number; weight: number },
+      ) => { addTo: (m: LeafletMap) => { bindPopup: (html: string) => void } };
     };
   }
 }

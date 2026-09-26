@@ -23,6 +23,7 @@ import type { LeaseAbstractExport } from "@/lib/lease-export";
 import { DocumentsSection } from "@/components/documents-section";
 import { ShareWithFirmToggle } from "@/components/share-with-firm-toggle";
 import type { DocumentWithUrl } from "@/lib/documents";
+import { formatLocalDate } from "@/lib/dates";
 
 // ─── Lazy-load PDF viewer (browser only) ─────────────────────────────────────
 
@@ -85,8 +86,7 @@ interface LeaseReviewViewProps {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  return formatLocalDate(iso, { year: "numeric", month: "long", day: "numeric" }) ?? "—";
 }
 
 function sourceFileName(path: string | null) {
@@ -548,7 +548,11 @@ export function LeaseReviewView({
                 {abstract.escalations.map((e, i) => {
                   const key = `escalations[${i}]`;
                   const cit = citationMap.get(key) ?? (i === 0 ? citationMap.get("escalations") : undefined);
-                  const display = `${e.description} — ${e.rate}${e.effective_date ? ` (eff. ${e.effective_date})` : ""}`;
+                  const left = e.description?.trim() || "Escalation";
+                  const right = e.rate?.trim();
+                  const display = right
+                    ? `${left} — ${right}${e.effective_date ? ` (eff. ${e.effective_date})` : ""}`
+                    : left;
                   return (
                     <FieldRow
                       key={key}
