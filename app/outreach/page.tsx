@@ -3,6 +3,8 @@ import { requireUser } from "@/lib/auth-require-user";
 import { getDueContacts } from "./actions";
 import OutreachView from "./view";
 
+export const metadata = { title: "Outreach – Beacon" };
+
 export default async function OutreachPage() {
   const supabase = await createClient();
   const user = await requireUser(supabase);

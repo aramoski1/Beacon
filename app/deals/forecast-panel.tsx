@@ -8,7 +8,7 @@ function fmtPct(n: number): string {
 }
 
 export function ForecastPanel({ forecast }: { forecast: DealsForecast }) {
-  const { weightedPipelineValue, totalPipelineValue, byStage, winRate, staleCount, agingDeals } = forecast;
+  const { weightedPipelineValue, totalPipelineValue, byStage, winRate, winRateWon, winRateDecided, staleCount, agingDeals } = forecast;
 
   const tiles: { label: string; value: string; sub?: string }[] = [
     {
@@ -19,7 +19,9 @@ export function ForecastPanel({ forecast }: { forecast: DealsForecast }) {
     {
       label: "Win rate",
       value: fmtPct(winRate),
-      sub: "closed vs. closed + lost",
+      sub: winRateDecided > 0
+        ? `${winRateWon} won / ${winRateDecided} decided`
+        : "no closed or lost deals yet",
     },
     {
       label: "Stale deals",

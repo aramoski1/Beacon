@@ -86,7 +86,7 @@ function FieldSelect({
         !value && "text-muted-foreground/50 font-normal italic",
       )}
     >
-      <option value="">Click to set</option>
+      <option value="">Select…</option>
       {options.map((o) => (
         <option key={o.value} value={o.value} className="text-foreground not-italic font-normal">
           {o.label}

@@ -48,7 +48,7 @@ function daysAgo(n: number) {
 
 describe("validateCreateDeal", () => {
   it("returns no errors for a valid input", () => {
-    const errors = validateCreateDeal({ name: "My Deal", stage: "prospect" });
+    const errors = validateCreateDeal({ name: "My Deal", stage: "prospect", expected_close_date: "2026-12-01" });
     expect(errors).toHaveLength(0);
   });
 
@@ -115,8 +115,13 @@ describe("validateCreateDeal", () => {
   });
 
   it("accepts positive commission", () => {
-    const errors = validateCreateDeal({ name: "Deal", estimated_commission: 25000 });
+    const errors = validateCreateDeal({ name: "Deal", estimated_commission: 25000, expected_close_date: "2026-12-01" });
     expect(errors).toHaveLength(0);
+  });
+
+  it("requires expected close date", () => {
+    const errors = validateCreateDeal({ name: "Deal" });
+    expect(errors.some((e) => e.field === "expected_close_date")).toBe(true);
   });
 });
 

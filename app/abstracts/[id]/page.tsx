@@ -7,6 +7,7 @@ import { LeaseReviewView } from "./review-view";
 import type { FieldCitation, FieldReviews } from "./review-utils";
 import { contactIdsForProperty } from "@/lib/contact-properties";
 import { listDocuments } from "@/lib/documents";
+import { asKeyProvisions, asLeaseArray } from "@/lib/lease-json";
 
 // ─── Local types ───────────────────────────────────────────────────────────────
 
@@ -65,7 +66,12 @@ export default async function AbstractPage({
 
   if (error || !data) notFound();
 
-  const abstract = data as LeaseAbstract;
+  const abstract = {
+    ...(data as LeaseAbstract),
+    escalations: asLeaseArray<Escalation>((data as LeaseAbstract).escalations),
+    options: asLeaseArray<LeaseOption>((data as LeaseAbstract).options),
+    key_provisions: asKeyProvisions((data as LeaseAbstract).key_provisions),
+  };
 
   const propertyContactIds = abstract.linked_property
     ? await contactIdsForProperty(supabase, user.id, abstract.linked_property)

@@ -747,11 +747,12 @@ export async function searchByCriteria(
 
   const totalCount = countData.count ?? 0;
   if (totalCount === 0) return { kind: "ok", matches: [], totalCount: 0 };
-  if (totalCount > maxResults) return { kind: "too_many", count: totalCount };
+  if (totalCount > 2000) return { kind: "too_many", count: totalCount };
 
+  const fetchLimit = Math.min(totalCount, maxResults);
   const matches: BcpaCriteriaMatch[] = [];
   let offset = 0;
-  while (matches.length < totalCount) {
+  while (matches.length < fetchLimit) {
     const url = new URL(BCPA_URL);
     url.searchParams.set("where", where);
     url.searchParams.set("outFields", CRITERIA_FIELDS);

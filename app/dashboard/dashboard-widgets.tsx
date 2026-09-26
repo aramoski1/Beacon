@@ -19,6 +19,8 @@ import type {
   WeekMomentum,
 } from "./actions";
 import type { LeaseRadarEntry } from "@/lib/lease-radar";
+import { formatLeaseRate, leaseDisplayTitle } from "@/lib/lease-radar";
+import { formatLocalDate } from "@/lib/dates";
 import type { DealsDashboard } from "@/app/deals/actions";
 import { STAGE_LABELS, STAGE_COLORS, isDealStale, daysInStage, fmtCommission, type Deal } from "@/lib/deals";
 
@@ -150,15 +152,9 @@ export function ColdTier1Panel({ items }: { items: ColdTier1Contact[] }) {
   );
 }
 
-function leaseLabel(path: string | null) {
-  if (!path) return "Lease abstract";
-  const name = path.split("/").pop() ?? path;
-  return name.length > 36 ? name.slice(0, 34) + "…" : name;
-}
-
 function rolloverAction(days: number, hasProperty: boolean): string {
   if (days <= 30) return "Start renewal conversation";
-  if (days <= 60) return hasProperty ? "Check comps / rent" : "Open lease";
+  if (days <= 90) return hasProperty ? "Check comps / rent" : "Open lease";
   return "Add to rollover pipeline";
 }
 
@@ -191,10 +187,10 @@ export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[];
                   href={`/abstracts/${l.id}`}
                   className="text-sm font-medium hover:underline underline-offset-2"
                 >
-                  {leaseLabel(l.source_document)}
+                  {leaseDisplayTitle(l)}
                 </Link>
                 {l.base_rate != null && (
-                  <span className="text-xs text-muted-foreground">${l.base_rate}/sf</span>
+                  <span className="text-xs text-muted-foreground">{formatLeaseRate(l.base_rate)}</span>
                 )}
               </div>
               {l.property_address && l.property_id ? (
@@ -210,7 +206,7 @@ export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[];
               )}
               <p className="text-xs text-primary/80 flex items-center gap-1">
                 <Target className="size-3 shrink-0" />
-                {l.daysUntilExpiry > 30 && l.daysUntilExpiry <= 60 && l.property_id ? (
+                {l.daysUntilExpiry > 30 && l.daysUntilExpiry <= 90 && l.property_id ? (
                   <Link
                     href={`/properties/${l.property_id}`}
                     className="hover:underline underline-offset-2"
@@ -221,7 +217,7 @@ export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[];
                   rolloverAction(l.daysUntilExpiry, !!l.property_id)
                 )}
                 <span className="text-muted-foreground">
-                  · Exp {new Date(l.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  · Exp {formatLocalDate(l.expiration_date)}
                 </span>
               </p>
             </div>
@@ -280,7 +276,10 @@ export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
         </div>
         <div className="flex items-center gap-2">
           {summary.staleCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+            <span
+              className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium"
+              title="No stage change in 14+ days"
+            >
               <AlertTriangle className="size-3" />
               {summary.staleCount} stale
             </span>
@@ -306,7 +305,7 @@ export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
                     {deal.name}
                   </Link>
                   {stale && (
-                    <AlertTriangle className="size-3 text-amber-500 shrink-0" />
+                    <AlertTriangle className="size-3 text-amber-500 shrink-0" title="No stage change in 14+ days" />
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">

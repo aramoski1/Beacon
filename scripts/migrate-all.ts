@@ -303,6 +303,10 @@ const SCRIPTS: { file: string; description: string }[] = [
     file: "migrate-broker-books.ts",
     description: "Lease leased_sf + landlord_name; user_settings weekly list pin",
   },
+  {
+    file: "migrate-last-contacted.ts",
+    description: "Sync contacts.last_contacted_at from activities (trigger + backfill)",
+  },
 ];
 
 const hr = "─".repeat(60);

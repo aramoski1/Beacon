@@ -10,6 +10,7 @@ import { createActivity } from "@/app/activities/actions";
 import { formatCallOutcomeNote, type CallOutcome } from "@/lib/activity-touch";
 import { contactTypeLabel } from "@/lib/contact-type";
 import { pinWeeklyList, type WeeklyListState } from "./actions";
+import { formatLocalDate, todayLocal } from "@/lib/dates";
 
 const OUTCOMES: { id: CallOutcome; label: string }[] = [
   { id: "connected", label: "Connected" },
@@ -169,7 +170,12 @@ export function WeekListView({ initial }: { initial: WeeklyListState }) {
                     {contactTypeLabel(c.contact_type)}
                     {c.company ? ` · ${c.company}` : ""}
                     {c.occupancy.address ? ` · ${c.occupancy.address}` : ""}
-                    {c.occupancy.expiry ? ` · expires ${c.occupancy.expiry.slice(0, 10)}` : ""}
+                    {c.occupancy.expiry ? (() => {
+                      const day = c.occupancy.expiry.slice(0, 10);
+                      const today = todayLocal();
+                      const label = formatLocalDate(day, { month: "short", day: "numeric" }) ?? day;
+                      return day < today ? ` · expired ${label}` : ` · expires ${label}`;
+                    })() : ""}
                     {c.phone ? ` · ${c.phone}` : ""}
                   </p>
                 </div>

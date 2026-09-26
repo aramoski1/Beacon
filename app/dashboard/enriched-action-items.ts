@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserSettings } from "@/app/settings/actions";
 import { daysUntilExpiry } from "@/lib/lease-radar";
+import { addCalendarDays, todayLocal } from "@/lib/dates";
 import { hydrateContactLinkedProperties } from "@/lib/contact-properties";
 import { cadenceMapFromSettings, suggestedCadenceDays } from "@/lib/cadence";
 import {
@@ -22,8 +23,8 @@ export async function getEnrichedActionItems(): Promise<EnrichedActionItem[]> {
   if (!user) return [];
 
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const cutoff12 = new Date(now.getTime() + 365 * 86_400_000).toISOString().slice(0, 10);
+  const today = todayLocal();
+  const cutoff12 = addCalendarDays(today, 365);
 
   const [
     { data: contacts },

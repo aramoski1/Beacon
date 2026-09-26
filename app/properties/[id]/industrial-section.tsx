@@ -130,7 +130,7 @@ function SelectField({
       onChange={(e) => onSave(e.target.value || null)}
       className="font-medium mt-0.5 rounded px-1.5 py-0.5 -mx-1.5 hover:bg-muted/60 w-full bg-transparent outline-none cursor-pointer text-sm"
     >
-      <option value="">Click to set</option>
+      <option value="">Select…</option>
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}

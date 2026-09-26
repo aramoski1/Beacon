@@ -8,6 +8,7 @@ import {
   WidthType, convertInchesToTwip,
 } from "docx";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { formatPsf } from "@/lib/format-money";
 
 // ─── Shared types ──────────────────────────────────────────────────────────────
 
@@ -359,7 +360,7 @@ export async function buildWordBytes(abstract: LeaseAbstractExport): Promise<Uin
     fieldPara("Execution Date", formatDate(abstract.execution_date)),
     fieldPara("Expiration Date", formatDate(abstract.expiration_date)),
     fieldPara("Term", abstract.term ?? "—"),
-    fieldPara("Base Rate", abstract.base_rate != null ? `$${abstract.base_rate}/sf` : "—"),
+    fieldPara("Base Rate", abstract.base_rate != null ? (formatPsf(abstract.base_rate) ?? "—") : "—"),
   ];
 
   if (abstract.escalations.length > 0) {
@@ -519,7 +520,7 @@ export async function buildPdfBytes(abstract: LeaseAbstractExport): Promise<Uint
   drawField("Execution Date", formatDate(abstract.execution_date));
   drawField("Expiration Date", formatDate(abstract.expiration_date));
   drawField("Term", abstract.term ?? "—");
-  drawField("Base Rate", abstract.base_rate != null ? `$${abstract.base_rate}/sf` : "—");
+  drawField("Base Rate", abstract.base_rate != null ? (formatPsf(abstract.base_rate) ?? "—") : "—");
 
   // ─── Escalations ───────────────────────────────────────────────────────────
 

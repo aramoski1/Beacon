@@ -1,3 +1,5 @@
+import { splitContactName } from "@/lib/contact-name";
+
 /** Merge tokens for outreach drafts — replaced after AI generate and before compose. */
 
 export type OutreachMergeVars = {
@@ -27,10 +29,7 @@ I wanted to check in on {address}. {sf}
 Best,`;
 
 export function firstNameFromFullName(name: string | null | undefined): string {
-  const trimmed = name?.trim() ?? "";
-  if (!trimmed) return "there";
-  const first = trimmed.split(/\s+/)[0] ?? trimmed;
-  return first.replace(/[.,]$/, "") || "there";
+  return splitContactName(name).greeting;
 }
 
 export function applyOutreachMerge(text: string, vars: OutreachMergeVars): string {

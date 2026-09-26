@@ -140,6 +140,22 @@ describe("buildTodayDeskItems", () => {
     }
   });
 
+  it("breaks same-score lease ties by sooner expiry", () => {
+    const items = buildTodayDeskItems({
+      today: "2026-07-24",
+      outreach: [],
+      followUps: [],
+      deals: [],
+      ownership: [],
+      leases: [
+        { id: "later", property_address: "Z later", daysUntilExpiry: 20, property_id: "p1" },
+        { id: "sooner", property_address: "A sooner", daysUntilExpiry: 9, property_id: "p2" },
+      ],
+    });
+    expect(items[0]?.id).toBe("lease:sooner");
+    expect(items[1]?.id).toBe("lease:later");
+  });
+
   it("returns empty when nothing is due", () => {
     expect(
       buildTodayDeskItems({

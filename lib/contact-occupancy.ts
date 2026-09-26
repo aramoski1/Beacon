@@ -43,7 +43,13 @@ export function buildContactOccupancy(
   leases: LeaseRow[],
   contactId: string,
 ): ContactOccupancy {
-  const tenantLease = leases.find((l) => l.tenant_contact_id === contactId);
+  const tenantLeases = leases
+    .filter((l) => l.tenant_contact_id === contactId)
+    .sort((a, b) => (a.expiration_date ?? "9999").localeCompare(b.expiration_date ?? "9999"));
+  const onLinked = leases
+    .filter((l) => l.linked_property && linkedPropertyIds.includes(l.linked_property))
+    .sort((a, b) => (a.expiration_date ?? "9999").localeCompare(b.expiration_date ?? "9999"));
+  const tenantLease = tenantLeases[0] ?? onLinked[0];
   const propId = tenantLease?.linked_property ?? linkedPropertyIds[0] ?? null;
   const prop = propId ? props.find((p) => p.id === propId) : undefined;
   return {

@@ -432,7 +432,7 @@ export function LeaseReviewView({
     },
     {
       key: "base_rate", label: "Base rate",
-      value: abstract.base_rate != null ? `$${abstract.base_rate.toLocaleString()}` : "—",
+      value: abstract.base_rate != null ? `$${Number(abstract.base_rate).toFixed(2)}` : "—",
       rawValue: abstract.base_rate != null ? String(abstract.base_rate) : "",
       inputType: "text",
     },

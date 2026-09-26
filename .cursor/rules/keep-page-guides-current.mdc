@@ -1,0 +1,27 @@
+---
+description: Keep How Beacon works, page ?, and Copilot in sync with shipped UI
+alwaysApply: true
+---
+
+# Keep user how-to pages current
+
+When you ship a **user-visible** change (new control, new flow, changed behavior, or a new honest limit), update the broker-facing how-to **in the same commit** as the code. Do not push product changes that leave these pages describing the old app.
+
+## Source of truth
+
+1. `lib/page-guides.ts` — walkthrough + features per route. Feeds **How Beacon works** (`/how-beacon-works`) and the floating **?** button.
+2. `app/how-beacon-works/page.tsx` — Day-1 path and **Honest limits** (not generated from page-guides).
+3. `app/copilot/actions.ts` — Copilot “Beacon platform knowledge”. Brokers ask Copilot how to do things; stale text here is a product bug.
+
+## What to change
+
+- New or renamed button/flow on a screen → that screen’s `walkthrough` and `features` in `page-guides.ts`.
+- New route → add a `PAGE_GUIDES` entry (and TOC category).
+- New limitation (GIS cannot do X, listing search will not overwrite Y) → `features` / walkthrough **and** How Beacon works honest limits **and** Copilot “does NOT have”.
+- Copilot “How to do common things” must use the same paths and button names as the UI.
+
+Do not invent filters, menus, or send-email. If the product cannot do it, say so in the guide.
+
+## Do not skip
+
+A “docs later” commit is not allowed for user-facing behavior. If you are unsure which guide to edit, update the route the broker is standing on plus Copilot.

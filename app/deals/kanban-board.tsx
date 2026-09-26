@@ -8,6 +8,7 @@ import {
   DollarSign, Trash2, User, AlertTriangle, Phone, MapPin, Mail,
 } from "lucide-react";
 import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { todayLocal } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import {
   STAGE_LABELS, STAGE_COLORS, TERMINAL_STAGES,
@@ -184,8 +185,14 @@ function DealCard({
             </p>
           )}
           {deal.next_action_due && (
-            <p className="text-muted-foreground tabular-nums">
-              Next due {new Date(deal.next_action_due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            <p className={cn(
+              "tabular-nums",
+              deal.next_action_due < todayLocal()
+                ? "text-destructive font-medium"
+                : "text-muted-foreground",
+            )}>
+              {deal.next_action_due < todayLocal() ? "Overdue " : "Next due "}
+              {new Date(deal.next_action_due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </p>
           )}
         </div>
@@ -224,17 +231,19 @@ function DealCard({
         </div>
       )}
 
-      {/* Delete */}
-      <button
-        type="button"
-        onClick={() => {
-          if (confirm(`Delete "${deal.name}"?`)) onDelete(deal.id);
-        }}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors"
-      >
-        <Trash2 className="size-3" />
-        Delete
-      </button>
+      <details className="text-[10px] text-muted-foreground">
+        <summary className="cursor-pointer select-none hover:text-foreground">More</summary>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm(`Delete "${deal.name}"?`)) onDelete(deal.id);
+          }}
+          className="mt-1 flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors"
+        >
+          <Trash2 className="size-3" />
+          Delete
+        </button>
+      </details>
     </div>
   );
 }

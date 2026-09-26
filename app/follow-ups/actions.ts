@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { validateRequiredDate } from "@/lib/validation";
+import { addCalendarDays, todayLocal } from "@/lib/dates";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,33 @@ export async function createFollowUp(params: {
   return { id: data.id };
 }
 
+export async function snoozeFollowUps(
+  ids: string[],
+  days = 7,
+): Promise<{ error?: string; updated?: number }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+  if (ids.length === 0) return { updated: 0 };
+
+  const { data: rows, error: loadErr } = await supabase
+    .from("follow_ups")
+    .select("id, due_date")
+    .eq("owner_id", user.id)
+    .in("id", ids);
+  if (loadErr) return { error: loadErr.message };
+
+  for (const row of rows ?? []) {
+    const next = addCalendarDays(row.due_date.slice(0, 10), days);
+    await supabase
+      .from("follow_ups")
+      .update({ due_date: next })
+      .eq("id", row.id)
+      .eq("owner_id", user.id);
+  }
+  return { updated: rows?.length ?? 0 };
+}
+
 // ─── markFollowUpDone ─────────────────────────────────────────────────────────
 
 export async function markFollowUpDone(id: string): Promise<{ error?: string }> {
@@ -179,24 +207,32 @@ export async function getFollowUpsDashboard(): Promise<{
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { overdue: [], today: [], dueCount: 0 };
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
 
-  const { data } = await supabase
-    .from("follow_ups")
-    .select(
-      "id, contact_id, property_id, due_date, description, done, done_at, created_at, source_type, lease_id, contacts(name, email), properties(address)"
-    )
-    .eq("owner_id", user.id)
-    .eq("done", false)
-    .lte("due_date", today)
-    .order("due_date", { ascending: true })
-    .limit(20);
+  const [{ data }, { count }] = await Promise.all([
+    supabase
+      .from("follow_ups")
+      .select(
+        "id, contact_id, property_id, due_date, description, done, done_at, created_at, source_type, lease_id, contacts(name, email), properties(address)"
+      )
+      .eq("owner_id", user.id)
+      .eq("done", false)
+      .lte("due_date", today)
+      .order("due_date", { ascending: true })
+      .limit(20),
+    supabase
+      .from("follow_ups")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user.id)
+      .eq("done", false)
+      .lte("due_date", today),
+  ]);
 
   const rows = (data ?? []).map(mapRow);
   const overdue = rows.filter((r) => r.due_date < today);
   const todayRows = rows.filter((r) => r.due_date === today);
 
-  return { overdue, today: todayRows, dueCount: rows.length };
+  return { overdue, today: todayRows, dueCount: count ?? rows.length };
 }
 
 /** Open follow-ups due after today — for dashboard upcoming section. */
@@ -205,7 +241,7 @@ export async function getUpcomingFollowUps(limit = 8): Promise<FollowUpRow[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
 
   const { data } = await supabase
     .from("follow_ups")

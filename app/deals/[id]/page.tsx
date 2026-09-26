@@ -110,7 +110,10 @@ export default async function DealPage({
             isSoloFirm={isSoloFirm}
           />
           {stale && (
-            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
+            <span
+              className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400"
+              title="No stage change in 14+ days"
+            >
               Stale — {days}d in stage
             </span>
           )}

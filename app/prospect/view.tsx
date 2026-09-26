@@ -13,6 +13,7 @@ import {
 } from "./actions";
 import type { IgnoredLeadTerm } from "@/lib/lead-search-interpret";
 import { BuyBoxPicker, SaveBuyBoxAction } from "./buy-box-bar";
+import { formatLocalDate } from "@/lib/dates";
 import {
   MARKET_LABELS,
   SUPPORTED_MARKETS,
@@ -173,8 +174,16 @@ function criteriaToForm(criteria: LeadSearchCriteria): FormState {
 }
 
 function fmtNum(n: number | null): string {
-  if (n == null) return "—";
+  if (n == null || n <= 1) return "—";
   return n.toLocaleString("en-US");
+}
+
+function titleCaseAddress(raw: string | null): string {
+  if (!raw?.trim()) return "—";
+  return raw
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (c) => c.toUpperCase())
+    .replace(/\b(Nw|Ne|Sw|Se)\b/g, (d) => d.toUpperCase());
 }
 
 function fmtMoney(n: number | null): string {
@@ -198,7 +207,9 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isAccepting, startAccepting] = useTransition();
   const [acceptResult, setAcceptResult] = useState<AcceptLeadsResult | null>(null);
+  const [page, setPage] = useState(0);
   const isBusy = isSearching || isInterpreting;
+  const PAGE_SIZE = 100;
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setActiveBuyBoxId(null);
@@ -223,6 +234,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
     }
     setSelected(new Set());
     setAcceptResult(null);
+    setPage(0);
     const res = await runLeadSearch(criteria);
     if ("error" in res) {
       setSearchError(res.error);
@@ -310,7 +322,10 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
     runSearch(box.criteria);
   }
 
-  const matches = result?.matches ?? [];
+  const allMatches = result?.matches ?? [];
+  const totalKnown = result?.outcomes.reduce((n, o) => n + (o.kind === "ok" ? o.totalCount : o.kind === "too_many" ? o.count : 0), 0) ?? allMatches.length;
+  const matches = allMatches.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const pageCount = Math.max(1, Math.ceil(allMatches.length / PAGE_SIZE));
   const showPortfolioColumn = matches.some((m) => m.ownerPortfolioCount != null);
   const showLeaseColumn = matches.some((m) => m.leaseDaysUntilExpiry != null);
 
@@ -578,7 +593,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
                 >
                   <strong>{MARKET_LABELS[outcome.market]}:</strong>{" "}
                   {outcome.kind === "ok" && `${outcome.totalCount} match${outcome.totalCount === 1 ? "" : "es"}`}
-                  {outcome.kind === "too_many" && `${outcome.count.toLocaleString()} matches — narrow your criteria`}
+                  {outcome.kind === "too_many" && `${outcome.count.toLocaleString()} matches — add a city or size filter`}
                   {outcome.kind === "error" && outcome.message}
                 </span>
               ))}
@@ -618,11 +633,15 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
           )}
 
           {/* ── Results table ────────────────────────────────────────────────── */}
-          {matches.length > 0 && (
-            <div className="rounded-lg border bg-card overflow-hidden">
+          {(allMatches.length > 0 || isBusy) && (
+            <div className={cn("rounded-lg border bg-card overflow-hidden", isBusy && "opacity-50")}>
               <div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted/20">
                 <span className="text-xs text-muted-foreground">
-                  {selected.size > 0 ? `${selected.size} selected` : `${matches.length} matches`}
+                  {selected.size > 0
+                    ? `${selected.size} selected`
+                    : totalKnown > allMatches.length
+                      ? `Showing ${allMatches.length} of ${totalKnown.toLocaleString()} — first page`
+                      : `${allMatches.length} matches`}
                 </span>
                 <button
                   type="button"
@@ -673,7 +692,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
                             />
                           </td>
                           <td className="px-3 py-2">
-                            <div>{m.address ?? "—"}</div>
+                            <div>{titleCaseAddress(m.address)}</div>
                             <div className="text-xs text-muted-foreground">{m.city}</div>
                           </td>
                           <td className="px-3 py-2 text-xs text-muted-foreground" title={m.source}>
@@ -689,7 +708,7 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(m.assessedValue)}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{m.yearBuilt ?? "—"}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{m.lastSaleDate ?? "—"}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{formatLocalDate(m.lastSaleDate) ?? "—"}</td>
                           {showPortfolioColumn && (
                             <td className="px-3 py-2 text-right tabular-nums">{m.ownerPortfolioCount ?? "—"}</td>
                           )}
@@ -704,6 +723,17 @@ export default function ProspectView({ initialBuyBoxes }: { initialBuyBoxes: Buy
                   </tbody>
                 </table>
               </div>
+              {pageCount > 1 && (
+                <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
+                  <button type="button" disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="disabled:opacity-40">
+                    Previous
+                  </button>
+                  <span>Page {page + 1} of {pageCount}</span>
+                  <button type="button" disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)} className="disabled:opacity-40">
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

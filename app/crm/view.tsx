@@ -39,6 +39,8 @@ import { createActivity, savePropertyGridActivity } from "@/app/activities/actio
 import { formatCallOutcomeNote } from "@/lib/activity-touch";
 import { ownerPortfolioHref } from "@/lib/owner-portfolio";
 import { CreateDealDialog } from "@/app/deals/create-deal-dialog";
+import { formatPsf } from "@/lib/format-money";
+import { formatLocalDate } from "@/lib/dates";
 import {
   GRID_ACTIVITY_TIP,
   isPropertyActivityField,
@@ -331,8 +333,7 @@ function fmtSqft(n: number | null) {
 }
 
 function fmtDate(iso: string | null | undefined) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return formatLocalDate(iso);
 }
 
 // ─── Editable cells ───────────────────────────────────────────────────────────
@@ -957,6 +958,7 @@ function Popup({ popup, onClose }: { popup: CellPopup; onClose: () => void }) {
 function PropertiesTable({
   rows,
   propContacts,
+  propContactsReady,
   customDefs,
   colVis,
   onSave,
@@ -975,6 +977,7 @@ function PropertiesTable({
 }: {
   rows: Property[];
   propContacts: Map<string, LinkedContactInfo[]>;
+  propContactsReady: boolean;
   customDefs: FieldDefinition[];
   colVis: ReturnType<typeof useColVis>;
   onSave: (id: string, field: string, value: unknown) => void;
@@ -1359,19 +1362,23 @@ function PropertiesTable({
                           onSave={(v) => updateOwnerContact(i, "name", v)}
                         />
                       ))}
-                      <button
-                        type="button"
-                        disabled={promotingId === p.id}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          void handlePromote();
-                        }}
-                        className="text-[10px] text-primary hover:underline underline-offset-2 disabled:opacity-50"
-                        title={ownerContacts.length > 1 ? "Choose which owner contacts to create as CRM contacts" : "Create a CRM contact for this owner contact"}
-                      >
-                        {promotingId === p.id ? "Promoting…" : "Promote to CRM"}
-                      </button>
+                      {propContactsReady ? (
+                        <button
+                          type="button"
+                          disabled={promotingId === p.id}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void handlePromote();
+                          }}
+                          className="text-[10px] text-primary hover:underline underline-offset-2 disabled:opacity-50"
+                          title={ownerContacts.length > 1 ? "Choose which owner contacts to create as CRM contacts" : "Create a CRM contact for this owner contact"}
+                        >
+                          {promotingId === p.id ? "Promoting…" : "Promote to CRM"}
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">Checking CRM…</span>
+                      )}
                     </div>
                   ) : (
                     <EditableText
@@ -1451,7 +1458,7 @@ function PropertiesTable({
                     <EditableText
                       value={p.last_activity_date ?? activity?.last_activity_date?.slice(0, 10) ?? null}
                       displayValue={fmtDate(p.last_activity_date ?? activity?.last_activity_date ?? null)}
-                      placeholder="log date"
+                      placeholder="—"
                       displayClassName="text-muted-foreground whitespace-nowrap"
                       onSave={(v) => onSave(p.id, "last_activity_date", v)}
                     />
@@ -1467,7 +1474,7 @@ function PropertiesTable({
                 <td className={cn(tdCls, "min-w-[120px] max-w-[200px]", col("notes"))} title={GRID_ACTIVITY_TIP}>
                   <EditableText
                     value={p.last_activity_notes ?? activity?.last_activity_notes ?? null}
-                    placeholder="log notes"
+                    placeholder="—"
                     displayClassName="line-clamp-2 text-muted-foreground"
                     onSave={(v) => onSave(p.id, "last_activity_notes", v)}
                   />
@@ -2190,7 +2197,7 @@ function LeasesTable({
                   <span className="text-muted-foreground whitespace-nowrap">{a.term ?? "—"}</span>
                 </td>
                 <td className={cn(tdR, col("rate"))}>
-                  {a.base_rate != null ? `$${a.base_rate}/sf` : "—"}
+                  {a.base_rate != null ? formatPsf(a.base_rate) : "—"}
                 </td>
                 <td className={cn(tdCls, col("added"))}>
                   <span className="text-muted-foreground text-xs whitespace-nowrap">
@@ -2349,6 +2356,7 @@ export default function CRMView({
   // ── Data state ─────────────────────────────────────────────────────────────
   const [properties, setProperties] = useState<Property[]>([]);
   const [propContacts, setPropContacts] = useState<Map<string, LinkedContactInfo[]>>(new Map());
+  const [propContactsReady, setPropContactsReady] = useState(false);
   const [leases, setLeases] = useState<LeaseAbstract[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [customPropertyDefs, setCustomPropertyDefs] = useState<FieldDefinition[]>([]);
@@ -2363,8 +2371,8 @@ export default function CRMView({
 
   // ── Loading state ──────────────────────────────────────────────────────────
   const [propsLoading, setPropsLoading] = useState(true);
-  const [leasesLoading, setLeasesLoading] = useState(true);
-  const [contactsLoading, setContactsLoading] = useState(true);
+  const [leasesLoading, setLeasesLoading] = useState(false);
+  const [contactsLoading, setContactsLoading] = useState(false);
 
   // ── Load error state ───────────────────────────────────────────────────────
   const [propsError, setPropsError] = useState<string | null>(null);
@@ -2540,6 +2548,7 @@ export default function CRMView({
       setProperties([]);
       setTotalProps(0);
       setPropContacts(new Map());
+      setPropContactsReady(true);
       setPropsLoading(false);
       return;
     }
@@ -2626,11 +2635,14 @@ export default function CRMView({
     } else {
       setPropContacts(new Map());
     }
+    setPropContactsReady(true);
 
     setPropsLoading(false);
   }, [propPage, propFilters, activeSearch, scope, userId]);
 
-  useEffect(() => { loadProperties(); }, [loadProperties]);
+  useEffect(() => {
+    if (tab === "properties") void loadProperties();
+  }, [loadProperties, tab]);
 
   // ── Load contacts (server-filtered + paginated) ────────────────────────────
   const loadContacts = useCallback(async () => {
@@ -2734,7 +2746,9 @@ export default function CRMView({
     setContactsLoading(false);
   }, [conPage, conFilters, activeSearch, cadenceMap, scope, userId]);
 
-  useEffect(() => { loadContacts(); }, [loadContacts]);
+  useEffect(() => {
+    if (tab === "contacts") void loadContacts();
+  }, [loadContacts, tab]);
 
   // ── Load leases (server-filtered + paginated) ─────────────────────────────
   const loadLeases = useCallback(async () => {
@@ -2802,7 +2816,31 @@ export default function CRMView({
     setLeasesLoading(false);
   }, [leasePage, leaseFilters, activeSearch, scope, userId]);
 
-  useEffect(() => { loadLeases(); }, [loadLeases]);
+  useEffect(() => {
+    if (tab === "leases") void loadLeases();
+  }, [loadLeases, tab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClient();
+    async function loadHeaderCounts() {
+      let pq = supabase.from("properties").select("id", { count: "exact", head: true });
+      let cq = supabase.from("contacts").select("id", { count: "exact", head: true });
+      let lq = supabase.from("lease_abstracts").select("id", { count: "exact", head: true });
+      if (scope === "mine") {
+        pq = pq.eq("owner_id", userId);
+        cq = cq.eq("owner_id", userId);
+        lq = lq.eq("owner_id", userId);
+      }
+      const [p, c, l] = await Promise.all([pq, cq, lq]);
+      if (cancelled) return;
+      setTotalProps((t) => t ?? p.count ?? 0);
+      setTotalCons((t) => t ?? c.count ?? 0);
+      setTotalLeases((t) => t ?? l.count ?? 0);
+    }
+    void loadHeaderCounts();
+    return () => { cancelled = true; };
+  }, [scope, userId]);
 
   // ── Reload custom field definitions ───────────────────────────────────────
   const reloadCustomDefs = useCallback(async () => {
@@ -3044,9 +3082,11 @@ export default function CRMView({
         <h1 className="text-lg font-semibold tracking-tight shrink-0">Workspace</h1>
         {(totalProps !== null || totalLeases !== null || totalCons !== null) && (
           <span className="text-xs text-muted-foreground shrink-0">
-            {totalProps ?? "…"} {totalProps === 1 ? "property" : "properties"} ·{" "}
-            {totalLeases ?? "…"} {totalLeases === 1 ? "lease" : "leases"} ·{" "}
-            {totalCons ?? "…"} {totalCons === 1 ? "contact" : "contacts"}
+            {[
+              totalProps !== null ? `${totalProps} ${totalProps === 1 ? "property" : "properties"}` : null,
+              totalLeases !== null ? `${totalLeases} ${totalLeases === 1 ? "lease" : "leases"}` : null,
+              totalCons !== null ? `${totalCons} ${totalCons === 1 ? "contact" : "contacts"}` : null,
+            ].filter(Boolean).join(" · ")}
           </span>
         )}
 
@@ -3237,12 +3277,6 @@ export default function CRMView({
                         value={leaseFilters.expirationWindow}
                         options={EXPIRATION_WINDOW_OPTIONS}
                         onChange={(v) => updateLeaseFilter("expirationWindow", v)}
-                      />
-                      <FilterSelect
-                        label="Property type"
-                        value={leaseFilters.linkedPropertyType}
-                        options={PROP_TYPES}
-                        onChange={(v) => updateLeaseFilter("linkedPropertyType", v)}
                       />
                       <FilterSelect
                         label="Tenant contact"
@@ -3481,6 +3515,7 @@ export default function CRMView({
                 <PropertiesTable
                   rows={properties}
                   propContacts={propContacts}
+                  propContactsReady={propContactsReady}
                   customDefs={customPropertyDefs.filter(isCustomGroup)}
                   colVis={propColVis}
                   onSave={saveProp}

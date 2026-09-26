@@ -121,7 +121,7 @@ export type LeadSearchResult = {
 // Applied per-market inside each module's own searchByCriteria (returnCountOnly
 // pre-check) — kept here too so the "too many" threshold used for messaging
 // matches the one actually enforced.
-const MAX_RESULTS_PER_MARKET = 200;
+const MAX_RESULTS_PER_MARKET = 100;
 
 // Miami-Dade's DOS_1 and Massachusetts's LS_DATE are both YYYYMMDD strings —
 // normalized here to ISO YYYY-MM-DD so LeadMatch has one consistent format
@@ -405,8 +405,8 @@ async function applyOwnerPortfolioFilter(
 /**
  * Run a buy-box criteria search across the selected markets. Each market
  * counts real matches before fetching (returnCountOnly) and returns a
- * "too_many" outcome with the true count instead of truncating silently —
- * see each market module's searchByCriteria for the per-market cap.
+ * "too_many" only when a market exceeds 2,000 matches. Otherwise the first
+ * 100 rows are returned with the true totalCount so the broker can page.
  */
 export async function searchLeads(criteria: LeadSearchCriteria): Promise<LeadSearchResult> {
   const markets = criteria.markets.length > 0 ? criteria.markets : SUPPORTED_MARKETS;

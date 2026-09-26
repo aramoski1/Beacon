@@ -52,6 +52,8 @@ import { LeaseCompsSection } from "./lease-comps";
 import { loadContactIdsForProperty } from "@/lib/contact-properties";
 import { listDocuments } from "@/lib/documents";
 import { DocumentsSection } from "@/components/documents-section";
+import { formatPsf } from "@/lib/format-money";
+import { formatLocalDate } from "@/lib/dates";
 import type { ZoningInfo } from "@/lib/zoning";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -362,8 +364,8 @@ export default async function PropertyPage({
   const costarDetail = costarDone
     ? `${costarContactCount} contact${costarContactCount !== 1 ? "s" : ""} imported`
     : userSettings.costar_enabled
-    ? "Not yet run"
-    : "Disabled";
+    ? "Not uploaded"
+    : "Off in Settings";
 
   const webFieldEntries = Object.entries(p.field_sources ?? {}).filter(([, v]) => v === "web");
   const webDone = webFieldEntries.length > 0;
@@ -453,7 +455,9 @@ export default async function PropertyPage({
               className="h-8 text-xs"
             />
           )}
-          <PromoteOwnerButton propertyId={id} />
+          {!linkedContacts.some((c) => c.contact_type === "owner") && (
+            <PromoteOwnerButton propertyId={id} />
+          )}
         </div>
       </div>
 
@@ -858,11 +862,11 @@ export default async function PropertyPage({
                     <span className="flex-1 text-sm font-medium truncate">{fileName}</span>
                     {la.expiration_date && (
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        Exp. {new Date(la.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        Exp. {formatLocalDate(la.expiration_date)}
                       </span>
                     )}
                     {la.base_rate != null && (
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">${la.base_rate}/sf</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{formatPsf(la.base_rate)}</span>
                     )}
                   </Link>
                 );

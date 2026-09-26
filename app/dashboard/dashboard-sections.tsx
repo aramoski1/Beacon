@@ -16,6 +16,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { stripDemoLabel } from "@/lib/demo-display";
 import type {
   BriefingMetrics,
   CadenceHealth,
@@ -25,6 +26,8 @@ import type {
   OwnershipChangedProperty,
 } from "./actions";
 import type { LeaseRadarEntry } from "@/lib/lease-radar";
+import { formatLeaseRate, leaseDisplayTitle } from "@/lib/lease-radar";
+import { formatLocalDate } from "@/lib/dates";
 import { fmtKpiMoney, fmtKpiSqft, type LeaseExposureKpi } from "@/lib/dashboard-kpis";
 import type { KpiModuleId } from "@/lib/dashboard-layout";
 
@@ -370,12 +373,6 @@ export function CadencePanel({ cadence }: { cadence: CadenceHealth }) {
 
 // ─── Expiring leases ──────────────────────────────────────────────────────────
 
-function leaseLabel(path: string | null) {
-  if (!path) return "Unnamed lease";
-  const name = path.split("/").pop() ?? path;
-  return name.length > 32 ? name.slice(0, 30) + "…" : name;
-}
-
 export function ExpiringLeasesPanel({ items, total }: { items: LeaseRadarEntry[]; total: number }) {
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -415,14 +412,14 @@ export function ExpiringLeasesPanel({ items, total }: { items: LeaseRadarEntry[]
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                  {leaseLabel(l.source_document)}
+                  {leaseDisplayTitle(l)}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
                   {l.property_address ? (
                     <span>{l.property_address} · </span>
                   ) : null}
-                  {l.base_rate != null && `$${l.base_rate}/sf · `}
-                  Exp {new Date(l.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  {l.base_rate != null && `${formatLeaseRate(l.base_rate)} · `}
+                  Exp {formatLocalDate(l.expiration_date)}
                 </p>
               </div>
               <ArrowRight className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -705,7 +702,7 @@ export function ActivityTimeline({ activities }: { activities: RecentActivity[] 
                         )}
                       </p>
                     )}
-                    {a.notes && <p className="text-xs text-muted-foreground/80 mt-0.5 line-clamp-2">{a.notes}</p>}
+                    {a.notes && <p className="text-xs text-muted-foreground/80 mt-0.5 line-clamp-2">{stripDemoLabel(a.notes) ?? a.notes}</p>}
                   </div>
                   <span className="shrink-0 text-[10px] text-muted-foreground whitespace-nowrap tabular-nums">
                     {fmtRelative(a.activity_date)}

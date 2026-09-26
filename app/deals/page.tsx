@@ -4,6 +4,8 @@ import { requireUser } from "@/lib/auth-require-user";
 import { getDeals, getDealsForecast } from "./actions";
 import { DealsView } from "./deals-view";
 
+export const metadata = { title: "Deals – Beacon" };
+
 export default async function DealsPage({
   searchParams,
 }: {

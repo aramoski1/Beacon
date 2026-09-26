@@ -51,7 +51,7 @@ export default async function BookMapPage({
           <h1 className="text-xl font-semibold tracking-tight">Book map</h1>
         </div>
         <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          Corridor view and a pin map of geocoded properties. Geocode uses OpenStreetMap Nominatim — no Mapbox key required.
+          Corridor view and a pin map of geocoded properties. Missing pins can be geocoded from the toolbar.
         </p>
       </div>
 

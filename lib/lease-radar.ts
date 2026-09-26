@@ -1,3 +1,6 @@
+import { differenceInCalendarDays, formatLocalDate } from "@/lib/dates";
+import { formatPsf } from "@/lib/format-money";
+
 /** Lease expiration radar — bucket, urgency, and outreach-contact helpers (client-safe). */
 
 export type LeaseRadarBucket = "3mo" | "6mo" | "12mo";
@@ -23,6 +26,8 @@ export type LeaseRadarEntry = {
   property_id: string | null;
   property_address: string | null;
   property_owner_name: string | null;
+  leased_sf: number | null;
+  property_submarket: string | null;
   /** Best CRM contact on the property for owner-facing actions (prefer contact_type=owner). */
   owner_contact: RadarContactRef | null;
   /** Tenant CRM contact linked on the lease abstract. */
@@ -73,8 +78,6 @@ export type OutreachResolution =
       linkHint: "abstract" | "property";
     };
 
-const MS_DAY = 86_400_000;
-
 /** Day-count thresholds for the radar buckets — shared with the CRM "Expiration window" filter. */
 export const LEASE_RADAR_DAY_THRESHOLDS = {
   threeMonth: 90,
@@ -83,10 +86,8 @@ export const LEASE_RADAR_DAY_THRESHOLDS = {
 } as const;
 
 export function daysUntilExpiry(expirationDate: string, now = new Date()): number {
-  const exp = new Date(expirationDate + "T12:00:00").getTime();
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  return Math.ceil((exp - today.getTime()) / MS_DAY);
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return differenceInCalendarDays(expirationDate.slice(0, 10), today);
 }
 
 export function leaseRadarBucket(days: number): LeaseRadarBucket | null {
@@ -107,15 +108,29 @@ export function leaseRadarUrgency(days: number): LeaseRadarUrgency {
 export function leaseLabel(path: string | null): string {
   if (!path) return "Lease abstract";
   const name = path.split("/").pop() ?? path;
+  if (name === "seed:demo" || name.startsWith("seed:")) return "Lease abstract";
   return name.length > 40 ? name.slice(0, 38) + "…" : name;
 }
 
+/** Broker-facing title: tenant, then property, never a seed filename. */
+export function leaseDisplayTitle(entry: {
+  tenant_contact?: RadarContactRef | null;
+  property_address?: string | null;
+  source_document?: string | null;
+}): string {
+  const tenant = entry.tenant_contact?.name?.trim();
+  if (tenant) return tenant;
+  const addr = entry.property_address?.trim();
+  if (addr) return addr;
+  return leaseLabel(entry.source_document ?? null);
+}
+
 export function fmtExpiry(iso: string): string {
-  return new Date(iso + "T12:00:00").toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatLocalDate(iso) ?? iso.slice(0, 10);
+}
+
+export function formatLeaseRate(rate: number | null | undefined): string | null {
+  return formatPsf(rate);
 }
 
 export function rolloverHint(days: number): string {
@@ -196,7 +211,7 @@ export function leaseOutreachContext(
     entry.notice_deadline && entry.daysUntilNotice != null
       ? `${entry.notice_label ?? "Option notice"} is ${entry.daysUntilNotice < 0 ? `${Math.abs(entry.daysUntilNotice)} days past` : `in ${entry.daysUntilNotice} days`} (${fmtExpiry(entry.notice_deadline)}).`
       : "",
-    entry.base_rate != null ? `Current base rate: $${entry.base_rate}/sf.` : "",
+    entry.base_rate != null ? `Current base rate: ${formatPsf(entry.base_rate)}.` : "",
   ];
 
   if (action === "tenant_rollover") {

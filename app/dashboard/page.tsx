@@ -47,6 +47,9 @@ import { buildTodayDeskItems } from "@/lib/today-desk";
 import { daysUntilIso, nearestNoticeDeadline } from "@/lib/lease-export";
 import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
 import { TodayDesk } from "./today-desk";
+import { addCalendarDays, todayLocal } from "@/lib/dates";
+
+export const metadata = { title: "Dashboard – Beacon" };
 import { OwnershipWatchBatchButton } from "./ownership-watch-batch";
 import { DashboardCustomize } from "./customize-dashboard";
 import {
@@ -115,10 +118,10 @@ export default async function DashboardPage() {
   // identical to today's fixed layout.
   const visible = resolveVisible(obSettings.dashboard_layout as DashboardLayoutPrefs | null);
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const past30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-  const ahead90 = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
-  const ahead2y = new Date(Date.now() + 730 * 86_400_000).toISOString().slice(0, 10);
+  const todayIso = todayLocal();
+  const past30 = addCalendarDays(todayIso, -30);
+  const ahead90 = addCalendarDays(todayIso, 90);
+  const ahead2y = addCalendarDays(todayIso, 730);
 
   const [
     enrichedItems,
@@ -205,7 +208,7 @@ export default async function DashboardPage() {
   ).length;
 
   const todayDeskItems = buildTodayDeskItems({
-    today: new Date().toISOString().slice(0, 10),
+    today: todayIso,
     outreach: enrichedItems.map((c) => ({
       id: c.id,
       name: c.name,

@@ -293,7 +293,7 @@ export async function saveAbstractLease(
       execution_date: preview.execution_date || null,
       expiration_date: preview.expiration_date || null,
       term: preview.term || null,
-      base_rate: preview.base_rate ?? null,
+      base_rate: preview.base_rate != null ? Math.round(preview.base_rate * 100) / 100 : null,
       leased_sf: preview.leased_sf ?? null,
       landlord_name: preview.landlord_name || null,
       escalations: preview.escalations ?? [],

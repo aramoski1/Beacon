@@ -21,15 +21,32 @@ export const TRI_COUNTY_INDUSTRIAL_RENT_BANDS: RentBand[] = [
   { county: "palm-beach", submarket: "Boca Raton / Delray", nnnPsfLow: 14, nnnPsfHigh: 20, notes: "Flex + R&D" },
 ];
 
+const SUBMARKET_ALIASES: Record<string, string[]> = {
+  "airport west / doral": ["doral", "airport west", "medley west"],
+  "south dade / homestead": ["south dade", "homestead", "naranja"],
+  "pompano / copans": ["pompano", "copans", "pompano beach"],
+  "miramar / pembroke": ["miramar", "pembroke", "pembroke pines"],
+  "port everglades / ft lauderdale": ["port everglades", "fort lauderdale", "ft lauderdale", "ft. lauderdale"],
+  "riviera beach / port of pb": ["riviera beach", "port of palm beach", "port of pb"],
+  "west palm beach": ["west palm", "wpb"],
+  "boca raton / delray": ["boca", "boca raton", "delray", "delray beach"],
+};
+
 export function lookupRentBand(submarket: string | null): RentBand | null {
   if (!submarket?.trim()) return null;
   const needle = submarket.trim().toLowerCase();
   return (
-    TRI_COUNTY_INDUSTRIAL_RENT_BANDS.find((b) =>
-      needle.includes(b.submarket.split("/")[0].trim().toLowerCase()) ||
-      b.submarket.toLowerCase().includes(needle) ||
-      needle.includes(b.submarket.toLowerCase()),
-    ) ?? null
+    TRI_COUNTY_INDUSTRIAL_RENT_BANDS.find((b) => {
+      const key = b.submarket.toLowerCase();
+      if (
+        needle.includes(b.submarket.split("/")[0].trim().toLowerCase()) ||
+        key.includes(needle) ||
+        needle.includes(key)
+      ) {
+        return true;
+      }
+      return (SUBMARKET_ALIASES[key] ?? []).some((alias) => needle.includes(alias) || alias.includes(needle));
+    }) ?? null
   );
 }
 

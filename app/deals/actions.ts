@@ -145,6 +145,8 @@ export type DealsForecast = {
   totalPipelineValue: number;
   byStage: { stage: DealStage; count: number; value: number }[];
   winRate: number;
+  winRateWon: number;
+  winRateDecided: number;
   staleCount: number;
   agingDeals: Deal[];
 };
@@ -158,6 +160,8 @@ export async function getDealsForecast(): Promise<DealsForecast> {
       totalPipelineValue: 0,
       byStage: [],
       winRate: 0,
+      winRateWon: 0,
+      winRateDecided: 0,
       staleCount: 0,
       agingDeals: [],
     };
@@ -198,6 +202,8 @@ export async function getDealsForecast(): Promise<DealsForecast> {
     totalPipelineValue,
     byStage,
     winRate,
+    winRateWon: closedCount,
+    winRateDecided: closedCount + lostCount,
     staleCount: staleDeals.length,
     agingDeals: staleDeals.slice(0, 10),
   };
@@ -320,7 +326,10 @@ export async function updateDeal(
   dealId: string,
   input: Partial<CreateDealInput>
 ): Promise<{ deal?: Deal; error?: string; fieldErrors?: ValidationError[] }> {
-  const errors = validateCreateDeal({ name: input.name ?? "placeholder", ...input });
+  const errors = validateCreateDeal(
+    { name: input.name ?? "placeholder", ...input },
+    { requireCloseDate: input.expected_close_date !== undefined },
+  );
   const nameErrors = errors.filter((e) => e.field !== "name" || input.name != null);
   if (nameErrors.length > 0) return { fieldErrors: nameErrors };
 

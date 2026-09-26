@@ -13,6 +13,7 @@ import {
   type LeaseRadarEntry,
   type RadarContactRef,
 } from "@/lib/lease-radar";
+import { addCalendarDays, todayLocal } from "@/lib/dates";
 
 function toContactRef(c: {
   id: string;
@@ -35,14 +36,14 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
   }
 
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const cutoff12 = new Date(now.getTime() + 365 * 86_400_000).toISOString().slice(0, 10);
+  const today = todayLocal();
+  const cutoff12 = addCalendarDays(today, 365);
 
   const [{ data: leases }, { data: contacts }] = await Promise.all([
     supabase
       .from("lease_abstracts")
       .select(
-        "id, expiration_date, source_document, base_rate, term, options, linked_property, tenant_contact_id, properties(id, address, owner_name)",
+        "id, expiration_date, source_document, base_rate, term, leased_sf, options, linked_property, tenant_contact_id, properties(id, address, owner_name, submarket)",
       )
       .eq("owner_id", user.id)
       .not("expiration_date", "is", null)
@@ -96,6 +97,7 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
       id: string;
       address: string | null;
       owner_name: string | null;
+      submarket: string | null;
     } | null;
     const propertyId = (row.linked_property as string | null) ?? prop?.id ?? null;
     const linked = propertyId ? ownerByProperty.get(propertyId) : undefined;
@@ -110,7 +112,9 @@ export async function getLeaseRadarData(): Promise<LeaseRadarData> {
       term: row.term,
       daysUntilExpiry: days,
       bucket,
-      urgency: leaseRadarUrgency(days),
+      urgency: leaseRadarUrgency(notice?.daysUntil != null && notice.daysUntil < days ? notice.daysUntil : days),
+      leased_sf: row.leased_sf != null ? Number(row.leased_sf) : null,
+      property_submarket: prop?.submarket ?? null,
       property_id: propertyId,
       property_address: prop?.address ?? null,
       property_owner_name: prop?.owner_name ?? null,
@@ -156,9 +160,7 @@ const BUCKET_DUE_OFFSET: Record<LeaseRadarBucket, number> = {
 };
 
 function followUpDueDate(bucket: LeaseRadarBucket): string {
-  const d = new Date();
-  d.setDate(d.getDate() + BUCKET_DUE_OFFSET[bucket]);
-  return d.toISOString().slice(0, 10);
+  return addCalendarDays(todayLocal(), BUCKET_DUE_OFFSET[bucket]);
 }
 
 function followUpDescription(
@@ -187,8 +189,8 @@ export async function syncLeaseFollowUps(): Promise<void> {
   if (!user) return;
 
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const cutoff12 = new Date(now.getTime() + 365 * 86_400_000).toISOString().slice(0, 10);
+  const today = todayLocal();
+  const cutoff12 = addCalendarDays(today, 365);
 
   const [{ data: leases }, { data: contactRows }] = await Promise.all([
     supabase
@@ -246,9 +248,9 @@ export async function syncLeaseFollowUps(): Promise<void> {
     const propertyId = (row.linked_property as string | null) ?? prop?.id ?? null;
     const address = prop?.address ?? null;
 
-    // Owner-facing follow-up (renewal / vacancy strategy)
+    const tenantContactId = row.tenant_contact_id as string | null;
     const ownerContact = propertyId ? ownerByProperty.get(propertyId) : undefined;
-    if (ownerContact) {
+    if (ownerContact && ownerContact.id !== tenantContactId) {
       candidates.push({
         lease_id: row.id,
         bucket,
@@ -258,9 +260,6 @@ export async function syncLeaseFollowUps(): Promise<void> {
         role: "owner",
       });
     }
-
-    // Tenant rollover follow-up
-    const tenantContactId = row.tenant_contact_id as string | null;
     if (tenantContactId) {
       candidates.push({
         lease_id: row.id,
@@ -282,12 +281,12 @@ export async function syncLeaseFollowUps(): Promise<void> {
     .eq("source_type", "lease_expiry")
     .not("lease_id", "is", null);
 
-  const existingSet = new Set(
-    (existing ?? []).map((r) => `${r.lease_id}|${r.lease_bucket}|${r.contact_id}`),
+  const existingKeys = new Set(
+    (existing ?? []).map((r) => `${r.lease_id}|${r.contact_id}`),
   );
 
   const toCreate = candidates.filter(
-    (c) => !existingSet.has(`${c.lease_id}|${c.bucket}|${c.contact_id}`),
+    (c) => !existingKeys.has(`${c.lease_id}|${c.contact_id}`),
   );
 
   if (toCreate.length === 0) return;

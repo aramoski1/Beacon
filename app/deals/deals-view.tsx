@@ -67,7 +67,7 @@ export function DealsView({
 }) {
   const [deals, setDeals] = useState<Deal[]>(initialDeals);
   const [view, setView] = useState<"kanban" | "list" | "forecast">("kanban");
-  const [typeFilter, setTypeFilter] = useState<DealType | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<DealType | "all">("tenant_rep");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("updated_desc");
   const [, startTransition] = useTransition();
@@ -146,7 +146,10 @@ export function DealsView({
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm text-muted-foreground shrink-0">
           {activeCount} active{staleCount > 0 && (
-            <span className="ml-1.5 text-amber-600 dark:text-amber-400 font-medium">
+            <span
+              className="ml-1.5 text-amber-600 dark:text-amber-400 font-medium"
+              title="No stage change in 14+ days"
+            >
               · {staleCount} stale
             </span>
           )}

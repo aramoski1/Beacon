@@ -139,7 +139,7 @@ export function CreateDealDialog({
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => !isPending && setOpen(false)}
           />
-          <div className="relative z-10 w-full max-w-md rounded-xl border bg-card shadow-xl">
+          <div className="relative z-10 w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-xl border bg-card shadow-xl">
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b">
               <div className="flex items-center gap-2">
@@ -281,6 +281,7 @@ export function CreateDealDialog({
                     id="deal-expected-close"
                     name="expected_close_date"
                     type="date"
+                    required
                     defaultValue={deal?.expected_close_date ?? undefined}
                     className={cn(
                       "w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring",

@@ -257,8 +257,11 @@ export default async function HowBeaconWorksPage({
           </li>
           <li>
             Gmail, Outlook, calendar, and DocuSign connections show status only. Token exchange is
-            not wired — Connect is disabled and does not open a dead callback. Outreach stays Open
-            in email.
+            not wired — Connect is labeled **Connect — not in this build**. Calendar and DocuSign
+            do not say Outreach stays Open in email. All tasks is in the main nav. Prospect shows
+            the first 100 of a large county hit (not only “narrow your criteria”). Lease radar
+            titles the tenant or property and shows tenant SF plus in-place vs market when a
+            rent band matches. Dates use the local calendar day.
           </li>
           <li>
             Book-map geocode uses Florida or Massachusetts from the property market or folio. It

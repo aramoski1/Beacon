@@ -3,6 +3,16 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { createTour, updateTourStatus, type TourRow } from "./actions";
+import { stripDemoLabel } from "@/lib/demo-display";
+
+function fmtTourWhen(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export function ToursView({
   tours,
@@ -16,6 +26,7 @@ export function ToursView({
   const [pending, start] = useTransition();
   const [scheduledAt, setScheduledAt] = useState("");
   const [propertyId, setPropertyId] = useState("");
+  const [propertyQuery, setPropertyQuery] = useState("");
   const [contactId, setContactId] = useState("");
   const [attendees, setAttendees] = useState("");
   const [notes, setNotes] = useState("");
@@ -57,16 +68,24 @@ export function ToursView({
             onChange={(e) => setScheduledAt(e.target.value)}
             className="text-sm border rounded-md px-2 py-1.5 bg-background"
           />
-          <select
-            value={propertyId}
-            onChange={(e) => setPropertyId(e.target.value)}
-            className="text-sm border rounded-md px-2 py-1.5 bg-background"
-          >
-            <option value="">Property (optional)</option>
-            {properties.map((p) => (
-              <option key={p.id} value={p.id}>{p.address ?? p.id}</option>
-            ))}
-          </select>
+          <div>
+            <input
+              list="tour-properties"
+              value={propertyQuery}
+              onChange={(e) => {
+                setPropertyQuery(e.target.value);
+                const hit = properties.find((p) => (p.address ?? "") === e.target.value);
+                setPropertyId(hit?.id ?? "");
+              }}
+              placeholder="Search property…"
+              className="text-sm border rounded-md px-2 py-1.5 bg-background w-full"
+            />
+            <datalist id="tour-properties">
+              {properties.map((p) => (
+                <option key={p.id} value={p.address ?? p.id} />
+              ))}
+            </datalist>
+          </div>
           <select
             value={contactId}
             onChange={(e) => setContactId(e.target.value)}
@@ -108,7 +127,7 @@ export function ToursView({
             <li key={t.id} className="px-4 py-3 flex flex-wrap items-center gap-2 justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium">
-                  {new Date(t.scheduled_at).toLocaleString()}
+                  {fmtTourWhen(t.scheduled_at)}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t.properties?.address ?? "No property"}
@@ -124,7 +143,10 @@ export function ToursView({
                 <button
                   type="button"
                   className="text-xs border rounded-md px-2 py-1"
-                  onClick={() => start(async () => { await updateTourStatus(t.id, "completed"); })}
+                  onClick={() => start(async () => {
+                    const outcome = window.prompt("What happened on the tour? (optional)");
+                    await updateTourStatus(t.id, "completed", outcome?.trim() || null);
+                  })}
                 >
                   Mark done
                 </button>
@@ -146,9 +168,25 @@ export function ToursView({
           <h2 className="text-sm font-semibold">Past</h2>
           <ul className="text-sm text-muted-foreground space-y-1">
             {past.map((t) => (
-              <li key={t.id}>
-                {new Date(t.scheduled_at).toLocaleDateString()} — {t.status}
-                {t.properties?.address ? ` · ${t.properties.address}` : ""}
+              <li key={t.id} className="space-y-1">
+                <p>
+                  {fmtTourWhen(t.scheduled_at)} — {t.status}
+                  {t.properties?.address ? ` · ${t.properties.address}` : ""}
+                </p>
+                {t.post_tour_notes ? (
+                  <p className="text-xs">{stripDemoLabel(t.post_tour_notes) ?? t.post_tour_notes}</p>
+                ) : t.status === "completed" ? (
+                  <button
+                    type="button"
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                    onClick={() => start(async () => {
+                      const outcome = window.prompt("What happened on the tour?");
+                      if (outcome?.trim()) await updateTourStatus(t.id, "completed", outcome.trim());
+                    })}
+                  >
+                    Add outcome
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>

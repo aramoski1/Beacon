@@ -3,6 +3,16 @@
 import { Plug } from "lucide-react";
 import { OAUTH_PROVIDERS, type OauthProvider } from "@/lib/oauth-providers";
 
+function providerNote(id: OauthProvider): string {
+  if (id === "google_gmail" || id === "microsoft_mail") {
+    return "Not in this build. Outreach stays Open in email.";
+  }
+  if (id === "google_calendar" || id === "microsoft_calendar") {
+    return "Not in this build. Tours stay on the Tours page — no calendar sync yet.";
+  }
+  return "Not in this build. Deal documents stay as downloads — no e-sign yet.";
+}
+
 export function ConnectionsPanel({
   configured,
 }: {
@@ -24,17 +34,13 @@ export function ConnectionsPanel({
               </span>
             </div>
             <p className="text-xs text-muted-foreground">{p.description}</p>
-            <p className="text-[11px] font-mono text-muted-foreground">{p.envKeys.join(", ")}</p>
-            <p className="text-xs text-muted-foreground">
-              Token exchange is not in this build. Outreach stays{" "}
-              <span className="font-medium text-foreground">Open in email</span>.
-            </p>
+            <p className="text-xs text-muted-foreground">{providerNote(p.id)}</p>
             <button
               type="button"
               disabled
               className="inline-flex text-xs font-medium rounded-md border px-3 py-1.5 opacity-50 cursor-not-allowed"
             >
-              Not available
+              Connect — not in this build
             </button>
           </div>
         );

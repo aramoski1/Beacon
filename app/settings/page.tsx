@@ -427,7 +427,10 @@ function DataSourcesSection({
         <div className="space-y-2 max-w-md">
           {[
             { label: "Miami-Dade Property Appraiser", detail: null },
-            { label: "Sunbiz (FL Sec. of State)", detail: null },
+            { label: "Broward Property Appraiser", detail: null },
+            { label: "Palm Beach Property Appraiser", detail: null },
+            { label: "Massachusetts GIS (MassGIS)", detail: null },
+            { label: "Sunbiz (FL Sec. of State)", detail: "Florida only" },
           ].map((s) => (
             <div
               key={s.label}
@@ -950,7 +953,7 @@ export default function SettingsPage() {
             <div>
               <SectionHeading
                 title="Connections"
-                description="Gmail, Outlook, calendar, and DocuSign. Disabled until you add OAuth env vars — see the Phase 4 checklist."
+                description="Gmail, Outlook, calendar, and DocuSign. Connect is not in this build."
               />
               <ConnectionsPanel configured={oauthStatus} />
             </div>

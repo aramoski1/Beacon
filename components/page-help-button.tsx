@@ -129,7 +129,10 @@ export function PageHelpButton() {
         className={cn(
           "fixed z-[55] flex items-center justify-center rounded-full border bg-card shadow-md",
           "text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-          "bottom-4 right-4 size-10 sm:bottom-5 sm:right-5",
+          "size-10",
+          pathname.startsWith("/outreach")
+            ? "bottom-20 right-4 sm:bottom-6 sm:right-6"
+            : "bottom-4 right-4 sm:bottom-5 sm:right-5",
         )}
         aria-label={`How ${guide.title} works`}
         title="How this page works"

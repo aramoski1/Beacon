@@ -10,6 +10,7 @@ import {
   sanitizeVisiblePatch,
   type DashboardLayoutPrefs,
 } from "@/lib/dashboard-layout";
+import { todayLocal } from "@/lib/dates";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -170,7 +171,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     return cached.payload as DashboardStats;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
 
   const [
     { count: propCount },

@@ -567,6 +567,23 @@ export function buildMagisCriteriaWhere(criteria: MagisCriteria): string {
   return clauses.length > 0 ? clauses.join(" AND ") : "1=1";
 }
 
+const ACRE_TO_SQFT_DISPLAY = 43_560;
+
+function magisBuildingSqft(raw: unknown): number | null {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 1) return null;
+  return n;
+}
+
+function magisLandSqft(size: unknown, units: unknown): number | null {
+  const n = typeof size === "number" ? size : Number(size);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (String(units ?? "").toLowerCase().includes("acre")) {
+    return Math.round(n * ACRE_TO_SQFT_DISPLAY);
+  }
+  return n;
+}
+
 function magisCriteriaMatchFromAttrs(a: Record<string, unknown>): MagisCriteriaMatch | null {
   const locId = String(a.LOC_ID ?? "").trim();
   if (!locId) return null;
@@ -576,8 +593,8 @@ function magisCriteriaMatchFromAttrs(a: Record<string, unknown>): MagisCriteriaM
     address: (a.SITE_ADDR as string | null)?.trim() || null,
     city: (a.CITY as string | null)?.trim() || null,
     ownerName: (a.OWNER1 as string | null)?.trim() || null,
-    buildingSqft: (a.BLD_AREA as number | null) ?? null,
-    landSqft: (a.LOT_SIZE as number | null) ?? null,
+    buildingSqft: magisBuildingSqft(a.BLD_AREA),
+    landSqft: magisLandSqft(a.LOT_SIZE, a.LOT_UNITS),
     useCode: (a.USE_CODE as string | null) ?? null,
     useDescription: (a.USE_DESC as string | null) ?? null,
     assessedValue: (a.TOTAL_VAL as number | null) ?? null,
@@ -642,11 +659,12 @@ export async function searchByCriteria(
 
   const totalCount = countData.count ?? 0;
   if (totalCount === 0) return { kind: "ok", matches: [], totalCount: 0 };
-  if (totalCount > maxResults) return { kind: "too_many", count: totalCount };
+  if (totalCount > 2000) return { kind: "too_many", count: totalCount };
 
+  const fetchLimit = Math.min(totalCount, maxResults);
   const matches: MagisCriteriaMatch[] = [];
   let offset = 0;
-  while (matches.length < totalCount) {
+  while (matches.length < fetchLimit) {
     const url = new URL(MAGIS_URL);
     url.searchParams.set("where", where);
     url.searchParams.set("outFields", CRITERIA_FIELDS);

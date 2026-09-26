@@ -17,11 +17,49 @@ function renderInline(text: string): React.ReactNode[] {
 }
 
 function MarkdownText({ text }: { text: string }) {
-  const paragraphs = text.split(/\n\n+/);
+  const blocks = text.split(/\n\n+/);
   return (
     <div className="space-y-2 text-sm leading-relaxed">
-      {paragraphs.map((para, pi) => {
-        const lines = para.split("\n");
+      {blocks.map((block, pi) => {
+        const lines = block.split("\n");
+        const heading = lines[0]?.match(/^(#{1,3})\s+(.*)$/);
+        if (heading && lines.length === 1) {
+          const Tag = heading[1].length === 1 ? "h3" : heading[1].length === 2 ? "h4" : "h5";
+          return (
+            <Tag key={pi} className="font-semibold text-foreground">
+              {renderInline(heading[2])}
+            </Tag>
+          );
+        }
+
+        const isTable = lines.length >= 2 && lines.every((l) => l.includes("|")) && /---/.test(lines[1] ?? "");
+        if (isTable) {
+          const header = lines[0].split("|").map((c) => c.trim()).filter(Boolean);
+          const rows = lines.slice(2).map((row) => row.split("|").map((c) => c.trim()).filter(Boolean));
+          return (
+            <div key={pi} className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr>
+                    {header.map((h, i) => (
+                      <th key={i} className="border-b text-left py-1 pr-2 font-semibold">{renderInline(h)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="border-b border-border/60 py-1 pr-2 align-top">{renderInline(cell)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
         const isBullet = lines.some((l) => /^[-*]\s/.test(l.trimStart()));
         const isOrdered = lines.some((l) => /^\d+\.\s/.test(l.trimStart()));
 
@@ -53,7 +91,7 @@ function MarkdownText({ text }: { text: string }) {
           <p key={pi}>
             {lines.map((l, li) => (
               <span key={li}>
-                {renderInline(l)}
+                {renderInline(l.replace(/^#{1,3}\s+/, ""))}
                 {li < lines.length - 1 && <br />}
               </span>
             ))}

@@ -50,6 +50,8 @@ describe("applyOutreachMerge", () => {
 describe("firstNameFromFullName", () => {
   it("takes the first word", () => {
     expect(firstNameFromFullName("Carlos Rivera")).toBe("Carlos");
+    expect(firstNameFromFullName("Site Supervisor Mark Quinn")).toBe("Mark");
+    expect(firstNameFromFullName("LIBI, MAURO")).toBe("MAURO");
     expect(firstNameFromFullName(null)).toBe("there");
   });
 });

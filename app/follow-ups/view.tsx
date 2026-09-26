@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { stripDemoLabel } from "@/lib/demo-display";
 import { ComposeOutreach } from "@/components/compose-outreach";
 import { SectionHeader } from "@/components/section-header";
 import {
@@ -15,6 +16,7 @@ import {
   createFollowUp,
   getFollowUps,
   listFollowUpLinkOptions,
+  snoozeFollowUps,
   type FollowUpRow,
 } from "./actions";
 
@@ -88,7 +90,7 @@ function FollowUpItemRow({
         <td className="px-3 py-2">
           <div className="flex items-start gap-2">
             <p className={cn("text-sm font-medium", isOverdue && "text-destructive")}>
-              {row.description}
+              {stripDemoLabel(row.description) ?? row.description}
             </p>
             {row.source_type === "lease_expiry" && (
               <span className="inline-flex items-center gap-1 shrink-0 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 mt-0.5">
@@ -428,6 +430,23 @@ export function FollowUpsView({
             )}
           </p>
         </div>
+        {overdue.length > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={isLoading}
+            onClick={() => {
+              startTransition(async () => {
+                await snoozeFollowUps(overdue.map((r) => r.id), 7);
+                const all = await getFollowUps("open");
+                setFollowUps(all);
+              });
+            }}
+          >
+            Snooze overdue 7d
+          </Button>
+        )}
         <Button
           onClick={() => setShowAdd((v) => !v)}
           size="sm"

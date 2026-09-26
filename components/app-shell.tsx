@@ -17,6 +17,7 @@ import { signOut } from "@/app/login/actions";
 import { BeaconBrand } from "@/components/beacon-logo";
 import { PageHelpButton } from "@/components/page-help-button";
 import { LS_USER_EMAIL } from "@/lib/email-provider";
+import { addCalendarDays, todayLocal } from "@/lib/dates";
 
 // ─── Nav entries ──────────────────────────────────────────────────────────────
 
@@ -24,7 +25,7 @@ type NavEntry = {
   href: string;
   icon: React.ElementType;
   label: string;
-  badge?: "outreach" | "leaseRadar";
+  badge?: "outreach" | "leaseRadar" | "tasks";
 };
 
 const NAV: NavEntry[] = [
@@ -35,6 +36,7 @@ const NAV: NavEntry[] = [
   { href: "/lease-radar",     icon: CalendarClock,   label: "Lease radar",  badge: "leaseRadar" },
   { href: "/outreach",        icon: Zap,             label: "Outreach",   badge: "outreach" },
   { href: "/week",            icon: ListTodo,        label: "This week" },
+  { href: "/follow-ups",      icon: CheckSquare,     label: "All tasks", badge: "tasks" },
   { href: "/settings",        icon: Settings2,       label: "Settings" },
 ];
 
@@ -212,6 +214,7 @@ function Sidebar({
           const badgeCount =
             badge === "outreach" ? overdueCount :
             badge === "leaseRadar" ? leaseRadarUrgentCount :
+            badge === "tasks" ? followUpsDueCount :
             undefined;
           return (
             <NavItem
@@ -242,24 +245,6 @@ function Sidebar({
           >
             <MapPinned className="size-3.5 shrink-0 text-muted-foreground/70" />
             Book map
-          </Link>
-          <Link
-            href="/follow-ups"
-            onClick={onClose}
-            className={cn(
-              "flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs transition-colors",
-              pathname.startsWith("/follow-ups")
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-            )}
-          >
-            <CheckSquare className="size-3.5 shrink-0 text-muted-foreground/70" />
-            <span className="flex-1">All tasks</span>
-            {followUpsDueCount > 0 && (
-              <span className="tabular-nums text-[10px] font-bold bg-destructive text-destructive-foreground rounded-full px-1.5 min-w-[1.125rem] text-center leading-5">
-                {followUpsDueCount > 99 ? "99+" : followUpsDueCount}
-              </span>
-            )}
           </Link>
           <Link
             href="/tours"
@@ -352,9 +337,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   async function fetchCounts() {
     const supabase = createClient();
-    const today = new Date().toISOString().slice(0, 10);
-
-    const ninetyDays = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+    const today = todayLocal();
+    const ninetyDays = addCalendarDays(today, 90);
 
     const [{ data: contactsForBadge }, { count: fuCount }, { count: leaseUrgent }, { data: settingsData }] = await Promise.all([
       supabase.from("contacts").select("contact_tier, last_contacted_at"),

@@ -203,7 +203,10 @@ export type CreateDealInput = {
 
 export type ValidationError = { field: string; message: string };
 
-export function validateCreateDeal(input: Partial<CreateDealInput>): ValidationError[] {
+export function validateCreateDeal(
+  input: Partial<CreateDealInput>,
+  opts: { requireCloseDate?: boolean } = { requireCloseDate: true },
+): ValidationError[] {
   const errors: ValidationError[] = [];
   const name = input.name?.trim() ?? "";
   if (!name) {
@@ -228,7 +231,9 @@ export function validateCreateDeal(input: Partial<CreateDealInput>): ValidationE
   ) {
     errors.push({ field: "estimated_commission", message: "Commission must be a positive number." });
   }
-  if (input.expected_close_date != null && isNaN(Date.parse(input.expected_close_date))) {
+  if (opts.requireCloseDate && !input.expected_close_date?.trim()) {
+    errors.push({ field: "expected_close_date", message: "Expected close date is required." });
+  } else if (input.expected_close_date != null && input.expected_close_date !== "" && isNaN(Date.parse(input.expected_close_date))) {
     errors.push({ field: "expected_close_date", message: "Expected close date is invalid." });
   }
   return errors;

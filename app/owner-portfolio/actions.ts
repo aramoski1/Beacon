@@ -18,6 +18,7 @@ import {
 } from "@/lib/owner-portfolio";
 import { aggregateRelatedEntities, aggregateRelatedPersons } from "@/lib/portfolio-graph";
 import { mergeEntityPropertyIds, propertyIdsForEntity, syncPropertyEntity } from "@/lib/entities";
+import { formatPsf } from "@/lib/format-money";
 import {
   contactIdsForProperties,
   propertyIdsForContact,
@@ -182,7 +183,7 @@ function buildTimeline(params: {
         title: `${leaseLabel(lease.source_document)} expires`,
         subtitle: [
           propAddr,
-          lease.base_rate != null ? `$${lease.base_rate}/sf` : null,
+          lease.base_rate != null ? formatPsf(lease.base_rate) : null,
         ].filter(Boolean).join(" · ") || undefined,
         property_id: lease.linked_property,
         property_address: propAddr,

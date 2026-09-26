@@ -330,9 +330,9 @@ export default function AuditView() {
         </Link>
         <h1 className="text-xl font-semibold tracking-tight">Data audit</h1>
         <p className="mt-1.5 text-sm text-muted-foreground max-w-prose">
-          Properties flagged for review based on three bad-data patterns left by
-          the old broken address endpoint. Review each record and delete if it
-          should not be in your Workspace.
+          Properties flagged for review — bad addresses, missing city, or
+          duplicate-looking rows. Review each record and delete if it should
+          not be in your Workspace.
         </p>
       </div>
 

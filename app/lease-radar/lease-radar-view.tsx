@@ -22,13 +22,15 @@ import {
   type LeaseRadarBucket,
   type RadarActionType,
   type RadarContactRef,
-  leaseLabel,
+  leaseDisplayTitle,
   fmtExpiry,
+  formatLeaseRate,
   rolloverHint,
   leaseOutreachContext,
   resolveOutreachContact,
   BUCKET_META,
 } from "@/lib/lease-radar";
+import { formatRentBand, lookupRentBand } from "@/lib/submarket-rent-bands";
 
 type DraftState =
   | { tag: "idle" }
@@ -198,7 +200,7 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
               href={`/abstracts/${entry.id}`}
               className="text-sm font-semibold hover:underline underline-offset-2 truncate"
             >
-              {leaseLabel(entry.source_document)}
+              {leaseDisplayTitle(entry)}
             </Link>
             {entry.property_address && entry.property_id ? (
               <Link
@@ -211,8 +213,26 @@ function LeaseRadarRow({ entry }: { entry: LeaseRadarEntry }) {
             ) : (
               <span className="text-xs text-muted-foreground">No property linked</span>
             )}
+            {entry.leased_sf != null && (
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {Math.round(entry.leased_sf).toLocaleString()} SF
+              </span>
+            )}
             {entry.base_rate != null && (
-              <span className="text-[11px] text-muted-foreground tabular-nums">${entry.base_rate}/sf</span>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {formatLeaseRate(entry.base_rate)}
+                {(() => {
+                  const band = lookupRentBand(entry.property_submarket);
+                  if (!band) return null;
+                  const mid = (band.nnnPsfLow + band.nnnPsfHigh) / 2;
+                  const vs = entry.base_rate < band.nnnPsfLow
+                    ? "below market"
+                    : entry.base_rate > band.nnnPsfHigh
+                      ? "above market"
+                      : "in-place";
+                  return ` · ${vs} (${formatRentBand(band)})`;
+                })()}
+              </span>
             )}
           </div>
 

@@ -5,17 +5,21 @@ import Link from "next/link";
 import { CheckSquare, CheckCircle2, Loader2, Building2, User, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { markFollowUpDone, type FollowUpRow } from "@/app/follow-ups/actions";
+import { formatLocalDate, todayLocal } from "@/lib/dates";
+import { stripDemoLabel } from "@/lib/demo-display";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDueDate(iso: string) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   if (iso === today) return "today";
-  const d = new Date(iso);
-  const diff = Math.floor((new Date(today).getTime() - d.getTime()) / 86_400_000);
+  const d = iso.slice(0, 10);
+  const todayMs = new Date(`${today}T12:00:00`).getTime();
+  const dueMs = new Date(`${d}T12:00:00`).getTime();
+  const diff = Math.floor((todayMs - dueMs) / 86_400_000);
   if (diff === 1) return "yesterday";
   if (diff > 1) return `${diff}d overdue`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return formatLocalDate(iso, { month: "short", day: "numeric" }) ?? iso;
 }
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
@@ -28,7 +32,7 @@ function FollowUpItem({
   onDone: (id: string) => void;
 }) {
   const [isPending, startTransition] = useTransition();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   const isOverdue = row.due_date < today;
   const isDueToday = row.due_date === today;
 
@@ -61,7 +65,7 @@ function FollowUpItem({
           "text-sm font-medium",
           isOverdue && "text-destructive"
         )}>
-          {row.description}
+          {stripDemoLabel(row.description) ?? row.description}
         </p>
         <div className="flex items-center gap-3 mt-0.5 flex-wrap">
           {row.contact_name && (
@@ -144,15 +148,14 @@ export function DashboardFollowUpList({
 // ─── Upcoming follow-ups (future due dates) ───────────────────────────────────
 
 function fmtUpcomingDate(iso: string) {
-  const d = new Date(iso + "T12:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(d);
-  due.setHours(0, 0, 0, 0);
-  const diff = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+  const today = todayLocal();
+  const due = iso.slice(0, 10);
+  const diff = Math.round(
+    (new Date(`${due}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86_400_000,
+  );
   if (diff === 1) return "tomorrow";
-  if (diff <= 7) return d.toLocaleDateString("en-US", { weekday: "short" });
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (diff <= 7) return formatLocalDate(iso, { weekday: "short" }) ?? iso;
+  return formatLocalDate(iso, { month: "short", day: "numeric" }) ?? iso;
 }
 
 export function UpcomingFollowUpList({ items }: { items: FollowUpRow[] }) {
@@ -174,7 +177,7 @@ export function UpcomingFollowUpList({ items }: { items: FollowUpRow[] }) {
               href={row.contact_id ? `/contacts/${row.contact_id}` : "/follow-ups"}
               className="text-sm font-medium hover:underline underline-offset-2"
             >
-              {row.description}
+              {stripDemoLabel(row.description) ?? row.description}
             </Link>
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
               {row.contact_name && row.contact_id && (

@@ -15,6 +15,7 @@ import {
   mergeVarsFromOccupancy,
   type OutreachMergeVars,
 } from "@/lib/outreach-merge";
+import { formatPsf } from "@/lib/format-money";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -386,7 +387,7 @@ export async function generateDrafts(
         .map((l) => ({
           expires: monthsUntil(l.expiration_date),
           expiration_date: l.expiration_date,
-          rate_per_sf: l.base_rate ? `$${l.base_rate}/sf` : null,
+          rate_per_sf: l.base_rate != null ? formatPsf(l.base_rate) : null,
           leased_sf: l.leased_sf,
           landlord: l.landlord_name,
         }))
@@ -510,7 +511,7 @@ INSTRUCTION: ${TEMPLATE_INSTRUCTIONS[template]}
 RULES — every rule is mandatory:
 1. 3–5 sentences. No filler openers, no padding.
 2. Never open with "I hope this email finds you well" or any generic phrase.
-3. REQUIRED: Every email must include at least one specific real fact from the contact data — a property address, lease expiration timing, ownership change event, exact days since last contact, or activity note. This is what makes it personal.
+3. REQUIRED: Every email must include at least one specific real fact from the contact data — a property address, lease expiration timing, ownership change event, or activity note. This is what makes it personal. Do not open with “it’s been N days since we last connected.”
 4. Match tone exactly to tier_tone.
 5. If recent_activities exist, reference the most recent one naturally (e.g., "Following up on our March call…").
 6. End with one short, low-friction ask (e.g., "Worth a quick call?" or "Happy to share more details.").
@@ -523,7 +524,7 @@ FACT PRIORITY — use the highest-priority fact available for each contact:
 - linked_properties[].leases[].expires → strongest hook: e.g. "your lease at 123 Main expires in 8 months"
 - linked_properties[].ownership_change.detected → timely hook: e.g. "following the ownership change at [address] 3 months ago"
 - linked_properties[].sold → market hook: e.g. "you picked up [address] about 14 months ago"
-- days_since_contact → relationship hook: e.g. "it's been 45 days since we last connected"
+- days_since_contact → use only as background, never as the greeting or first sentence
 - recent_activities → warmest personal hook: reference the activity type and date
 
 CONTACT DATA (recent_email_touches = how many of the last 4 logged activities were outreach emails — treat 2+ as a repeat touch under rule 8):

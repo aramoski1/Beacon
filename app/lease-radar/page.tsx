@@ -5,6 +5,8 @@ import { requireUser } from "@/lib/auth-require-user";
 import { getLeaseRadarData, syncLeaseFollowUps } from "./actions";
 import { LeaseRadarView } from "./lease-radar-view";
 
+export const metadata = { title: "Lease radar – Beacon" };
+
 export default async function LeaseRadarPage() {
   const supabase = await createClient();
   await requireUser(supabase);

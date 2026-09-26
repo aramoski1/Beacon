@@ -3,6 +3,8 @@ import {
   resolveOutreachContact,
   preferOwnerContactCandidate,
   leaseOutreachContext,
+  leaseDisplayTitle,
+  leaseLabel,
   type LeaseRadarEntry,
   type RadarContactRef,
 } from "../../lib/lease-radar";
@@ -46,6 +48,8 @@ function fullEntry(
     property_id: "p1",
     property_address: "100 Brickell Ave",
     property_owner_name: "Holdings LLC",
+    leased_sf: 80000,
+    property_submarket: "Doral",
     owner_contact: owner,
     tenant_contact: tenant,
     ...overrides,
@@ -141,5 +145,15 @@ describe("leaseOutreachContext", () => {
     const ctx = leaseOutreachContext(fullEntry(), "owner_renewal");
     expect(ctx).toContain("OWNER");
     expect(ctx.toLowerCase()).toMatch(/renewal|vacancy/);
+  });
+});
+
+describe("leaseDisplayTitle", () => {
+  it("prefers tenant, then address, and hides seed filenames", () => {
+    expect(leaseDisplayTitle({ tenant_contact: tenant, property_address: "100 NW", source_document: "seed:demo" }))
+      .toBe("Acme Tenant LLC");
+    expect(leaseDisplayTitle({ tenant_contact: null, property_address: "100 NW 25th St", source_document: "seed:demo" }))
+      .toBe("100 NW 25th St");
+    expect(leaseLabel("seed:demo")).toBe("Lease abstract");
   });
 });

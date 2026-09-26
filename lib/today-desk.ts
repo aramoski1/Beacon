@@ -3,6 +3,8 @@
  * Unions cadence outreach, follow-ups, deal next actions, ownership flips, and urgent leases.
  */
 
+import { addCalendarDays } from "@/lib/dates";
+
 export type TodayDeskKind =
   | "lease_urgent"
   | "option_notice"
@@ -144,7 +146,7 @@ export function buildTodayDeskItems(input: BuildTodayDeskInput): TodayDeskItem[]
           ? `Lease expires in ${l.daysUntilExpiry}d — radar can't wait`
           : `Lease expires in ${l.daysUntilExpiry}d (≤90d exposure)`,
       href: l.property_id ? `/properties/${l.property_id}` : "/lease-radar",
-      dueDate: null,
+      dueDate: addCalendarDays(today, l.daysUntilExpiry),
     });
   }
 
@@ -245,7 +247,13 @@ export function buildTodayDeskItems(input: BuildTodayDeskInput): TodayDeskItem[]
     });
   }
 
-  items.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  items.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const aDue = a.dueDate ?? "9999-12-31";
+    const bDue = b.dueDate ?? "9999-12-31";
+    if (aDue !== bDue) return aDue.localeCompare(bDue);
+    return a.title.localeCompare(b.title);
+  });
   const limit = input.limit ?? 12;
   return items.slice(0, limit);
 }

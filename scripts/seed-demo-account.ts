@@ -67,7 +67,7 @@ const STREETS = [
   "NW 107th Ave",
   "NW 12th Ave",
   "Le Jeune Rd",
-  "Bird Rd",
+  "NW 87th Ave",
   "Flagler St",
   "SW 8th St",
   "SW 40th St",
@@ -150,16 +150,16 @@ const PORTFOLIOS: LlcPortfolio[] = [
 ];
 
 const TENANTS = [
-  { name: "FedEx Ground — Miami Sort", company: "FedEx Ground", contact: "Ops Manager Luis Vega" },
-  { name: "Amazon DSP Hub", company: "Amazon Logistics", contact: "Site Lead Priya Shah" },
-  { name: "Sysco Miami", company: "Sysco Corporation", contact: "RE Manager Tom Bradley" },
-  { name: "HD Supply Facilities", company: "HD Supply", contact: "Facilities Dir. Kim Nguyen" },
-  { name: "Uline Distribution", company: "Uline", contact: "Warehouse Mgr. Rob Alvarez" },
-  { name: "Performance Team", company: "Performance Team LLC", contact: "GM Elena Soto" },
-  { name: "XPO Logistics", company: "XPO Logistics", contact: "Site Supervisor Mark Quinn" },
-  { name: "Lineage Logistics", company: "Lineage", contact: "Cold Storage Lead Ava Brooks" },
-  { name: "Goya Foods Warehouse", company: "Goya Foods", contact: "Plant Mgr. Hector Diaz" },
-  { name: "Pepsi Beverages FL", company: "PepsiCo", contact: "RE Coord. Natalie Cho" },
+  { name: "FedEx Ground — Miami Sort", company: "FedEx Ground", contact: "Luis Vega", role: "Ops Manager" },
+  { name: "Amazon DSP Hub", company: "Amazon Logistics", contact: "Priya Shah", role: "Site Lead" },
+  { name: "Sysco Miami", company: "Sysco Corporation", contact: "Tom Bradley", role: "RE Manager" },
+  { name: "HD Supply Facilities", company: "HD Supply", contact: "Kim Nguyen", role: "Facilities Director" },
+  { name: "Uline Distribution", company: "Uline", contact: "Rob Alvarez", role: "Warehouse Manager" },
+  { name: "Performance Team", company: "Performance Team LLC", contact: "Elena Soto", role: "GM" },
+  { name: "XPO Logistics", company: "XPO Logistics", contact: "Mark Quinn", role: "Site Supervisor" },
+  { name: "Lineage Logistics", company: "Lineage", contact: "Ava Brooks", role: "Cold Storage Lead" },
+  { name: "Goya Foods Warehouse", company: "Goya Foods", contact: "Hector Diaz", role: "Plant Manager" },
+  { name: "Pepsi Beverages FL", company: "PepsiCo", contact: "Natalie Cho", role: "RE Coordinator" },
 ];
 
 const DEAL_SPECS: { name: string; deal_type: string; stage: string; commission: number }[] = [
@@ -314,10 +314,10 @@ const INDUSTRIAL_FIELD_DEFS: {
 ];
 
 const OWNER_CRITERIA = [
-  { cap: 6.5, markets: ["Airport West", "Doral"], min: 50000, max: 200000, days: 48, notes: "1031 from Palmetto sale — warehouse / last-mile only" },
+  { cap: 6.5, markets: ["Airport West", "Doral"], min: 50000, max: 200000, days: 180, notes: "1031 from Palmetto sale — warehouse / last-mile only" },
   { cap: 5.75, markets: ["Beacon Lakes", "Doral"], min: 80000, max: 300000, days: null as number | null, notes: "Core institutional industrial; ESFR + 32' clear preferred" },
   { cap: 7.0, markets: ["Medley", "Flagler"], min: 25000, max: 80000, days: 90, notes: "Value-add flex; older stock OK if dock-high" },
-  { cap: 6.25, markets: ["South Dade", "Homestead"], min: 20000, max: 120000, days: 22, notes: "Tight 1031 clock — South Dade / Homestead industrial" },
+  { cap: 6.25, markets: ["South Dade", "Homestead"], min: 20000, max: 120000, days: 120, notes: "1031 clock — South Dade / Homestead industrial" },
   { cap: 6.0, markets: ["Airport West"], min: 80000, max: 160000, days: null, notes: "Airport West only; 3-phase power required" },
   { cap: 6.75, markets: ["Hialeah"], min: 15000, max: 50000, days: 70, notes: "Hialeah flex / multi-tenant; 15–50k SF" },
 ];
@@ -575,14 +575,15 @@ async function main() {
          geographic_category, relationship_stage, lead_source,
          last_contacted_at, notes, visibility
        ) VALUES (
-         $1,$2,$3,$4,'Tenant contact',$5,$6,
-         $7,'prospect','tenant',$8,'Miami-Dade','prospect',$9,$10,$11,'private'
+         $1,$2,$3,$4,$5,$6,$7,
+         $8,'prospect','tenant',$9,'Miami-Dade','prospect',$10,$11,$12,'private'
        )`,
       [
         cid,
         userId,
         t.contact,
         t.company,
+        t.role,
         `tenant${i + 1}@${t.company.toLowerCase().replace(/[^a-z0-9]+/g, "")}.demo`,
         `(305) 555-${String(200 + i).padStart(4, "0")}`,
         (i % 3) + 1,
@@ -681,6 +682,7 @@ async function main() {
         ownershipFlip
           ? JSON.stringify({
               previous_owner: "PRIOR OWNER LLC",
+              new_owner: portfolio.llc,
               detected_via: "seed:demo",
               note: "Synthetic ownership change for Today desk",
             })
@@ -758,16 +760,16 @@ async function main() {
         exec,
         exp,
         `${randInt(3, 10)} years`,
-        randInt(8, 28) + Math.random(),
+        Number((randInt(8, 28) + Math.random()).toFixed(2)),
         Math.round(prop.sqft * (0.4 + Math.random() * 0.5)),
         PORTFOLIOS[prop.portfolioIdx].llc,
         JSON.stringify([{ type: "annual", amount: "3%" }]),
         JSON.stringify([{ type: "renewal", description: "Two 5-year renewals", notice_period: "6 months" }]),
-        JSON.stringify({
-          tenant: tenant.name,
-          use: "Warehousing and distribution",
-          notes: "[Demo] Synthetic abstract",
-        }),
+        JSON.stringify([
+          { provision: `Tenant: ${tenant.name}` },
+          { provision: "Use: Warehousing and distribution" },
+          { provision: "[Demo] Synthetic abstract" },
+        ]),
         DEMO_SOURCE,
         tenantContactIds[tenantIdx],
       ],
@@ -916,7 +918,7 @@ async function main() {
         prop.id,
         i < dealIds.length ? dealIds[i % dealIds.length] : null,
         atype,
-        daysAgo(randInt(0, 90)).toISOString(),
+        (i < 12 ? daysAgo(randInt(0, 6)) : daysAgo(randInt(7, 90))).toISOString(),
         `[Demo] ${atype} — ${pick(["Discussed renewal", "Left voicemail", "Sent comps", "Tour follow-up", "Ownership intro"])}`,
       ],
     );
@@ -924,7 +926,7 @@ async function main() {
 
   // ── Follow-ups (manual + lease-linked) ─────────────────────────────────────
   console.log("Inserting follow-ups…");
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 8; i++) {
     const contactId = ownerContactIds[i % ownerContactIds.length];
     const prop = propertyMeta[i * 3 % propertyMeta.length];
     await db.query(
@@ -942,7 +944,7 @@ async function main() {
     );
   }
 
-  for (const lease of leaseIds.filter((l) => ["30", "60", "90"].includes(l.bucket)).slice(0, 20)) {
+  for (const lease of leaseIds.filter((l) => ["30", "60", "90"].includes(l.bucket)).slice(0, 8)) {
     await db.query(
       `INSERT INTO follow_ups (
          owner_id, contact_id, property_id, lease_id, lease_bucket,

@@ -123,7 +123,10 @@ export function selectLeaseComps(
     });
   }
 
-  rows.sort((a, b) => {
+  const typed = typ ? rows.filter((r) => r.sameType) : [];
+  const pool = typed.length >= 2 ? typed : rows;
+
+  pool.sort((a, b) => {
     const ds = scoreLeaseComp(b) - scoreLeaseComp(a);
     if (ds !== 0) return ds;
     // Prefer closer SF when both have size
@@ -136,7 +139,7 @@ export function selectLeaseComps(
     return (a.address ?? "").localeCompare(b.address ?? "");
   });
 
-  return rows.slice(0, limit);
+  return pool.slice(0, limit);
 }
 
 export function leaseCompsEmptyCopy(hasAnyAbstractsInBook: boolean): string {

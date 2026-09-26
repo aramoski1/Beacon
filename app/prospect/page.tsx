@@ -3,6 +3,8 @@ import { requireUser } from "@/lib/auth-require-user";
 import { listBuyBoxes } from "./actions";
 import ProspectView from "./view";
 
+export const metadata = { title: "Prospect – Beacon" };
+
 export default async function ProspectPage() {
   const supabase = await createClient();
   await requireUser(supabase);
