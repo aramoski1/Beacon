@@ -134,6 +134,7 @@ export type ExtractedProperty = {
     dor_description?: string | null;
     legal_description?: string | null;
     assessed_value?: number | null;
+    mdpa_extras?: string | null;
   };
   confidence_flags: { field: string; reason: string }[];
   custom_fields?: Record<string, string | number | null>;
@@ -289,6 +290,7 @@ export async function savePipelineProperty(
       size_sqft: fields.size_sqft,
       land_sqft: bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null,
       building_composition: bc,
+      ...persist.columns,
     },
   );
   const id = await upsertProperty(supabase, userId, {

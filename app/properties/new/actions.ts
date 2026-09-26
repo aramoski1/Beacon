@@ -4,7 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { detectCounty, parseCityFromAddress, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
-import { getPropertyDetail as mdpaDetail, extractOwnerMailing as mdpaExtractMailing, overlayMdpaOnExtracted } from "@/lib/mdpa";
+import {
+  extractOwnerMailing as mdpaExtractMailing,
+  loadMdpaFolioSources,
+  mdpaExtractHint,
+  MDPA_SYSTEM_PROMPT,
+  overlayMdpaOnExtracted,
+} from "@/lib/mdpa";
+import { decodeSketchHtml } from "@/lib/mdpa-industrial";
 import {
   getPropertyDetail as pbcpaDetail,
   extractOwnerMailing as pbcpaExtractMailing,
@@ -448,8 +455,11 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
 
   // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────────
   let detail: unknown;
+  let sketchText: string | null = null;
   try {
-    detail = await mdpaDetail(strap);
+    const loaded = await loadMdpaFolioSources(strap);
+    detail = loaded.detail;
+    sketchText = loaded.sketchText;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logIngestionError(supabase, user.id, {
@@ -461,42 +471,23 @@ export async function ingestChosenFolio(formData: FormData): Promise<IngestResul
     return { error: `MDPA detail fetch failed: ${msg}` };
   }
 
-  const hint = `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
-Field locations in this record:
-- owner_name: OwnerInfos[0].Name (primary owner; ignore Owner2/Owner3)
-- size_sqft: PropertyInfo.BuildingActualArea (rentable/building area — NOT LotSize)
-- last_sale_date / last_sale_price: most recent entry in SalesInfos[] by date
-- building_composition.year_built: PropertyInfo.YearBuilt
-- building_composition.lot_size_sqft: PropertyInfo.LotSize
-- building_composition.stories: PropertyInfo.Stories (may appear as ActualStories)
-- building_composition.units: PropertyInfo.Units (may appear as NoOfUnits)
-- building_composition.dor_code: PropertyInfo.DORCode
-- building_composition.assessed_value: PropertyInfo.AssessedValue
-- building_composition.legal_description: PropertyInfo.LegalDescription
-- submarket / geographic_category: not present in MDPA data — leave null`;
-
-  const MDPA_SYSTEM_PROMPT = `You are a data-structuring assistant. You receive a JSON record from the Miami-Dade County Property Appraiser API and must populate a structured schema using ONLY data that is explicitly present in that record.
-
-STRICT RULES — violation is not permitted:
-1. Return a field value ONLY when it appears directly in the source JSON. Read it; do not compute or guess it.
-2. Do NOT use your training knowledge about this address, neighborhood, city, market, or owner — even if you recognise the name or location. The source record is the only authorised data source.
-3. For every field whose value is absent from the source JSON, return null AND add a confidence_flag: { "field": "<name>", "reason": "not found in source record" }.
-4. Never output an empty confidence_flags array if any field is null.
-5. Exceptions where limited inference is permitted because it reads from the source data:
-   a. ownership_type: derive from the literal owner name string in the source — presence of LLC / CORP / INC / TRUST / FUND / REIT → "institutional"; government keywords (CITY, COUNTY, STATE, GOVT) → "institutional"; individual human-style names → "private".
-   b. property_type: derive from the numeric DORCode in the source using Florida DOR mappings: 01 = "residential"; 03/04/08 = "multifamily"; 20–28 = "retail"; 30–39 = "office"; 40–49 = "industrial"; 11–18 = "land". If DORCode is absent, return null and flag.`;
-
   const customExtractFields = await propertyExtractFieldDefs(supabase, user.id);
+  const sketchPlain = sketchText ? decodeSketchHtml(sketchText).slice(0, 4_000) : "";
 
   let fields: ExtractedProperty;
   try {
     fields = overlayMdpaOnExtracted(
       await extractPropertyFields(
-        { type: "text", text: JSON.stringify(detail, null, 2), hint },
+        {
+          type: "text",
+          text: [JSON.stringify(detail, null, 2), sketchPlain ? `\n\nBuilding sketch text:\n${sketchPlain}` : ""].join(""),
+          hint: mdpaExtractHint(strap, siteAddress),
+        },
         MDPA_SYSTEM_PROMPT,
         customExtractFields
       ),
       detail,
+      sketchText,
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -1,5 +1,5 @@
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
-import { isCustomGroup } from "@/lib/industrial-fields";
+import { INDUSTRIAL_COLUMN_BY_SLUG, isCustomGroup, type IndustrialFields } from "@/lib/industrial-fields";
 
 export type BuiltinFieldSource = {
   size_sqft?: number | null;
@@ -14,7 +14,7 @@ export type BuiltinFieldSource = {
     units?: number | null;
     assessed_value?: number | null;
   } | null;
-};
+} & Partial<IndustrialFields>;
 
 const YEAR_BUILT_SLUGS = new Set(["year_built", "yearbuilt", "yr_built", "yr_blt", "year_of_construction"]);
 const STORIES_SLUGS = new Set(["stories", "number_of_stories"]);
@@ -39,6 +39,11 @@ export function builtinValueForCustomSlug(
   if (LOT_SLUGS.has(slug)) return bc?.lot_size_sqft ?? source.land_sqft ?? null;
   if (ASSESSED_SLUGS.has(slug)) return bc?.assessed_value ?? null;
   if (BUILDING_SF_SLUGS.has(slug)) return source.size_sqft ?? null;
+  const industrialCol = INDUSTRIAL_COLUMN_BY_SLUG[slug];
+  if (industrialCol) {
+    const value = source[industrialCol];
+    return value != null && value !== "" ? value : null;
+  }
   return null;
 }
 

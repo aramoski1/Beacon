@@ -39,7 +39,12 @@ describe("builtinValueForCustomSlug", () => {
   });
 
   it("returns null for unknown slugs", () => {
-    expect(builtinValueForCustomSlug("clear_height", source)).toBeNull();
+    expect(builtinValueForCustomSlug("foo_bar", source)).toBeNull();
+  });
+
+  it("reads industrial columns for Workspace slugs", () => {
+    expect(builtinValueForCustomSlug("dock_doors", { ...source, dock_doors: 4 })).toBe(4);
+    expect(builtinValueForCustomSlug("clear_height", { ...source, clear_height_ft: 32 })).toBe(32);
   });
 });
 
@@ -71,6 +76,10 @@ describe("resolveCustomFieldValue", () => {
 
   it("falls back to the county year when the custom field is empty", () => {
     expect(resolveCustomFieldValue("year_built", {}, source)).toBe(2019);
+  });
+
+  it("falls back to the industrial column when the custom slug is empty", () => {
+    expect(resolveCustomFieldValue("dock_doors", {}, { dock_doors: 4 })).toBe(4);
   });
 });
 

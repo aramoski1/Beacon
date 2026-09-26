@@ -22,12 +22,17 @@ vi.mock("@/lib/property-pipeline", async (importOriginal) => {
   return { ...actual, extractPropertyFields: vi.fn() };
 });
 
-vi.mock("@/lib/mdpa", () => ({
-  searchByAddressGIS: vi.fn(),
-  getPropertyDetail: vi.fn(),
-  extractOwnerMailing: vi.fn().mockReturnValue(null),
-  parseAddressForGIS: vi.fn(),
-}));
+vi.mock("@/lib/mdpa", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mdpa")>();
+  return {
+    ...actual,
+    searchByAddressGIS: vi.fn(),
+    getPropertyDetail: vi.fn(),
+    loadMdpaFolioSources: vi.fn(),
+    extractOwnerMailing: vi.fn().mockReturnValue(null),
+    parseAddressForGIS: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/magis", () => ({
   searchByAddressGIS: vi.fn(),
@@ -49,7 +54,7 @@ vi.mock("@/lib/sunbiz", async (importOriginal) => {
 import { createClient } from "@/lib/supabase/server";
 import { fetchFieldDefs, type FieldDefinition } from "@/lib/custom-fields";
 import { extractPropertyFields, type ExtractedProperty } from "@/lib/property-pipeline";
-import { getPropertyDetail } from "@/lib/mdpa";
+import { getPropertyDetail, loadMdpaFolioSources } from "@/lib/mdpa";
 import { getPropertyDetail as magisGetPropertyDetail, type MARecord } from "@/lib/magis";
 import { searchAndExtractSunbiz } from "@/lib/sunbiz";
 import { previewCountyEnhancement, applyDocumentEnhancement } from "@/app/properties/[id]/actions";
@@ -171,7 +176,10 @@ describe("previewCountyEnhancement — custom-field pass-through", () => {
     }, { fieldDefs: customDefs });
     (createClient as Mock).mockResolvedValue(supabase);
 
-    (getPropertyDetail as Mock).mockResolvedValue({ OwnerInfos: [{ Name: "John Smith" }] });
+    (loadMdpaFolioSources as Mock).mockResolvedValue({
+      detail: { OwnerInfos: [{ Name: "John Smith" }] },
+      sketchText: null,
+    });
     (extractPropertyFields as Mock).mockResolvedValue(extractedProperty());
 
     // 13-digit strap → Miami-Dade branch (Broward straps are 12 digits)
@@ -327,7 +335,10 @@ describe("applyDocumentEnhancement", () => {
   });
 
   it("writes an accepted conflict field", async () => {
-    const { supabase, updates } = buildSupabaseSpy(existingRow, {
+    const { supabase, updates } = buildSupabaseSpy({
+      ...existingRow,
+      field_sources: {},
+    }, {
       fieldDefs: [fieldDef({ field_name: "Dock Doors" })],
     });
     (createClient as Mock).mockResolvedValue(supabase);

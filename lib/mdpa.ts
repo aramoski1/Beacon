@@ -9,6 +9,12 @@
 // Folio detail still uses PaServicesProxy (GetPropertySearchByFolio still works).
 
 import type { ExtractedProperty } from "@/lib/property-pipeline";
+import {
+  industrialSpecsFromMdpa,
+  mergeMdpaIndustrialOntoExtracted,
+  mdpaExtrasNote,
+  yearBuiltFromBuildingInfos,
+} from "@/lib/mdpa-industrial";
 
 const PA_BASE =
   "https://apps.miamidadepa.gov/PApublicServiceProxy/PaServicesProxy.ashx";
@@ -206,6 +212,75 @@ export async function getPropertyDetail(strap: string): Promise<unknown> {
   });
   if (!res.ok) throw new Error(`MDPA folio lookup failed: HTTP ${res.status}`);
   return res.json();
+}
+
+const SKETCH_BASE = "https://apps.miamidadepa.gov/PAOnlineTools/PropertySketch/Sketch.aspx";
+
+/** Public building-sketch HTML. Fail-open: returns null on timeout or HTTP error. */
+export async function fetchMdpaSketchHtml(strap: string, year?: number): Promise<string | null> {
+  const url = new URL(SKETCH_BASE);
+  url.searchParams.set("Folio", stripDashes(strap));
+  if (year != null) url.searchParams.set("year", String(year));
+  try {
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 0 },
+      headers: { Accept: "text/html" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+export async function loadMdpaFolioSources(
+  strap: string,
+): Promise<{ detail: unknown; sketchText: string | null }> {
+  const calendarYear = new Date().getUTCFullYear();
+  const [detail, firstSketch] = await Promise.all([
+    getPropertyDetail(strap),
+    fetchMdpaSketchHtml(strap, calendarYear),
+  ]);
+  let sketchText = firstSketch;
+  const rollYear = (detail as { RollYear1?: number } | null)?.RollYear1;
+  if (
+    rollYear
+    && rollYear !== calendarYear
+    && (!sketchText || /no sketch on file/i.test(sketchText))
+  ) {
+    sketchText = await fetchMdpaSketchHtml(strap, rollYear);
+  }
+  return { detail, sketchText };
+}
+
+export const MDPA_SYSTEM_PROMPT = `You are a data-structuring assistant. You receive a JSON record from the Miami-Dade County Property Appraiser API (and optional building-sketch text) and must populate a structured schema using ONLY data that is explicitly present in that record.
+
+STRICT RULES — violation is not permitted:
+1. Return a field value ONLY when it appears directly in the source JSON or sketch text. Read it; do not compute or guess it.
+2. Do NOT use your training knowledge about this address, neighborhood, city, market, or owner — even if you recognise the name or location. The source record is the only authorised data source.
+3. For every field whose value is absent from the source JSON, return null AND add a confidence_flag: { "field": "<name>", "reason": "not found in source record" }.
+4. Never output an empty confidence_flags array if any field is null.
+5. Exceptions where limited inference is permitted because it reads from the source data:
+   a. ownership_type: derive from the literal owner name string in the source — presence of LLC / CORP / INC / TRUST / FUND / REIT → "institutional"; government keywords (CITY, COUNTY, STATE, GOVT) → "institutional"; individual human-style names → "private".
+   b. property_type: derive from the numeric DORCode in the source using Florida DOR mappings: 01 = "residential"; 03/04/08 = "multifamily"; 20–28 = "retail"; 30–39 = "office"; 40–49 = "industrial"; 11–18 = "land". If DORCode is absent, return null and flag.
+6. Building.BuildingInfos and ExtraFeature.ExtraFeatureInfos (current roll year) and any attached sketch text may contain stated industrial specs. Copy dock/door counts and clear height only when the text names them. Do not treat "Height Factor - Wall Area Above N ft", DOR 40–49, lot size, or sketch codes LPF/XHT/WHS as a dock count or clear height.`;
+
+export function mdpaExtractHint(strap: string, siteAddress: string): string {
+  return `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
+Field locations in this record:
+- owner_name: OwnerInfos[0].Name (primary owner; ignore Owner2/Owner3)
+- size_sqft: PropertyInfo.BuildingActualArea (rentable/building area — NOT LotSize)
+- last_sale_date / last_sale_price: most recent entry in SalesInfos[] by date
+- building_composition.year_built: PropertyInfo.YearBuilt, or Building.BuildingInfos[].Actual when YearBuilt is "Multiple (See Building Info.)"
+- building_composition.lot_size_sqft: PropertyInfo.LotSize
+- building_composition.stories: PropertyInfo.Stories / ActualStories / FloorCount
+- building_composition.units: PropertyInfo.Units (may appear as NoOfUnits)
+- building_composition.dor_code: PropertyInfo.DORCode
+- building_composition.assessed_value: PropertyInfo.AssessedValue
+- building_composition.legal_description: PropertyInfo.LegalDescription
+- Building.BuildingInfos[] and ExtraFeature.ExtraFeatureInfos[] (current RollYear): copy docks/doors/clear height only when Description names them. Height Factor is not clear height. Sketch codes WHS/OIG/LPF/XHT are not numeric specs.
+- submarket / geographic_category: not present in MDPA data — leave null`;
 }
 
 /** Owner mailing address from MDPA folio JSON (root MailingAddress, with OwnerInfos fallback). */
@@ -512,19 +587,22 @@ function mdpaNumber(info: Record<string, unknown>, ...keys: string[]): number | 
 export function parseMdpaPropertyInfo(raw: unknown): MdpaPropertyInfo {
   const info = (raw as { PropertyInfo?: Record<string, unknown> } | null)?.PropertyInfo ?? {};
   return {
-    yearBuilt: mdpaNumber(info, "YearBuilt", "ActualYearBuilt", "EffectiveYearBuilt"),
+    yearBuilt:
+      mdpaNumber(info, "YearBuilt", "ActualYearBuilt", "EffectiveYearBuilt")
+      ?? yearBuiltFromBuildingInfos(raw),
     lotSize: mdpaNumber(info, "LotSize"),
-    stories: mdpaNumber(info, "Stories", "ActualStories"),
+    stories: mdpaNumber(info, "Stories", "ActualStories", "FloorCount"),
     units: mdpaNumber(info, "Units", "NoOfUnits"),
     assessedValue: mdpaNumber(info, "AssessedValue"),
     buildingArea: mdpaNumber(info, "BuildingActualArea", "BuildingAdjustedArea"),
   };
 }
 
-/** Fill empty extract fields from MDPA PropertyInfo so custom aliases (Year Built) can copy them. */
+/** Fill empty extract fields from MDPA PropertyInfo, building cards, extras, and sketch. */
 export function overlayMdpaOnExtracted(
   fields: ExtractedProperty,
   raw: unknown,
+  sketchText?: string | null,
 ): ExtractedProperty {
   const info = parseMdpaPropertyInfo(raw);
   const bc = { ...(fields.building_composition ?? {}) };
@@ -533,9 +611,17 @@ export function overlayMdpaOnExtracted(
   if (bc.stories == null && info.stories != null) bc.stories = info.stories;
   if (bc.units == null && info.units != null) bc.units = info.units;
   if (bc.assessed_value == null && info.assessedValue != null) bc.assessed_value = info.assessedValue;
-  return {
-    ...fields,
-    size_sqft: fields.size_sqft ?? info.buildingArea,
-    building_composition: bc,
-  };
+  if (bc.mdpa_extras == null) {
+    const extras = mdpaExtrasNote(raw);
+    if (extras) bc.mdpa_extras = extras;
+  }
+  const merged = mergeMdpaIndustrialOntoExtracted(
+    {
+      ...fields,
+      size_sqft: fields.size_sqft ?? info.buildingArea,
+      building_composition: bc,
+    },
+    industrialSpecsFromMdpa(raw, sketchText),
+  );
+  return merged;
 }

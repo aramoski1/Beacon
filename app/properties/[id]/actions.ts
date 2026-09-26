@@ -10,7 +10,16 @@ import {
 } from "@/lib/owner-contacts";
 import { logIngestionError } from "@/lib/ingestion-logger";
 import { extractCoStarOwner, type CoStarOwner, type CoStarContact, type CoStarFileContent } from "@/lib/costar";
-import { searchByAddressGIS, getPropertyDetail, extractOwnerMailing, overlayMdpaOnExtracted } from "@/lib/mdpa";
+import {
+  searchByAddressGIS,
+  getPropertyDetail,
+  extractOwnerMailing,
+  overlayMdpaOnExtracted,
+  loadMdpaFolioSources,
+  mdpaExtractHint,
+  MDPA_SYSTEM_PROMPT,
+} from "@/lib/mdpa";
+import { decodeSketchHtml } from "@/lib/mdpa-industrial";
 import { detectCounty, searchParcelsByAddress, type SupportedCounty } from "@/lib/county-router";
 import { getPropertyDetail as bcpaDetail, extractOwnerMailing as bcpaExtractMailing, type BCPARecord } from "@/lib/bcpa";
 import {
@@ -37,7 +46,7 @@ import { ownersDiffer, saleDatesDiffer } from "@/lib/ownership-watch";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { fillCustomFieldsFromBuiltins } from "@/lib/custom-field-aliases";
 import { INDUSTRIAL_SELECT, fetchIndustrialFieldDefs, industrialColumnForSlug, propertyExtractFieldDefs } from "@/lib/industrial-fields";
-import { INDUSTRIAL_FIELD_KEYS, persistIndustrialFromExtract, yardAcresFromLandSqft } from "@/lib/industrial-extract";
+import { INDUSTRIAL_FIELD_KEYS, industrialFieldLabel, persistIndustrialFromExtract, yardAcresFromLandSqft } from "@/lib/industrial-extract";
 import { fetchListingText } from "@/lib/listing-fetch";
 import { computeDocumentDiff, type DocumentDiffEntry, type ExistingPropertyForDiff } from "@/lib/document-enhancement";
 import {
@@ -394,6 +403,18 @@ export type MdpaEnhancementData = {
   // e.g. clear height / dock doors when the source happens to carry them.
   custom_fields?: Record<string, string | number | null> | null;
   custom_field_flags?: { field: string; reason: string }[];
+  clear_height_ft?: number | null;
+  dock_doors?: number | null;
+  drive_in_doors?: number | null;
+  power_amps?: number | null;
+  power_phase?: string | null;
+  yard_acres?: number | null;
+  column_spacing?: string | null;
+  sprinkler_type?: string | null;
+  availability_status?: string | null;
+  asking_rent_psf?: number | null;
+  nnn_cam_psf?: number | null;
+  lease_structure?: string | null;
 };
 
 export type EnhancementDiffEntry = {
@@ -549,7 +570,7 @@ export async function previewCountyEnhancement(
   const { data: existing } = await supabase
     .from("properties")
     .select(
-      "owner_name, size_sqft, last_sale_date, last_sale_price, building_composition, owner_mailing_address, land_sqft, asset_description"
+      `owner_name, size_sqft, last_sale_date, last_sale_price, building_composition, owner_mailing_address, land_sqft, asset_description, ${INDUSTRIAL_SELECT}`
     )
     .eq("id", propertyId)
     .eq("owner_id", user.id)
@@ -687,47 +708,31 @@ export async function previewCountyEnhancement(
   } else {
     // ── Miami-Dade: raw JSON → Claude extraction ──────────────────────────────
     let detail: unknown;
+    let sketchText: string | null = null;
     try {
-      detail = await getPropertyDetail(strap);
+      const loaded = await loadMdpaFolioSources(strap);
+      detail = loaded.detail;
+      sketchText = loaded.sketchText;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { error: `MDPA detail fetch failed: ${msg}` };
     }
 
-    const hint = `Miami-Dade Property Appraiser JSON for folio ${strap} (${siteAddress}).
-Field locations in this record:
-- owner_name: OwnerInfos[0].Name (primary owner; ignore Owner2/Owner3)
-- size_sqft: PropertyInfo.BuildingActualArea (rentable/building area — NOT LotSize)
-- last_sale_date / last_sale_price: most recent entry in SalesInfos[] by date
-- building_composition.year_built: PropertyInfo.YearBuilt
-- building_composition.lot_size_sqft: PropertyInfo.LotSize
-- building_composition.stories: PropertyInfo.Stories (may appear as ActualStories)
-- building_composition.units: PropertyInfo.Units (may appear as NoOfUnits)
-- building_composition.dor_code: PropertyInfo.DORCode
-- building_composition.assessed_value: PropertyInfo.AssessedValue
-- building_composition.legal_description: PropertyInfo.LegalDescription
-- submarket / geographic_category: not present in MDPA data — leave null`;
-
-    const MDPA_SYSTEM_PROMPT = `You are a data-structuring assistant. You receive a JSON record from the Miami-Dade County Property Appraiser API and must populate a structured schema using ONLY data that is explicitly present in that record.
-
-STRICT RULES — violation is not permitted:
-1. Return a field value ONLY when it appears directly in the source JSON. Read it; do not compute or guess it.
-2. Do NOT use your training knowledge about this address, neighborhood, city, market, or owner — even if you recognise the name or location. The source record is the only authorised data source.
-3. For every field whose value is absent from the source JSON, return null AND add a confidence_flag: { "field": "<name>", "reason": "not found in source record" }.
-4. Never output an empty confidence_flags array if any field is null.
-5. Exceptions where limited inference is permitted because it reads from the source data:
-   a. ownership_type: derive from the literal owner name string in the source — presence of LLC / CORP / INC / TRUST / FUND / REIT → "institutional"; government keywords (CITY, COUNTY, STATE, GOVT) → "institutional"; individual human-style names → "private".
-   b. property_type: derive from the numeric DORCode in the source using Florida DOR mappings: 01 = "residential"; 03/04/08 = "multifamily"; 20–28 = "retail"; 30–39 = "office"; 40–49 = "industrial"; 11–18 = "land". If DORCode is absent, return null and flag.`;
-
+    const sketchPlain = sketchText ? decodeSketchHtml(sketchText).slice(0, 4_000) : "";
     let fields: ExtractedProperty;
     try {
       fields = overlayMdpaOnExtracted(
         await extractPropertyFields(
-          { type: "text", text: JSON.stringify(detail, null, 2), hint },
+          {
+            type: "text",
+            text: [JSON.stringify(detail, null, 2), sketchPlain ? `\n\nBuilding sketch text:\n${sketchPlain}` : ""].join(""),
+            hint: mdpaExtractHint(strap, siteAddress),
+          },
           MDPA_SYSTEM_PROMPT,
           customExtractFields
         ),
         detail,
+        sketchText,
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -745,6 +750,18 @@ STRICT RULES — violation is not permitted:
       land_sqft: bc?.lot_size_sqft != null ? Math.round(bc.lot_size_sqft as number) : null,
       asset_description: (bc?.dor_description as string | null | undefined) ?? null,
       custom_fields: fields.custom_fields ?? null,
+      clear_height_ft: fields.clear_height_ft ?? null,
+      dock_doors: fields.dock_doors ?? null,
+      drive_in_doors: fields.drive_in_doors ?? null,
+      power_amps: fields.power_amps ?? null,
+      power_phase: fields.power_phase ?? null,
+      yard_acres: fields.yard_acres ?? null,
+      column_spacing: fields.column_spacing ?? null,
+      sprinkler_type: fields.sprinkler_type ?? null,
+      availability_status: fields.availability_status ?? null,
+      asking_rent_psf: fields.asking_rent_psf ?? null,
+      nnn_cam_psf: fields.nnn_cam_psf ?? null,
+      lease_structure: fields.lease_structure ?? null,
       custom_field_flags: (fields.confidence_flags ?? []).filter(
         (f) => f.field.startsWith("custom_fields.") || customExtractFields.some((d) => fieldSlug(d.field_name) === f.field)
       ).map((f) => ({
@@ -783,6 +800,16 @@ STRICT RULES — violation is not permitted:
     { field: "building_composition.units",          label: "Units",           before: existingBc?.units != null          ? String(existingBc.units)          : null, after: bc?.units != null          ? String(bc.units)          : null },
     { field: "building_composition.dor_code",       label: "DOR code",        before: (existingBc?.dor_code as string | null) ?? null,                             after: (bc?.dor_code as string | null) ?? null },
     { field: "building_composition.assessed_value", label: "Assessed value",  before: fmtN(existingBc?.assessed_value as number | null, currency),               after: fmtN(bc?.assessed_value as number | null, currency) },
+    ...INDUSTRIAL_FIELD_KEYS.map((key) => {
+      const before = (existing as Record<string, unknown>)[key];
+      const after = mdpaData[key];
+      return {
+        field: key,
+        label: industrialFieldLabel(key),
+        before: before != null && before !== "" ? String(before) : null,
+        after: after != null && after !== "" ? String(after) : null,
+      };
+    }),
   ];
 
   const changes   = allFields.filter((f) => f.before !== f.after);
@@ -1056,6 +1083,18 @@ export async function applyCountyEnhancement(
         units?: number | null;
         assessed_value?: number | null;
       } | null,
+      clear_height_ft: mdpaData.clear_height_ft,
+      dock_doors: mdpaData.dock_doors,
+      drive_in_doors: mdpaData.drive_in_doors,
+      power_amps: mdpaData.power_amps,
+      power_phase: mdpaData.power_phase,
+      yard_acres: mdpaData.yard_acres,
+      column_spacing: mdpaData.column_spacing,
+      sprinkler_type: mdpaData.sprinkler_type,
+      availability_status: mdpaData.availability_status,
+      asking_rent_psf: mdpaData.asking_rent_psf,
+      nnn_cam_psf: mdpaData.nnn_cam_psf,
+      lease_structure: mdpaData.lease_structure,
     },
   );
 
@@ -1084,6 +1123,18 @@ export async function applyCountyEnhancement(
   const industrialDefs = await fetchIndustrialFieldDefs(supabase);
   const persist = persistIndustrialFromExtract(industrialDefs, {
     custom_fields: customFieldsUpdate,
+    clear_height_ft: mdpaData.clear_height_ft,
+    dock_doors: mdpaData.dock_doors,
+    drive_in_doors: mdpaData.drive_in_doors,
+    power_amps: mdpaData.power_amps,
+    power_phase: mdpaData.power_phase,
+    yard_acres: mdpaData.yard_acres,
+    column_spacing: mdpaData.column_spacing,
+    sprinkler_type: mdpaData.sprinkler_type,
+    availability_status: mdpaData.availability_status,
+    asking_rent_psf: mdpaData.asking_rent_psf,
+    nnn_cam_psf: mdpaData.nnn_cam_psf,
+    lease_structure: mdpaData.lease_structure,
   });
   for (const [slug, value] of Object.entries(persist.custom)) {
     const flagField = `custom_fields.${slug}`;

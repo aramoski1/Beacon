@@ -248,7 +248,8 @@ export function IndustrialSection({
         )}
         {showListingCta && (
           <p className="mt-4 text-xs text-muted-foreground">
-            County records do not include docks or clear height.{" "}
+            Miami-Dade fills a spec only when the building card, extra feature, or sketch names
+            it — not from DOR or “wall area above N ft.”{" "}
             <a
               href="#enrich-listing"
               className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2 hover:text-primary"

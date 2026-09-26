@@ -28,7 +28,6 @@ import {
 } from "@/lib/crm-search-filters";
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { resolveCustomFieldValue } from "@/lib/custom-field-aliases";
-import { isCustomGroup } from "@/lib/industrial-fields";
 import { buildContactOccupancy } from "@/lib/contact-occupancy";
 import { ensureIndustrialSpecs } from "@/app/settings/fields/actions";
 import { SourceChip } from "@/components/source-chip";
@@ -80,6 +79,18 @@ type Property = {
   property_type: string | null;
   last_sale_date: string | null;
   last_sale_price: number | null;
+  clear_height_ft?: number | null;
+  dock_doors?: number | null;
+  drive_in_doors?: number | null;
+  power_amps?: number | null;
+  power_phase?: string | null;
+  yard_acres?: number | null;
+  column_spacing?: string | null;
+  sprinkler_type?: string | null;
+  availability_status?: string | null;
+  asking_rent_psf?: number | null;
+  nnn_cam_psf?: number | null;
+  lease_structure?: string | null;
   source: string | null;
   source_url: string | null;
   ingested_at: string | null;
@@ -3542,7 +3553,7 @@ export default function CRMView({
                   rows={properties}
                   propContacts={propContacts}
                   propContactsReady={propContactsReady}
-                  customDefs={customPropertyDefs.filter(isCustomGroup)}
+                  customDefs={customPropertyDefs}
                   colVis={propColVis}
                   onSave={saveProp}
                   onSaveContact={savePropContact}

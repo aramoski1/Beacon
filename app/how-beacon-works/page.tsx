@@ -150,8 +150,10 @@ export default async function HowBeaconWorksPage({
           <li>
             <span className="text-foreground">Enrich + promote</span> — county folio, Sunbiz
             contacts, Promote to CRM, set Tier 1 on priorities. County Enrich also queues a
-            listing-spec search for empty industrial fields. On industrial assets, open the
-            property and use Industrial / flex specs or Enrich → Find listing specs.
+            listing-spec search for empty industrial fields. Miami-Dade Enrich also copies
+            named building-card / extra-feature / sketch specs onto those columns (and
+            Workspace). On industrial assets, open the property or use Enrich → Find listing
+            specs when county left docks or clear height empty.
           </li>
           <li>
             <span className="text-foreground">Abstract leases</span> — upload PDFs linked to a
@@ -238,12 +240,14 @@ export default async function HowBeaconWorksPage({
             county folio from Enrich; demo seed rows do not invent one.
           </li>
           <li>
-            Industrial / flex specs are on the property page (Customize to add/remove fields). County
-            tax roll will not invent docks or clear height — use Find listing specs or a flyer
-            extract when the listing states them. County Enrich, Workspace listing enrich, and
-            new-property save also queue that search and fill empty unlocked specs. Pages that are
-            clearly not this property's listing are skipped; a URL or paste that is not a
-            listing/document for the address is refused.
+            Industrial / flex specs are on the property page and as Workspace property columns
+            (Customize to add/remove fields). Miami-Dade copies a spec from the folio building
+            card, extra features, or sketch only when those sources name it — not from DOR, lot
+            size, or “wall area above N ft.” Use Find listing specs or a flyer extract when the
+            listing states docks or clear height the county omitted. County Enrich, Workspace
+            listing enrich, and new-property save also queue that search and fill empty unlocked
+            specs. Pages that are clearly not this property's listing are skipped; a URL or paste
+            that is not a listing/document for the address is refused.
           </li>
           <li>
             Prospect sentence search only maps to tax-roll filters that exist (city, size, type,
