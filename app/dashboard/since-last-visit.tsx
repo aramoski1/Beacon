@@ -43,7 +43,7 @@ export function SinceLastVisit() {
   if (total === 0) return null;
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3">
+    <div className="rounded-xl border bg-card px-3 py-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
         Since your last visit ({sinceLabel})
       </p>

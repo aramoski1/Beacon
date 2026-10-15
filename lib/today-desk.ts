@@ -228,7 +228,7 @@ export function buildTodayDeskItems(input: BuildTodayDeskInput): TodayDeskItem[]
       score,
       title: d.name,
       why: `${detail}${who ? ` — ${who}` : ""}`,
-      href: "/deals",
+      href: `/deals/${d.id}`,
       dueDate: d.next_action_due,
     });
   }

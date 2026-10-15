@@ -158,7 +158,7 @@
   background-color: color-mix(in oklch, var(--muted) 20%, var(--background));
 }
 
-/* Dashboard — calm neutral surface, no gradients */
+/* Dashboard — packed modules, no leftover holes beside short cards */
 .dashboard-page {
   background: var(--background);
   overflow-x: hidden;
@@ -170,19 +170,23 @@
   border-radius: calc(var(--radius) * 1.4);
 }
 
-/* Columns only when two+ modules remain — hiding one no longer leaves a hole.
-   align-items: start so a short card does not stretch beside a tall one. */
 .dashboard-module-grid {
   display: grid;
-  gap: 1rem;
-  align-items: start;
+  gap: 0.5rem;
+  align-items: stretch;
   grid-template-columns: 1fr;
 }
 
 .dashboard-signal-row {
-  display: grid;
-  gap: 0.75rem;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.dashboard-signal-row > * {
+  flex: 1 1 16rem;
+  min-width: 0;
 }
 
 @media (min-width: 1024px) {
@@ -190,21 +194,28 @@
     grid-template-columns: 1fr 1fr;
   }
 
-  .dashboard-signal-row:has(> :nth-child(2)) {
+  .dashboard-module-grid--primary:has(> :nth-child(3)):not(:has(> :nth-child(4))) {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  /* Four cards → 2×2 so the fourth does not sit alone with a hole beside it */
+  .dashboard-module-grid--primary:has(> :nth-child(4)) {
     grid-template-columns: 1fr 1fr;
   }
-}
 
-@media (min-width: 1280px) {
   .dashboard-module-grid--secondary:has(> :nth-child(2)) {
     grid-template-columns: 1fr 1fr;
   }
 
-  .dashboard-module-grid--secondary:has(> :nth-child(3)) {
+  .dashboard-module-grid--secondary:has(> :nth-child(3)):not(:has(> :nth-child(4))) {
     grid-template-columns: 1fr 1fr 1fr;
   }
 
-  .dashboard-signal-row:has(> :nth-child(3)) {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  .dashboard-module-grid--secondary:has(> :nth-child(4)):not(:has(> :nth-child(5))) {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dashboard-module-grid--secondary:has(> :nth-child(5)) {
+    grid-template-columns: 1fr 1fr 1fr;
   }
 }

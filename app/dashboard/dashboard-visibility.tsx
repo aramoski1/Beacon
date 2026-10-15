@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ModuleId } from "@/lib/dashboard-layout";
-import { BrokerKpiStrip } from "./dashboard-sections";
+import { BrokerKpiStrip } from "./dashboard-kpi-strip";
 
 type VisibleMap = Record<ModuleId, boolean>;
 

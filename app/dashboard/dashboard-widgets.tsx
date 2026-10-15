@@ -4,12 +4,10 @@ import {
   ArrowRight,
   Briefcase,
   Building2,
-  ChevronRight,
   Flame,
   Mail,
   UserPlus,
   Sparkles,
-  Target,
   TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,11 +16,8 @@ import type {
   UnworkedOpportunity,
   WeekMomentum,
 } from "./actions";
-import type { LeaseRadarEntry } from "@/lib/lease-radar";
-import { formatLeaseRate, leaseDisplayTitle } from "@/lib/lease-radar";
-import { formatLocalDate } from "@/lib/dates";
 import type { DealsDashboard } from "@/app/deals/actions";
-import { STAGE_LABELS, STAGE_COLORS, isDealStale, daysInStage, fmtCommission, type Deal } from "@/lib/deals";
+import { STAGE_LABELS, STAGE_COLORS, isDealStale, daysInStage, fmtCommission } from "@/lib/deals";
 
 export function WeekMomentumBar({ momentum }: { momentum: WeekMomentum }) {
   const items = [
@@ -42,8 +37,8 @@ export function WeekMomentumBar({ momentum }: { momentum: WeekMomentum }) {
   }
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
+    <div className="rounded-xl border bg-card px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <TrendingUp className="size-3.5" />
         This week&apos;s momentum
       </p>
@@ -67,7 +62,7 @@ export function UnworkedOpportunitiesPanel({ items }: { items: UnworkedOpportuni
   if (items.length === 0) {
     return (
       <div className="rounded-xl border bg-card px-4 py-4 text-center">
-        <p className="text-sm text-muted-foreground">Every property with owner data has a linked contact.</p>
+        <p className="text-sm text-muted-foreground">Every property with owner data has a CRM owner contact.</p>
       </div>
     );
   }
@@ -78,7 +73,7 @@ export function UnworkedOpportunitiesPanel({ items }: { items: UnworkedOpportuni
         <Link
           key={p.id}
           href={`/properties/${p.id}`}
-          className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors group"
+          className="flex items-center gap-2.5 px-3 py-2 hover:bg-muted/30 transition-colors group"
         >
           <div className="shrink-0 size-9 rounded-lg bg-primary/10 flex items-center justify-center">
             <Building2 className="size-4 text-primary" />
@@ -112,7 +107,7 @@ export function ColdTier1Panel({ items }: { items: ColdTier1Contact[] }) {
   return (
     <div className="rounded-xl border bg-card overflow-hidden divide-y">
       {items.map((c) => (
-        <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+        <div key={c.id} className="flex items-center gap-2.5 px-3 py-2">
           <div className="shrink-0 size-9 rounded-lg bg-orange-500/15 flex items-center justify-center">
             <Flame className="size-4 text-orange-600 dark:text-orange-400" />
           </div>
@@ -152,99 +147,10 @@ export function ColdTier1Panel({ items }: { items: ColdTier1Contact[] }) {
   );
 }
 
-function rolloverAction(days: number, hasProperty: boolean): string {
-  if (days <= 30) return "Start renewal conversation";
-  if (days <= 90) return hasProperty ? "Check comps / rent" : "Open lease";
-  return "Add to rollover pipeline";
-}
-
-/** Full-width lease rollover queue with property context and suggested action. */
-export function LeaseRolloverQueue({ items, total }: { items: LeaseRadarEntry[]; total: number }) {
-  if (total === 0) {
-    return (
-      <div className="rounded-xl border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-        No leases expiring in the next 90 days.
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="divide-y">
-        {items.map((l) => (
-          <div key={l.id} className="flex items-start gap-4 px-4 py-3 hover:bg-muted/20 transition-colors">
-            <div className={cn(
-              "shrink-0 size-10 rounded-lg flex items-center justify-center text-xs font-bold tabular-nums mt-0.5",
-              l.daysUntilExpiry <= 30 ? "bg-red-500/15 text-red-600 dark:text-red-400" :
-              l.daysUntilExpiry <= 60 ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-              "bg-muted text-muted-foreground",
-            )}>
-              {l.daysUntilExpiry}d
-            </div>
-            <div className="flex-1 min-w-0 space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Link
-                  href={`/abstracts/${l.id}`}
-                  className="text-sm font-medium hover:underline underline-offset-2"
-                >
-                  {leaseDisplayTitle(l)}
-                </Link>
-                {l.base_rate != null && (
-                  <span className="text-xs text-muted-foreground">{formatLeaseRate(l.base_rate)}</span>
-                )}
-              </div>
-              {l.property_address && l.property_id ? (
-                <Link
-                  href={`/properties/${l.property_id}`}
-                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                >
-                  <Building2 className="size-3 shrink-0" />
-                  {l.property_address}
-                </Link>
-              ) : (
-                <p className="text-xs text-muted-foreground">No property linked</p>
-              )}
-              <p className="text-xs text-primary/80 flex items-center gap-1">
-                <Target className="size-3 shrink-0" />
-                {l.daysUntilExpiry > 30 && l.daysUntilExpiry <= 90 && l.property_id ? (
-                  <Link
-                    href={`/properties/${l.property_id}`}
-                    className="hover:underline underline-offset-2"
-                  >
-                    Check comps / rent
-                  </Link>
-                ) : (
-                  rolloverAction(l.daysUntilExpiry, !!l.property_id)
-                )}
-                <span className="text-muted-foreground">
-                  · Exp {formatLocalDate(l.expiration_date)}
-                </span>
-              </p>
-            </div>
-            <Link
-              href={`/abstracts/${l.id}`}
-              className="shrink-0 text-xs text-primary hover:underline underline-offset-2 mt-1"
-            >
-              Open →
-            </Link>
-          </div>
-        ))}
-      </div>
-      {total > items.length && (
-        <div className="px-4 py-2 border-t bg-muted/20 text-center">
-          <Link href="/crm?tab=leases" className="text-xs text-muted-foreground hover:text-foreground">
-            +{total - items.length} more expiring in 90 days
-          </Link>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
   if (summary.activeCount === 0) {
     return (
-      <div className="rounded-xl border bg-card px-4 py-4 text-center">
+      <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-4 text-center">
         <Briefcase className="size-7 text-muted-foreground/40 mx-auto mb-2" />
         <p className="text-sm text-muted-foreground">No active pursuits yet.</p>
         <Link
@@ -258,84 +164,51 @@ export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
   }
 
   return (
-    <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div className="flex items-center gap-2">
-          <Briefcase className="size-3.5 text-muted-foreground" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Active pursuits
-          </span>
-          <span className="text-xs font-bold tabular-nums text-foreground bg-muted rounded-full px-2 py-0.5">
-            {summary.activeCount}
-          </span>
-          {summary.estimatedCommissionTotal > 0 && (
-            <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium tabular-nums">
-              {fmtCommission(summary.estimatedCommissionTotal)} est.
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {summary.staleCount > 0 && (
-            <span
-              className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium"
-              title="No stage change in 14+ days"
-            >
-              <AlertTriangle className="size-3" />
-              {summary.staleCount} stale
-            </span>
-          )}
-          <Link href="/deals" className="text-xs text-primary hover:underline underline-offset-2">
-            View all
-            <ChevronRight className="size-3 inline ml-0.5" />
-          </Link>
-        </div>
-      </div>
-      <div className="divide-y">
-        {summary.recentActive.map((deal) => {
-          const stale = isDealStale(deal);
-          const days = daysInStage(deal);
-          return (
-            <div key={deal.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
-              <div className="flex-1 min-w-0 space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <Link
-                    href="/deals"
-                    className="text-sm font-medium truncate hover:underline underline-offset-2"
-                  >
-                    {deal.name}
-                  </Link>
-                  {stale && (
-                    <span title="No stage change in 14+ days">
-                      <AlertTriangle className="size-3 text-amber-500 shrink-0" aria-hidden="true" />
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium", STAGE_COLORS[deal.stage])}>
-                    {STAGE_LABELS[deal.stage]}
+    <div className="rounded-xl border bg-card overflow-hidden divide-y">
+      {summary.recentActive.map((deal) => {
+        const stale = isDealStale(deal);
+        const days = daysInStage(deal);
+        return (
+          <div key={deal.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/20 transition-colors">
+            <div className="flex-1 min-w-0 space-y-0.5">
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/deals/${deal.id}`}
+                  className="text-sm font-medium truncate hover:underline underline-offset-2"
+                >
+                  {deal.name}
+                </Link>
+                {stale && (
+                  <span title="No stage change in 14+ days">
+                    <AlertTriangle className="size-3 text-amber-500 shrink-0" aria-hidden="true" />
                   </span>
-                  {deal.contacts?.name && (
-                    <span className="truncate">{deal.contacts.name}</span>
-                  )}
-                  {deal.properties?.address && (
-                    <span className="truncate">{deal.properties.address}</span>
-                  )}
-                </div>
-              </div>
-              <div className="shrink-0 text-right space-y-0.5">
-                {deal.estimated_commission != null && (
-                  <p className="text-xs font-semibold tabular-nums text-foreground">
-                    {fmtCommission(deal.estimated_commission)}
-                  </p>
                 )}
-                <p className={cn("text-[10px] tabular-nums", stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
-                  {days === 0 ? "today" : `${days}d`}
-                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium", STAGE_COLORS[deal.stage])}>
+                  {STAGE_LABELS[deal.stage]}
+                </span>
+                {deal.contacts?.name && (
+                  <span className="truncate">{deal.contacts.name}</span>
+                )}
+                {deal.properties?.address && (
+                  <span className="truncate">{deal.properties.address}</span>
+                )}
               </div>
             </div>
-          );
-        })}
-      </div>
+            <div className="shrink-0 text-right space-y-0.5">
+              {deal.estimated_commission != null && (
+                <p className="text-xs font-semibold tabular-nums text-foreground">
+                  {fmtCommission(deal.estimated_commission)}
+                </p>
+              )}
+              <p className={cn("text-[10px] tabular-nums", stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                {days === 0 ? "today" : `${days}d`}
+              </p>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

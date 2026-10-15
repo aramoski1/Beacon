@@ -24,11 +24,17 @@ describe("isModuleId", () => {
     }
   });
 
-  it("rejects unknown ids, including hero/copilot (never in the catalog)", () => {
+  it("rejects unknown ids, including retired and made-up names", () => {
     expect(isModuleId("hero")).toBe(false);
     expect(isModuleId("beacon_copilot")).toBe(false);
+    expect(isModuleId("stale_tier1_owners")).toBe(false);
     expect(isModuleId("kpi_made_up")).toBe(false);
     expect(isModuleId("")).toBe(false);
+  });
+
+  it("includes Command center and Ask Beacon — every on-page section is hideable", () => {
+    expect(isModuleId("command_center")).toBe(true);
+    expect(isModuleId("ask_beacon")).toBe(true);
   });
 });
 
@@ -98,8 +104,19 @@ describe("sanitizeVisiblePatch", () => {
     if (!res.ok) expect(res.error).toContain("made_up_widget");
   });
 
-  it("rejects hero/copilot ids specifically, since they were never in the catalog", () => {
+  it("accepts Command center and Ask Beacon visibility patches", () => {
+    const res = sanitizeVisiblePatch({ command_center: false, ask_beacon: false });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.visible).toEqual({ command_center: false, ask_beacon: false });
+  });
+
+  it("rejects unknown hero/copilot aliases that are not catalog ids", () => {
     const res = sanitizeVisiblePatch({ hero: false });
+    expect(res.ok).toBe(false);
+  });
+
+  it("rejects the retired stale_tier1_owners module id", () => {
+    const res = sanitizeVisiblePatch({ stale_tier1_owners: true });
     expect(res.ok).toBe(false);
   });
 

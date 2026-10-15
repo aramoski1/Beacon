@@ -623,12 +623,14 @@ async function main() {
   // Ownership watch + tax-roll comps unlock after the broker runs Enrich.
   const PROP_COUNT = 100;
   const propertyIds: string[] = [];
+  const READY_TO_PURSUE = 8;
   const propertyMeta: {
     id: string;
     portfolioIdx: number;
     address: string;
     sqft: number;
     ptype: string;
+    ownerLinked: boolean;
   }[] = [];
 
   console.log(`Inserting ${PROP_COUNT} properties…`);
@@ -647,6 +649,10 @@ async function main() {
     const storedType = ptype === "flex" || ptype === "warehouse" ? "industrial" : ptype;
     const specs = industrialSpecs(ptype, sqft);
     const { lat, lng } = jitterCoord(city);
+    const ownerLinked = i < PROP_COUNT - READY_TO_PURSUE;
+    const ownerContactsJson = ownerLinked
+      ? "[]"
+      : JSON.stringify([{ name: portfolio.human, title: "Principal", address: null }]);
 
     await db.query(
       `INSERT INTO properties (
@@ -668,15 +674,15 @@ async function main() {
          $7,$8,$9,$10,$11,
          $12,$13,$14,$15,
          $16,$17,$18,
-         $19,'[]'::jsonb,$20,
-         $21,$22,
-         $23,$24,
-         $25,$25,'private',
-         $26,$27,$28,$29,$30,
-         $31,$32,$33,$34,
-         $35,$36,$37,
-         $38,$39,$40,$41::jsonb,
-         $42,$43::jsonb
+         $19,$20::jsonb,$21,
+         $22,$23,
+         $24,$25,
+         $26,$26,'private',
+         $27,$28,$29,$30,$31,
+         $32,$33,$34,$35,
+         $36,$37,$38,
+         $39,$40,$41,$42::jsonb,
+         $43,$44::jsonb
        )`,
       [
         id,
@@ -698,6 +704,7 @@ async function main() {
         `${randInt(100, 900)} ${pick(STREETS)}, ${portfolio.city} FL`,
         portfolio.human,
         portfolio.email,
+        ownerContactsJson,
         entityIds[portfolio.llc],
         watch ? daysAgo(randInt(1, 40)).toISOString() : null,
         watch ? daysAgo(randInt(0, 10)).toISOString() : null,
@@ -737,19 +744,23 @@ async function main() {
     );
 
     propertyIds.push(id);
-    propertyMeta.push({ id, portfolioIdx, address, sqft, ptype });
+    propertyMeta.push({ id, portfolioIdx, address, sqft, ptype, ownerLinked });
 
-    // Link owner contact ↔ property
-    await db.query(
-      `INSERT INTO contact_properties (owner_id, contact_id, property_id)
-       VALUES ($1, $2, $3)`,
-      [userId, ownerContactIds[portfolioIdx], id],
-    );
+    // Link owner contact ↔ property (leave a handful unlinked for Ready to pursue)
+    if (ownerLinked) {
+      await db.query(
+        `INSERT INTO contact_properties (owner_id, contact_id, property_id)
+         VALUES ($1, $2, $3)`,
+        [userId, ownerContactIds[portfolioIdx], id],
+      );
+    }
   }
 
   // Update owner contacts linked_properties arrays
   for (let i = 0; i < PORTFOLIOS.length; i++) {
-    const props = propertyMeta.filter((p) => p.portfolioIdx === i).map((p) => p.id);
+    const props = propertyMeta
+      .filter((p) => p.portfolioIdx === i && p.ownerLinked)
+      .map((p) => p.id);
     await db.query(
       `UPDATE contacts SET linked_properties = $1::uuid[] WHERE id = $2`,
       [props, ownerContactIds[i]],

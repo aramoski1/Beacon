@@ -56,3 +56,31 @@ export function fmtKpiSqft(n: number): string {
   if (n >= 1_000) return `${Math.round(n / 1_000).toLocaleString()}k SF`;
   return `${n.toLocaleString()} SF`;
 }
+
+export type BriefingMetricsInput = {
+  overdueOutreach: number;
+  dueTodayOutreach: number;
+  followUpsOverdue: number;
+  followUpsToday: number;
+  expiringLeases: number;
+  activitiesThisWeek: number;
+  dataIssues: number;
+  unworkedOpportunities: number;
+  coldTier1: number;
+  ownershipChanges: number;
+};
+
+export type BriefingMetrics = BriefingMetricsInput & { actionItems: number };
+
+/** Assemble dashboard briefing counts without extra database round-trips. */
+export function buildBriefingMetrics(input: BriefingMetricsInput): BriefingMetrics {
+  const actionItems =
+    input.overdueOutreach +
+    input.followUpsOverdue +
+    input.expiringLeases +
+    input.dataIssues +
+    input.unworkedOpportunities +
+    input.coldTier1 +
+    input.ownershipChanges;
+  return { ...input, actionItems };
+}

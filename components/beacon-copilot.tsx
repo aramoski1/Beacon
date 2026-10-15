@@ -270,14 +270,14 @@ export function BeaconCopilot() {
 
       {/* Example chips — only when no conversation */}
       {!hasMessages && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 min-w-0">
           {EXAMPLES.map((ex) => (
             <button
               key={ex}
               type="button"
               onClick={() => submit(ex)}
               disabled={thinking}
-              className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40"
+              className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 max-w-full whitespace-normal text-left"
             >
               {ex}
             </button>

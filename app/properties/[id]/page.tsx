@@ -392,8 +392,8 @@ export default async function PropertyPage({
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
+        <div className="min-w-0 max-w-3xl">
+          <h1 className="text-xl font-semibold tracking-tight text-pretty">
             {p.address ?? "Unknown address"}
           </h1>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1 flex-wrap">
@@ -546,7 +546,7 @@ export default async function PropertyPage({
           lastCheckedAt={(p as { ownership_last_checked_at?: string | null }).ownership_last_checked_at ?? null}
         />
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground max-w-3xl text-pretty">
           Ownership watch and tax-roll comps need a county folio — use <span className="font-medium text-foreground">Enrich</span> first.
           Demo or manual rows without a folio stay empty here on purpose.
         </p>

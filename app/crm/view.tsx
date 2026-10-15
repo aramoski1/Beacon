@@ -29,7 +29,7 @@ import {
 import { fieldSlug, type FieldDefinition } from "@/lib/custom-fields";
 import { resolveCustomFieldValue } from "@/lib/custom-field-aliases";
 import { buildContactOccupancy } from "@/lib/contact-occupancy";
-import { ensureIndustrialSpecs } from "@/app/settings/fields/actions";
+import { isCustomGroup } from "@/lib/industrial-fields";
 import { SourceChip } from "@/components/source-chip";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { resolvePropertyOwnerContacts, preferDisplayOwnerContact, type StoredOwnerContact } from "@/lib/owner-contacts";
@@ -291,6 +291,10 @@ const PROP_COL_DEFS: ColDef[] = [
   { id: "saledate", label: "Last Sale Date" },
   { id: "saleval",  label: "Last Sale Value" },
 ];
+
+const CON_COL_DEFAULT_HIDDEN = [
+  "occupancy", "leasedsf", "expiry", "landlord", "tags", "sizecat", "geocat", "ownership",
+] as const;
 
 const CON_COL_DEFS: ColDef[] = [
   { id: "name",        label: "Name",           alwaysOn: true },
@@ -752,19 +756,27 @@ function FilterSelect({
 
 // ─── Column visibility ────────────────────────────────────────────────────────
 
-function useColVis(storageKey: string) {
-  const [vis, setVis] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return {};
+function useColVis(storageKey: string, defaultHidden: readonly string[] = []) {
+  const [vis, setVis] = useState<Record<string, boolean>>({});
+  const hidden = useRef(new Set(defaultHidden));
+  hidden.current = new Set(defaultHidden);
+
+  useEffect(() => {
     try {
       const s = localStorage.getItem(storageKey);
-      return s ? (JSON.parse(s) as Record<string, boolean>) : {};
-    } catch { return {}; }
-  });
-  function isVis(id: string) { return vis[id] ?? true; }
+      if (s) setVis(JSON.parse(s) as Record<string, boolean>);
+    } catch { /* keep defaults */ }
+  }, [storageKey]);
+
+  function isVis(id: string) {
+    if (Object.prototype.hasOwnProperty.call(vis, id)) return vis[id]!;
+    return !hidden.current.has(id);
+  }
   function toggle(id: string, alwaysOn?: boolean) {
     if (alwaysOn) return;
     setVis((prev) => {
-      const next = { ...prev, [id]: !(prev[id] ?? true) };
+      const current = Object.prototype.hasOwnProperty.call(prev, id) ? prev[id]! : !hidden.current.has(id);
+      const next = { ...prev, [id]: !current };
       try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
       return next;
     });
@@ -858,6 +870,11 @@ function ColVisPopover({
 
 const thCls = "px-3 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap relative sticky top-0 bg-background z-10";
 const tdCls = "px-3 py-1 align-middle border-b border-border/50 text-[13px] leading-snug h-10";
+const freezeCheck = "sticky left-0 z-[12] bg-background";
+const freezeName = "sticky left-[2.25rem] z-[12] bg-background min-w-[10rem] max-w-[14rem] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)]";
+const freezeProspect = "sticky left-[2.25rem] z-[12] bg-background w-12";
+const freezeOwner = "sticky left-[5.25rem] z-[12] bg-background min-w-[8rem] max-w-[10rem]";
+const freezeAddr = "sticky left-[15.25rem] z-[12] bg-background min-w-[12rem] max-w-[16rem] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)]";
 const thR = cn(thCls, "text-right");
 const tdR = cn(tdCls, "text-right tabular-nums text-muted-foreground whitespace-nowrap");
 
@@ -1154,10 +1171,10 @@ function PropertiesTable({
 
   return (
     <div>
-      <table className="w-full text-xs border-collapse">
+      <table className="text-xs border-collapse table-auto min-w-full">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={cn(thCls, "w-8 pl-3 pr-1")}>
+            <th className={cn(thCls, freezeCheck, "w-9 min-w-9 pl-3 pr-1")}>
               <input
                 type="checkbox"
                 aria-label="Select all"
@@ -1169,12 +1186,12 @@ function PropertiesTable({
                 className="cursor-pointer accent-primary"
               />
             </th>
-            <th className={cn(thR, "w-12", col("prospect"))} style={colStyle("prospect")}>Prospect #<RH col="prospect" onStart={startResize} /></th>
-            <th className={cn(thCls, col("owner"))} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
-            <th className={thCls} style={colStyle("address")}>Property Address<RH col="address" onStart={startResize} /></th>
+            <th className={cn(thR, freezeProspect, col("prospect"))} style={colStyle("prospect")}>Prospect #<RH col="prospect" onStart={startResize} /></th>
+            <th className={cn(thCls, freezeOwner, col("owner"))} style={colStyle("owner")}>Ownership Entity<RH col="owner" onStart={startResize} /></th>
+            <th className={cn(thCls, freezeAddr)} style={colStyle("address")}>Property Address<RH col="address" onStart={startResize} /></th>
             <th className={cn(thR, col("bsf"))} style={colStyle("bsf")}>Building SF<RH col="bsf" onStart={startResize} /></th>
             <th className={cn(thR, col("lsf"))} style={colStyle("lsf")}>Land SF<RH col="lsf" onStart={startResize} /></th>
-            <th className={cn(thCls, col("asset"))} style={colStyle("asset")}>Asset Description<RH col="asset" onStart={startResize} /></th>
+            <th className={cn(thCls, "max-w-[14rem]", col("asset"))} style={colStyle("asset")}>Asset Description<RH col="asset" onStart={startResize} /></th>
             <th className={cn(thCls, col("contact"))} style={colStyle("contact")}>Owner Contact<RH col="contact" onStart={startResize} /></th>
             <th className={cn(thCls, col("addr2"))} style={colStyle("addr2")}>Owner Address<RH col="addr2" onStart={startResize} /></th>
             <th className={cn(thCls, col("email"))} style={colStyle("email")}>Owner Email<RH col="email" onStart={startResize} /></th>
@@ -1183,7 +1200,7 @@ function PropertiesTable({
             <th className={cn(thCls, col("saledate"))} style={colStyle("saledate")}>Last Sale Date<RH col="saledate" onStart={startResize} /></th>
             <th className={cn(thR, col("saleval"))} style={colStyle("saleval")}>Last Sale Value<RH col="saleval" onStart={startResize} /></th>
             {customDefs.map((f) => (
-              <th key={f.id} className={thCls} style={colStyle(`cf_${f.id}`)}>{f.field_name}<RH col={`cf_${f.id}`} onStart={startResize} /></th>
+              <th key={f.id} className={cn(thCls, col(`cf_${f.id}`))} style={colStyle(`cf_${f.id}`)}>{f.field_name}<RH col={`cf_${f.id}`} onStart={startResize} /></th>
             ))}
             <th className={cn(thCls, "w-8")} />
             <th className={cn(thCls, "w-8 text-right pr-2")} />
@@ -1232,7 +1249,7 @@ function PropertiesTable({
             return (
               <tr key={p.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === p.id && "bg-destructive/5", selectedIds.has(p.id) && "bg-primary/5")}>
                 {/* Select */}
-                <td className={cn(tdCls, "w-8 pl-3 pr-1")}>
+                <td className={cn(tdCls, freezeCheck, "w-9 min-w-9 pl-3 pr-1")}>
                   <input
                     type="checkbox"
                     aria-label={`Select ${p.address ?? p.id}`}
@@ -1242,7 +1259,7 @@ function PropertiesTable({
                   />
                 </td>
                 {/* Prospect # */}
-                <td className={cn(tdR, "w-12 font-mono", col("prospect"))}>
+                <td className={cn(tdR, freezeProspect, "font-mono", col("prospect"))}>
                   <EditableText
                     value={p.prospect_number != null ? String(p.prospect_number) : null}
                     displayValue={p.prospect_number != null ? `#${p.prospect_number}` : null}
@@ -1256,7 +1273,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Ownership Entity */}
-                <td className={cn(tdCls, "min-w-[120px]", col("owner"))}>
+                <td className={cn(tdCls, freezeOwner, "min-w-[8rem] max-w-[10rem]", col("owner"))}>
                   <EditableText
                     value={p.owner_name}
                     placeholder="—"
@@ -1266,7 +1283,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Property Address */}
-                <td className={cn(tdCls, "min-w-[160px]")}>
+                <td className={cn(tdCls, freezeAddr, "min-w-[12rem] max-w-[16rem]")}>
                   <div className="flex items-start gap-1.5">
                     <Link
                       href={`/properties/${p.id}`}
@@ -1333,7 +1350,7 @@ function PropertiesTable({
                 </td>
 
                 {/* Asset Description */}
-                <td className={cn(tdCls, "min-w-[120px]", col("asset"))}>
+                <td className={cn(tdCls, "min-w-[8rem] max-w-[14rem]", col("asset"))}>
                   <EditableText
                     value={p.asset_description}
                     placeholder="—"
@@ -1524,13 +1541,14 @@ function PropertiesTable({
                 {/* Custom fields */}
                 {customDefs.map((f) => {
                   const slug = fieldSlug(f.field_name);
+                  const visId = `cf_${f.id}`;
                   const val = resolveCustomFieldValue(
                     slug,
                     (p.custom_fields ?? {}) as Record<string, string | number | null>,
                     p,
                   );
                   return (
-                    <td key={f.id} className={cn(tdCls, "min-w-[100px] max-w-[160px]")}>
+                    <td key={f.id} className={cn(tdCls, "min-w-[100px] max-w-[160px]", col(visId))}>
                       <EditableText
                         value={val != null ? String(val) : null}
                         placeholder="—"
@@ -1821,10 +1839,10 @@ function ContactsTable({
     <>
     <div>
       <Popup popup={cPopup} onClose={() => setCPopup(null)} />
-      <table className="w-full text-xs border-collapse">
+      <table className="text-xs border-collapse table-auto min-w-full">
         <thead className="bg-muted/40 sticky top-0 z-10">
           <tr>
-            <th className={cn(thCls, "w-8 pl-3 pr-1")}>
+            <th className={cn(thCls, freezeCheck, "w-9 min-w-9 pl-3 pr-1")}>
               <input
                 type="checkbox"
                 aria-label="Select all contacts"
@@ -1836,7 +1854,7 @@ function ContactsTable({
                 className="size-3.5 rounded border-border accent-primary cursor-pointer"
               />
             </th>
-            <th className={thCls} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
+            <th className={cn(thCls, freezeName)} style={cColStyle("name")}>Name<RH col="name" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("phone"))} style={cColStyle("phone")}>Phone<RH col="phone" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("book"))} style={cColStyle("book")}>Book<RH col="book" onStart={cStartResize} /></th>
             <th className={cn(thCls, col("company"))} style={cColStyle("company")}>Company<RH col="company" onStart={cStartResize} /></th>
@@ -1866,7 +1884,7 @@ function ContactsTable({
                 : null;
             return (
             <tr key={c.id} className={cn("crm-row hover:bg-muted/20 transition-colors", deletingId === c.id && "bg-destructive/5", selectedIds.has(c.id) && "bg-primary/5")}>
-              <td className={cn(tdCls, "w-8 pl-3 pr-1")}>
+              <td className={cn(tdCls, freezeCheck, "w-9 min-w-9 pl-3 pr-1")}>
                 <input
                   type="checkbox"
                   aria-label={`Select ${c.name ?? "contact"}`}
@@ -1875,7 +1893,7 @@ function ContactsTable({
                   className="size-3.5 rounded border-border accent-primary cursor-pointer"
                 />
               </td>
-              <td className={tdCls}>
+              <td className={cn(tdCls, freezeName)}>
                 <div className="min-w-0 leading-snug">
                   <Link href={`/contacts/${c.id}`} className="font-medium hover:underline underline-offset-2 truncate block">
                     {c.name ?? <span className="text-muted-foreground italic">No name</span>}
@@ -2377,8 +2395,8 @@ export default function CRMView({
     setTab((cur) => (cur === next ? cur : next));
   }, [searchParams]);
 
-  const propColVis   = useColVis("beacon_crm_col_visibility");
-  const conColVis    = useColVis("beacon_crm_con_col_visibility");
+  const propColVis   = useColVis("beacon_crm_col_visibility_v3");
+  const conColVis    = useColVis("beacon_crm_con_col_visibility_v2", CON_COL_DEFAULT_HIDDEN);
   const leaseColVis  = useColVis("beacon_crm_lease_col_visibility");
 
   // ── Data state ─────────────────────────────────────────────────────────────
@@ -2881,14 +2899,13 @@ export default function CRMView({
 
   // ── Reload custom field definitions ───────────────────────────────────────
   const reloadCustomDefs = useCallback(async () => {
-    await ensureIndustrialSpecs();
     const supabase = createClient();
     const { data } = await supabase
       .from("field_definitions")
       .select("*")
       .eq("entity_type", "property")
       .order("created_at", { ascending: true });
-    setCustomPropertyDefs((data ?? []) as FieldDefinition[]);
+    setCustomPropertyDefs(((data ?? []) as FieldDefinition[]).filter(isCustomGroup));
   }, []);
 
   useEffect(() => { reloadCustomDefs(); }, [reloadCustomDefs]);
@@ -3113,7 +3130,7 @@ export default function CRMView({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-background">
+    <div className="flex flex-col h-full min-w-0 w-full overflow-hidden bg-background">
       {/* Header */}
       <header className="shrink-0 border-b px-3 py-3 sm:px-6 flex items-center gap-4 flex-wrap">
         <h1 className="text-lg font-semibold tracking-tight shrink-0">Workspace</h1>
@@ -3243,7 +3260,8 @@ export default function CRMView({
           <p className="text-xs text-destructive">{searchError}</p>
         )}
 
-        <div className="flex items-center gap-3 flex-wrap min-h-9">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
           {!isSoloFirm && (
             <div className="flex shrink-0 rounded-md border p-0.5 bg-muted/30">
               <button
@@ -3274,7 +3292,7 @@ export default function CRMView({
           {barMode === "search" ? (
             <>
               {/* min-w keeps the input from collapsing to 0 and overlapping the mode toggle */}
-              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-[12rem] max-w-md">
+              <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-[16rem]">
                 <div className="relative flex-1 min-w-[8rem]">
                   {searching ? (
                     <Loader2 className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground animate-spin" />
@@ -3305,6 +3323,7 @@ export default function CRMView({
               {activeSearch && (
                 <SearchExplanation explanation={activeSearch.explanation} onClear={clearSearch} />
               )}
+              <div className="flex items-center gap-2 flex-wrap w-full min-w-0">
               {!searchMode && (
                 <>
                   {tab === "leases" && (
@@ -3418,7 +3437,14 @@ export default function CRMView({
                           <Settings2 className="size-3" />
                           Manage fields
                         </button>
-                        <ColVisPopover isVis={propColVis.isVis} toggle={propColVis.toggle} colDefs={PROP_COL_DEFS} />
+                        <ColVisPopover
+                          isVis={propColVis.isVis}
+                          toggle={propColVis.toggle}
+                          colDefs={[
+                            ...PROP_COL_DEFS,
+                            ...customPropertyDefs.map((f) => ({ id: `cf_${f.id}`, label: f.field_name })),
+                          ]}
+                        />
                       </div>
                     </>
                   )}
@@ -3527,6 +3553,7 @@ export default function CRMView({
                 savePrompt={smartListSavePrompt}
                 onSavePromptHandled={() => setSmartListSavePrompt(false)}
               />
+              </div>
             </>
           ) : (
             <SmartListsBar
@@ -3538,10 +3565,11 @@ export default function CRMView({
           )}
         </div>
       </div>
+      </div>
 
       {/* Table area + pagination */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden flex flex-col min-w-0">
+        <div className="flex-1 overflow-auto min-w-0">
           {tab === "properties" ? (
             propsError ? (
               <LoadError message={propsError} onRetry={loadProperties} />
@@ -3677,7 +3705,10 @@ export default function CRMView({
           entityType={
             (tab === "contacts" ? "contact" : tab === "leases" ? "lease" : "property") as EntityType
           }
-          onClose={() => setShowFieldsPanel(false)}
+          onClose={() => {
+            setShowFieldsPanel(false);
+            void reloadCustomDefs();
+          }}
         />
       )}
     </div>

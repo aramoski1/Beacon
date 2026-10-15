@@ -4,6 +4,7 @@ import {
   sumEstimatedCommission,
   fmtKpiMoney,
   fmtKpiSqft,
+  buildBriefingMetrics,
 } from "../../lib/dashboard-kpis";
 
 describe("aggregateLeaseExposure", () => {
@@ -44,5 +45,24 @@ describe("fmt helpers", () => {
     expect(fmtKpiMoney(25_000)).toBe("$25K");
     expect(fmtKpiSqft(0)).toBe("—");
     expect(fmtKpiSqft(42_000)).toBe("42k SF");
+  });
+});
+
+describe("buildBriefingMetrics", () => {
+  it("sums action items from the provided counts", () => {
+    const m = buildBriefingMetrics({
+      overdueOutreach: 1,
+      dueTodayOutreach: 2,
+      followUpsOverdue: 3,
+      followUpsToday: 0,
+      expiringLeases: 4,
+      activitiesThisWeek: 9,
+      dataIssues: 5,
+      unworkedOpportunities: 6,
+      coldTier1: 7,
+      ownershipChanges: 8,
+    });
+    expect(m.actionItems).toBe(1 + 3 + 4 + 5 + 6 + 7 + 8);
+    expect(m.activitiesThisWeek).toBe(9);
   });
 });

@@ -15,9 +15,10 @@ import { useDashboardVisible } from "./dashboard-visibility";
 
 /**
  * Dashboard show/hide customization. Visibility only — no drag-and-drop, no
- * reordering; Beacon's fixed section order never changes. DashboardHero and
- * Ask Beacon aren't in the module catalog at all, so there's nothing here
- * that could ever hide them.
+ * reordering; Beacon's fixed section order never changes. Every dashboard
+ * section is in the catalog, including Command center and Ask Beacon. The
+ * Customize button itself is not hideable, so a broker can always restore
+ * what they turned off.
  *
  * Self-contained: manages its own open/close state, so it can be dropped in
  * at more than one spot on the page (the main trigger near the hero, and a
@@ -128,8 +129,8 @@ export function DashboardCustomize({
 
             <div className="px-5 py-4 space-y-5 overflow-y-auto">
               <p className="text-xs text-muted-foreground">
-                Show or hide dashboard sections. The hero and Ask Beacon always show, and section
-                order never changes — this only controls what&apos;s visible.
+                Show or hide any dashboard section. Order never changes. Customize
+                always stays so you can restore what you hid.
               </p>
 
               {MODULE_GROUPS.map((group) => (

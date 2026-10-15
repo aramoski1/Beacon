@@ -9,11 +9,9 @@ import {
   getPortfolioSnapshot,
   getDataHealth,
   getCadenceHealth,
-  getBriefingMetrics,
   getUnworkedOpportunities,
   getColdTier1Contacts,
   getWeekMomentum,
-  getStaleTier1Owners,
   getOwnershipChangedProperties,
   getOwnershipWatchStats,
 } from "./actions";
@@ -29,7 +27,8 @@ import {
 } from "./dashboard-widgets";
 import { getDealsDashboard } from "@/app/deals/actions";
 import {
-  DashboardHero,
+  CommandCenterHeading,
+  dashboardPlaybookLine,
   ActivityTimeline,
   SectionHeader,
   PriorityPills,
@@ -39,15 +38,14 @@ import {
   OwnershipChangedPanel,
   ExpiringLeasesPanel,
 } from "./dashboard-sections";
-import { StaleTier1OwnersPanel } from "./stale-owner-panel";
 import { signalPriorityScore } from "@/lib/action-item-signals";
-import { aggregateLeaseExposure } from "@/lib/dashboard-kpis";
+import { aggregateLeaseExposure, buildBriefingMetrics } from "@/lib/dashboard-kpis";
 import { refineTodayDeskItems } from "@/lib/jev-today-desk";
 import { buildTodayDeskItems } from "@/lib/today-desk";
 import { daysUntilIso, nearestNoticeDeadline } from "@/lib/lease-export";
 import { ownershipWatchEmptyCopy } from "@/lib/ownership-watch";
 import { TodayDesk } from "./today-desk";
-import { addCalendarDays, todayLocal } from "@/lib/dates";
+import { addCalendarDays, formatLocalDate, todayLocal } from "@/lib/dates";
 
 export const metadata = { title: "Dashboard – Beacon" };
 import { OwnershipWatchBatchButton } from "./ownership-watch-batch";
@@ -66,13 +64,6 @@ import {
   resolveVisible,
   type DashboardLayoutPrefs,
 } from "@/lib/dashboard-layout";
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
 
 function titleCasePart(part: string) {
   if (!part) return "";
@@ -136,7 +127,6 @@ export default async function DashboardPage() {
     unworked,
     coldTier1,
     momentum,
-    staleTier1Owners,
     ownershipChangedProperties,
     dealsDashboard,
     ownershipWatchStats,
@@ -152,10 +142,9 @@ export default async function DashboardPage() {
     getPortfolioSnapshot(),
     getCadenceHealth(),
     getDataHealth(),
-    getUnworkedOpportunities(6),
+    getUnworkedOpportunities(8),
     getColdTier1Contacts(6),
     getWeekMomentum(),
-    getStaleTier1Owners(5),
     getOwnershipChangedProperties(),
     getDealsDashboard(),
     getOwnershipWatchStats(),
@@ -271,18 +260,21 @@ export default async function DashboardPage() {
 
   const attentionCount = rankedTodayDeskItems.length;
 
-  const briefing = await getBriefingMetrics(
+  const briefing = buildBriefingMetrics({
     overdueOutreach,
     dueTodayOutreach,
-    followUpsDash.overdue.length,
-    followUpsDash.today.length,
-    leaseRadar.urgentCount,
-    ownershipChangedProperties.length,
-  );
-
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
+    followUpsOverdue: followUpsDash.overdue.length,
+    followUpsToday: followUpsDash.today.length,
+    expiringLeases: leaseRadar.urgentCount,
+    ownershipChanges: ownershipChangedProperties.length,
+    activitiesThisWeek: momentum.touchpoints,
+    dataIssues: dataHealth.ingestionErrors + dataHealth.flaggedProperties,
+    unworkedOpportunities: unworked.length,
+    coldTier1: coldTier1.length,
   });
+
+  const today =
+    formatLocalDate(todayIso, { weekday: "long", month: "long", day: "numeric" }) ?? todayIso;
 
   const name = resolveGreetingName({
     displayName: obSettings?.display_name,
@@ -290,25 +282,43 @@ export default async function DashboardPage() {
     senderName: obSettings?.sender_name,
     email: user.email,
   });
-  const heroName = name ? `${greeting()}, ${name}` : greeting();
 
-  const staleOwnersRequire = { stale_tier1_owners: staleTier1Owners.length > 0 } as const;
+  const playbookLine = dashboardPlaybookLine({
+    attentionCount,
+    briefing,
+    cadence,
+  });
 
   return (
     <DashboardVisibilityProvider initialVisible={visible}>
-    <div className="dashboard-page px-4 py-4 sm:px-6 sm:py-5 max-w-[80rem] mx-auto space-y-5">
+    <div className="dashboard-page px-4 py-4 sm:px-6 sm:py-5 max-w-[80rem] mx-auto">
 
       <div className="space-y-3">
-        <DashboardHero
-          name={heroName}
-          date={today}
-          briefing={briefing}
-          attentionCount={attentionCount}
-          portfolio={portfolio}
-          cadence={cadence}
-          search={<BeaconCopilot />}
-          customize={<DashboardCustomize initialVisible={visible} />}
-        />
+        <div className="dashboard-hero px-5 py-4 md:px-6 md:py-5">
+          <div className="space-y-3 min-w-0">
+            <div className="flex items-start justify-between gap-4">
+              <IfVisible id="command_center">
+                <CommandCenterHeading name={name} date={today} />
+              </IfVisible>
+              <div className="shrink-0 ml-auto">
+                <DashboardCustomize initialVisible={visible} />
+              </div>
+            </div>
+            <IfVisible id="command_center">
+              <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
+                {playbookLine}
+              </p>
+            </IfVisible>
+            <IfVisible id="ask_beacon">
+              <div className="max-w-2xl min-w-0 pt-1 space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Ask Beacon
+                </p>
+                <BeaconCopilot />
+              </div>
+            </IfVisible>
+          </div>
+        </div>
 
         <VisibleKpiStrip
           activePursuits={dealsDashboard.activeCount}
@@ -321,6 +331,7 @@ export default async function DashboardPage() {
         />
       </div>
 
+      <div className="mt-3 space-y-2">
       <IfAnyVisible ids={SIGNAL_MODULE_IDS}>
         <div className="dashboard-signal-row">
           <IfVisible id="priority_pills"><PriorityPills metrics={briefing} /></IfVisible>
@@ -329,34 +340,29 @@ export default async function DashboardPage() {
         </div>
       </IfAnyVisible>
 
-      {/* PRIMARY — do today */}
-      <IfAnyVisible
-        ids={PRIMARY_MODULE_IDS}
-        require={staleOwnersRequire}
-      >
-        <div className="dashboard-module-grid dashboard-module-grid--primary">
-          <IfAnyVisible ids={["today_desk", "upcoming_followups"]}>
-            <div className="space-y-4">
-              <IfVisible id="today_desk">
-                <section className="space-y-2">
-                  <SectionHeader
-                    title="Do these today"
-                    badge={
-                      attentionCount > 0 ? (
-                        <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
-                          {attentionCount}
-                        </span>
-                      ) : undefined
-                    }
-                    href="/outreach"
-                    hrefLabel="Outreach →"
-                  />
-                  <TodayDesk items={rankedTodayDeskItems} />
-                </section>
-              </IfVisible>
+      {/* PRIMARY — today packed full-width, then a tight row of side modules */}
+      <IfAnyVisible ids={PRIMARY_MODULE_IDS}>
+        <div className="space-y-2">
+          <IfVisible id="today_desk">
+            <section className="space-y-1.5">
+              <SectionHeader
+                title="Do these today"
+                badge={
+                  attentionCount > 0 ? (
+                    <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
+                      {attentionCount}
+                    </span>
+                  ) : undefined
+                }
+              />
+              <TodayDesk items={rankedTodayDeskItems} />
+            </section>
+          </IfVisible>
 
+          <IfAnyVisible ids={["upcoming_followups", "ready_to_pursue", "cold_tier1"]}>
+            <div className="dashboard-module-grid dashboard-module-grid--primary">
               <IfVisible id="upcoming_followups">
-                <section className="space-y-2">
+                <section className="space-y-1.5 min-w-0">
                   <SectionHeader
                     title="Upcoming follow-ups"
                     href="/follow-ups"
@@ -365,18 +371,12 @@ export default async function DashboardPage() {
                   <UpcomingFollowUpList items={upcomingFollowUps} />
                 </section>
               </IfVisible>
-            </div>
-          </IfAnyVisible>
 
-          <IfAnyVisible
-            ids={["ready_to_pursue", "cold_tier1", "stale_tier1_owners"]}
-            require={staleOwnersRequire}
-          >
-            <div className="space-y-4">
               <IfVisible id="ready_to_pursue">
-                <section id="unworked" className="space-y-2 scroll-mt-8">
+                <section id="unworked" className="space-y-1.5 min-w-0 scroll-mt-8">
                   <SectionHeader
                     title="Ready to pursue"
+                    sub="Owner on file, no CRM owner contact"
                     badge={
                       unworked.length > 0 ? (
                         <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5">
@@ -392,7 +392,7 @@ export default async function DashboardPage() {
               </IfVisible>
 
               <IfVisible id="cold_tier1">
-                <section className="space-y-2">
+                <section className="space-y-1.5 min-w-0">
                   <SectionHeader
                     title="Tier 1 going cold"
                     badge={
@@ -408,27 +408,11 @@ export default async function DashboardPage() {
                   <ColdTier1Panel items={coldTier1} />
                 </section>
               </IfVisible>
-
-              <IfVisible id="stale_tier1_owners" when={staleTier1Owners.length > 0}>
-                <section className="space-y-2">
-                  <SectionHeader
-                    title="Tier-1 owners not contacted"
-                    badge={
-                      <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-2 py-0.5">
-                        {staleTier1Owners.length}
-                      </span>
-                    }
-                    href="/outreach"
-                    hrefLabel="Outreach →"
-                  />
-                  <StaleTier1OwnersPanel items={staleTier1Owners} userEmail={user.email} />
-                </section>
-              </IfVisible>
             </div>
           </IfAnyVisible>
         </div>
       </IfAnyVisible>
-      <IfNoneVisible ids={PRIMARY_MODULE_IDS} require={staleOwnersRequire}>
+      <IfNoneVisible ids={PRIMARY_MODULE_IDS}>
         <div className="rounded-lg border border-dashed px-4 py-3 flex items-center justify-between gap-3 text-sm text-muted-foreground">
           <span>Today&apos;s work sections are hidden.</span>
           <DashboardCustomize initialVisible={visible} variant="hint" />
@@ -439,9 +423,16 @@ export default async function DashboardPage() {
       <IfAnyVisible ids={SECONDARY_MODULE_IDS}>
       <div className="dashboard-module-grid dashboard-module-grid--secondary">
         <IfVisible id="pipeline">
-          <section className="space-y-2">
+          <section className="space-y-1.5 min-w-0">
             <SectionHeader
               title="Pipeline"
+              badge={
+                dealsDashboard.staleCount > 0 ? (
+                  <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5">
+                    {dealsDashboard.staleCount} stale
+                  </span>
+                ) : undefined
+              }
               href="/deals"
               hrefLabel="All pursuits →"
             />
@@ -450,7 +441,7 @@ export default async function DashboardPage() {
         </IfVisible>
 
         <IfVisible id="lease_exposure">
-          <section className="space-y-2">
+          <section className="space-y-1.5 min-w-0">
             <SectionHeader
               title="Lease exposure"
               badge={
@@ -463,13 +454,13 @@ export default async function DashboardPage() {
               href="/lease-radar"
               hrefLabel="Full radar →"
             />
-            <ExpiringLeasesPanel items={leaseRadar.within3.slice(0, 6)} total={leaseRadar.counts.within3} />
+            <ExpiringLeasesPanel items={leaseRadar.within3} total={leaseRadar.counts.within3} />
           </section>
         </IfVisible>
 
         <IfVisible id="book_owners">
-          <section className="space-y-2">
-            <SectionHeader title="Book & owners" href="/crm" hrefLabel="Workspace →" />
+          <section className="space-y-1.5 min-w-0">
+            <SectionHeader title="Book composition" href="/crm" hrefLabel="Workspace →" />
             <PortfolioPanel portfolio={portfolio} />
             <div className="space-y-2">
               <OwnershipWatchBatchButton />
@@ -486,24 +477,28 @@ export default async function DashboardPage() {
         </IfVisible>
 
         <IfVisible id="cadence">
-          <CadencePanel cadence={cadence} />
+          <section className="space-y-1.5 min-w-0">
+            <SectionHeader title="Relationship cadence" href="/outreach" hrefLabel="Outreach →" />
+            <CadencePanel cadence={cadence} />
+          </section>
         </IfVisible>
 
         <IfVisible id="ops_health">
-          <section className="space-y-2">
+          <section className="space-y-1.5 min-w-0">
             <SectionHeader title="Ops & data health" href="/properties/audit" hrefLabel="Audit →" />
             <DataHealthPanel health={dataHealth} />
           </section>
         </IfVisible>
 
         <IfVisible id="recent_activity">
-          <section className="space-y-2">
+          <section className="space-y-1.5 min-w-0">
             <SectionHeader title="Recent activity" href="/crm" hrefLabel="Workspace →" />
             <ActivityTimeline activities={recentActivities} />
           </section>
         </IfVisible>
       </div>
       </IfAnyVisible>
+      </div>
     </div>
     </DashboardVisibilityProvider>
   );

@@ -240,8 +240,8 @@ export default async function HowBeaconWorksPage({
             county folio from Enrich; demo seed rows do not invent one.
           </li>
           <li>
-            Industrial / flex specs are on the property page and as Workspace property columns
-            (Customize to add/remove fields). Miami-Dade copies a spec from the folio building
+            Industrial / flex specs are on the property page (Industrial / flex specs card;
+            Customize there). They are not Workspace grid columns. Miami-Dade copies a spec from the folio building
             card, extra features, or sketch only when those sources name it — not from DOR, lot
             size, or “wall area above N ft.” Use Find listing specs or a flyer extract when the
             listing states docks or clear height the county omitted. County Enrich, Workspace

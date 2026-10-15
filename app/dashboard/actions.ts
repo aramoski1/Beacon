@@ -11,6 +11,11 @@ import {
   type DashboardLayoutPrefs,
 } from "@/lib/dashboard-layout";
 import { todayLocal } from "@/lib/dates";
+import { propertyIdsByContactIds } from "@/lib/contact-properties";
+import {
+  collectOwnerLinkedPropertyIds,
+  pickUnworkedOpportunities,
+} from "@/lib/unworked-opportunities";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,36 +86,12 @@ export type DataHealth = {
   totalProperties: number;
 };
 
-export type StaleTier1Owner = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  company: string | null;
-  daysSince: number;
-  property_id: string | null;
-  property_address: string | null;
-};
-
 export type OwnershipChangedProperty = {
   id: string;
   address: string | null;
   previous_owner: string | null;
   new_owner: string | null;
   detected_at: string;
-};
-
-export type BriefingMetrics = {
-  overdueOutreach: number;
-  dueTodayOutreach: number;
-  followUpsOverdue: number;
-  followUpsToday: number;
-  expiringLeases: number;
-  activitiesThisWeek: number;
-  dataIssues: number;
-  actionItems: number;
-  unworkedOpportunities: number;
-  coldTier1: number;
-  ownershipChanges: number;
 };
 
 export type CadenceHealth = {
@@ -360,58 +341,43 @@ export async function getDataHealth(): Promise<DataHealth> {
   return { ingestionErrors: errorCount ?? 0, flaggedProperties, totalProperties: properties.length };
 }
 
-export async function getActivitiesThisWeek(): Promise<number> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return 0;
-
-  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const { count } = await supabase
-    .from("activities")
-    .select("*", { count: "exact", head: true })
-    .eq("owner_id", user.id)
-    .gte("activity_date", weekAgo);
-
-  return count ?? 0;
-}
-
-function firstOwnerContactName(ownerContacts: unknown): string | null {
-  if (!Array.isArray(ownerContacts) || ownerContacts.length === 0) return null;
-  const first = ownerContacts[0] as { name?: string };
-  return first?.name?.trim() || null;
-}
-
 export async function getUnworkedOpportunities(limit = 8): Promise<UnworkedOpportunity[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const [{ data: props }, { data: contacts }] = await Promise.all([
+  const [{ data: props }, { data: ownerContacts }] = await Promise.all([
     supabase
       .from("properties")
-      .select("id, address, owner_name, owner_contacts, ingested_at")
+      .select("id, address, owner_name, owner_contact_name, owner_contacts, ingested_at")
       .eq("owner_id", user.id)
       .not("owner_name", "is", null)
       .order("ingested_at", { ascending: false })
       .limit(200),
-    supabase.from("contacts").select("linked_properties").eq("owner_id", user.id),
+    supabase
+      .from("contacts")
+      .select("id, linked_properties")
+      .eq("owner_id", user.id)
+      .or("contact_type.eq.owner,contact_type.is.null"),
   ]);
 
-  const linked = new Set<string>();
-  for (const c of contacts ?? []) {
-    for (const pid of c.linked_properties ?? []) linked.add(pid);
+  const owners = ownerContacts ?? [];
+  let joinByContact = new Map<string, string[]>();
+  try {
+    joinByContact = await propertyIdsByContactIds(
+      supabase,
+      user.id,
+      owners.map((c) => c.id),
+    );
+  } catch {
+    joinByContact = new Map();
   }
 
-  return (props ?? [])
-    .filter((p) => p.owner_name?.trim() && !linked.has(p.id))
-    .slice(0, limit)
-    .map((p) => ({
-      id: p.id,
-      address: p.address,
-      owner_name: p.owner_name,
-      owner_contact_name: firstOwnerContactName(p.owner_contacts),
-      ingested_at: p.ingested_at,
-    }));
+  return pickUnworkedOpportunities(
+    props ?? [],
+    collectOwnerLinkedPropertyIds(owners, joinByContact),
+    limit,
+  );
 }
 
 export async function getColdTier1Contacts(limit = 6): Promise<ColdTier1Contact[]> {
@@ -549,52 +515,6 @@ export async function getDashboardDelta(sinceIso: string): Promise<DashboardDelt
   };
 }
 
-export async function getStaleTier1Owners(limit = 6): Promise<StaleTier1Owner[]> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
-
-  const { data: contacts } = await supabase
-    .from("contacts")
-    .select("id, name, email, company, contact_tier, contact_type, last_contacted_at, linked_properties")
-    .eq("owner_id", user.id)
-    .eq("contact_tier", 1)
-    .eq("contact_type", "owner")
-    .or(`last_contacted_at.is.null,last_contacted_at.lt.${cutoff}`);
-
-  const sorted = (contacts ?? [])
-    .map((c) => {
-      const daysSince = c.last_contacted_at
-        ? Math.floor((Date.now() - new Date(c.last_contacted_at as string).getTime()) / 86_400_000)
-        : 999;
-      return { ...c, daysSince };
-    })
-    .sort((a, b) => b.daysSince - a.daysSince)
-    .slice(0, limit);
-
-  const propIds = [...new Set(sorted.flatMap((c) => (c.linked_properties as string[] | null) ?? []).slice(0, limit * 2))];
-  const propMap = new Map<string, string | null>();
-  if (propIds.length > 0) {
-    const { data: props } = await supabase.from("properties").select("id, address").in("id", propIds);
-    for (const p of props ?? []) propMap.set(p.id, p.address);
-  }
-
-  return sorted.map((c) => {
-    const pid = ((c.linked_properties as string[] | null) ?? [])[0] ?? null;
-    return {
-      id: c.id,
-      name: c.name,
-      email: c.email,
-      company: c.company,
-      daysSince: c.daysSince,
-      property_id: pid,
-      property_address: pid ? propMap.get(pid) ?? null : null,
-    };
-  });
-}
-
 export async function getOwnershipWatchStats(): Promise<{
   enrolledCount: number;
   everChecked: boolean;
@@ -644,40 +564,6 @@ export async function getOwnershipChangedProperties(): Promise<OwnershipChangedP
       detected_at:    row.ownership_change_detected_at as string,
     };
   });
-}
-
-export async function getBriefingMetrics(
-  overdueOutreach: number,
-  dueTodayOutreach: number,
-  followUpsOverdue: number,
-  followUpsToday: number,
-  expiringLeasesCount: number,
-  ownershipChangesCount: number,
-): Promise<BriefingMetrics> {
-  const [activitiesThisWeek, dataHealth, unworked, coldTier1] = await Promise.all([
-    getActivitiesThisWeek(),
-    getDataHealth(),
-    getUnworkedOpportunities(20),
-    getColdTier1Contacts(20),
-  ]);
-
-  const actionItems =
-    overdueOutreach + followUpsOverdue + expiringLeasesCount + dataHealth.ingestionErrors + dataHealth.flaggedProperties
-    + unworked.length + coldTier1.length + ownershipChangesCount;
-
-  return {
-    overdueOutreach,
-    dueTodayOutreach,
-    followUpsOverdue,
-    followUpsToday,
-    expiringLeases:        expiringLeasesCount,
-    activitiesThisWeek,
-    dataIssues:            dataHealth.ingestionErrors + dataHealth.flaggedProperties,
-    actionItems,
-    unworkedOpportunities: unworked.length,
-    coldTier1:             coldTier1.length,
-    ownershipChanges:      ownershipChangesCount,
-  };
 }
 
 // ─── Dashboard layout (show/hide customization) ───────────────────────────────

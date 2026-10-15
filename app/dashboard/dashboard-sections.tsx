@@ -1,8 +1,6 @@
 import Link from "next/link";
 import {
-  ShieldAlert,
   AlertTriangle,
-  CalendarClock,
   Activity,
   Mail,
   Phone,
@@ -10,15 +8,13 @@ import {
   CalendarDays,
   PenLine,
   ArrowRight,
-  TrendingUp,
   MapPin,
-  Target,
   CheckCircle2,
 } from "lucide-react";
+import { GreetingHeading } from "./greeting-heading";
 import { cn } from "@/lib/utils";
 import { stripDemoLabel } from "@/lib/demo-display";
 import type {
-  BriefingMetrics,
   CadenceHealth,
   DataHealth,
   PortfolioSnapshot,
@@ -28,271 +24,47 @@ import type {
 import type { LeaseRadarEntry } from "@/lib/lease-radar";
 import { formatLeaseRate, leaseDisplayTitle } from "@/lib/lease-radar";
 import { formatLocalDate } from "@/lib/dates";
-import { fmtKpiMoney, fmtKpiSqft, type LeaseExposureKpi } from "@/lib/dashboard-kpis";
-import type { KpiModuleId } from "@/lib/dashboard-layout";
+import { fmtKpiSqft, type BriefingMetrics } from "@/lib/dashboard-kpis";
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
-function HeroMetric({
-  label,
-  value,
-  sub,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  highlight?: boolean;
-}) {
+/** Greeting + date in the command-center header. Hideable via Customize. */
+export function CommandCenterHeading({ name, date }: { name: string | null; date: string }) {
   return (
-    <div className="rounded-lg border bg-muted/30 px-4 py-3 min-w-[6.5rem]">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={cn(
-        "text-xl font-bold tabular-nums tracking-tight mt-0.5",
-        highlight ? "text-destructive" : "text-foreground",
-      )}>
-        {value}
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+        Command center
       </p>
-      {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
+      <GreetingHeading name={name} />
+      <p className="text-sm text-muted-foreground mt-0.5">{date}</p>
     </div>
   );
 }
 
-export function DashboardHero({
-  name,
-  date,
-  briefing,
-  attentionCount,
-  portfolio,
-  cadence,
-  search,
-  customize,
-}: {
-  name: string;
-  date: string;
-  briefing: BriefingMetrics;
-  /** Count of items actually in the "Do these today" queue below — keep this
-   *  in sync with that queue so the headline never contradicts it. */
+/**
+ * Briefing line under the greeting. Book-wide signals (unworked, data issues,
+ * cold Tier-1) used to fold into the same "today" headline even when they
+ * were not in the Today desk — a broker would read "N items need you today"
+ * then see "Nothing due" underneath. Those still surface in Ready to pursue
+ * / data-issue pills, not as "today."
+ */
+export function dashboardPlaybookLine(opts: {
   attentionCount: number;
-  portfolio: PortfolioSnapshot;
+  briefing: BriefingMetrics;
   cadence: CadenceHealth;
-  search?: React.ReactNode;
-  customize?: React.ReactNode;
-}) {
-  // Broader book-wide signals — unworked opportunities, data issues, cold
-  // Tier-1 contacts — that briefing.actionItems used to fold into this same
-  // "today" headline, even though none of them appear in the Today desk
-  // queue below — a broker would read "N items need your attention today"
-  // then see "Nothing due" right underneath it. Those signals are still
-  // real and still worth surfacing, just not as "today" — they live in the
-  // "ready to pursue" / "data issues" pills (PriorityPills) instead. Summed
-  // directly from briefing's own sub-counts rather than derived by
-  // subtracting attentionCount from actionItems, since the Today desk items
-  // are capped at 12 and drawn from slightly different buckets than
-  // actionItems' inputs — subtraction could go negative or double-count.
-  const bookWideItems = briefing.unworkedOpportunities + briefing.dataIssues + briefing.coldTier1;
-
-  const playbookLine =
-    attentionCount > 0
-      ? `${attentionCount} item${attentionCount !== 1 ? "s" : ""} need your attention today.`
-      : bookWideItems > 0
-        ? `Nothing due today — ${bookWideItems} item${bookWideItems !== 1 ? "s" : ""} elsewhere in your book could use a look.`
-        : cadence.compliancePct >= 90
-          ? "Your book is in great shape — stay on cadence and keep building."
-          : "No fires today. Good time to prospect or enrich your pipeline.";
-
-  return (
-    <div className="dashboard-hero px-5 py-4 md:px-6 md:py-5">
-      <div className="space-y-3 min-w-0">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
-              Command center
-            </p>
-            <h1 className="text-xl font-semibold tracking-tight">{name}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{date}</p>
-          </div>
-          {customize}
-        </div>
-        <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">{playbookLine}</p>
-        {search && (
-          <div className="max-w-md pt-1 space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Ask Beacon
-            </p>
-            {search}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Top KPI strip — real DB numbers, deep-linked. `visible` controls which
- * cells render (dashboard show/hide customization, lib/dashboard-layout.ts);
- * renders nothing at all if every cell is hidden, so callers can render it
- * unconditionally. */
-export function BrokerKpiStrip({
-  activePursuits,
-  estimatedCommission,
-  leaseExposure,
-  tier1Overdue,
-  ownershipChanges,
-  bookProperties,
-  bookSqft,
-  visible,
-}: {
-  activePursuits: number;
-  estimatedCommission: number;
-  leaseExposure: LeaseExposureKpi;
-  tier1Overdue: number;
-  ownershipChanges: number;
-  bookProperties: number;
-  bookSqft: number;
-  visible: Record<KpiModuleId, boolean>;
-}) {
-  const cells: Array<{
-    id: KpiModuleId;
-    label: string;
-    value: string;
-    sub?: string;
-    href: string;
-    highlight?: boolean;
-  }> = [
-    {
-      id: "kpi_pursuits" as const,
-      label: "Active pursuits",
-      value: String(activePursuits),
-      sub: estimatedCommission > 0 ? `${fmtKpiMoney(estimatedCommission)} est. fee` : "Pipeline",
-      href: "/deals",
-      highlight: activePursuits === 0,
-    },
-    {
-      id: "kpi_leases_90" as const,
-      label: "Leases ≤90d",
-      value: String(leaseExposure.count90),
-      sub: leaseExposure.sqft90 > 0 ? fmtKpiSqft(leaseExposure.sqft90) : "expiring",
-      href: "/lease-radar",
-      highlight: leaseExposure.count90 > 0,
-    },
-    {
-      id: "kpi_tier1_overdue" as const,
-      label: "Tier-1 overdue",
-      value: String(tier1Overdue),
-      sub: "vs your cadence",
-      href: "/outreach",
-      highlight: tier1Overdue > 0,
-    },
-    {
-      id: "kpi_ownership" as const,
-      label: "Ownership changes",
-      value: String(ownershipChanges),
-      sub: "open signals",
-      href: "/crm?tab=properties",
-      highlight: ownershipChanges > 0,
-    },
-    {
-      id: "kpi_book" as const,
-      label: "Book size",
-      value: String(bookProperties),
-      sub: bookSqft > 0 ? fmtKpiSqft(bookSqft) : "properties",
-      href: "/crm",
-    },
-  ].filter((c) => visible[c.id]);
-
-  if (cells.length === 0) return null;
-
-  const cols =
-    cells.length >= 5
-      ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-5"
-      : cells.length === 4
-        ? "grid-cols-2 xl:grid-cols-4"
-        : cells.length === 3
-          ? "grid-cols-1 sm:grid-cols-3"
-          : cells.length === 2
-            ? "grid-cols-2"
-            : "grid-cols-1";
-
-  return (
-    <div className={cn("grid gap-2", cols)}>
-      {cells.map((c) => (
-        <Link
-          key={c.label}
-          href={c.href}
-          className={cn(
-            "rounded-xl border bg-card px-4 py-3 hover:bg-muted/30 transition-colors",
-            c.highlight && "border-amber-500/40",
-          )}
-        >
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {c.label}
-          </p>
-          <p
-            className={cn(
-              "text-xl font-bold tabular-nums tracking-tight mt-0.5",
-              c.highlight ? "text-amber-700 dark:text-amber-400" : "text-foreground",
-            )}
-          >
-            {c.value}
-          </p>
-          {c.sub && <p className="text-[10px] text-muted-foreground mt-0.5">{c.sub}</p>}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function fmtSqft(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M SF`;
-  if (n >= 1_000) return `${Math.round(n / 1_000).toLocaleString()}k SF`;
-  if (n === 0) return "—";
-  return `${n.toLocaleString()} SF`;
-}
-
-function fmtMoney(n: number) {
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${Math.round(n / 1_000)}k`;
-  return `$${n.toLocaleString()}`;
-}
-
-// ─── Stat cards ───────────────────────────────────────────────────────────────
-
-export function StatCard({
-  href,
-  icon,
-  label,
-  value,
-  sub,
-  highlight,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  sub?: string;
-  highlight?: boolean;
-}) {
-  return (
-    <Link href={href} className="group block h-full">
-      <div className={cn(
-        "h-full rounded-xl border bg-card px-4 py-4 transition-colors hover:bg-muted/30",
-        highlight && value > 0 && "border-destructive/30 bg-destructive/[0.02]",
-      )}>
-        <div className="flex items-center gap-1.5 text-muted-foreground mb-2.5">
-          {icon}
-          <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
-        </div>
-        <p className={cn(
-          "text-2xl font-bold tabular-nums tracking-tight",
-          highlight && value > 0 ? "text-destructive" : "text-foreground",
-        )}>
-          {value.toLocaleString()}
-        </p>
-        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-      </div>
-    </Link>
-  );
+}): string {
+  const bookWideItems =
+    opts.briefing.unworkedOpportunities + opts.briefing.dataIssues + opts.briefing.coldTier1;
+  if (opts.attentionCount > 0) {
+    return `${opts.attentionCount} item${opts.attentionCount !== 1 ? "s" : ""} need your attention today.`;
+  }
+  if (bookWideItems > 0) {
+    return `Nothing due today — ${bookWideItems} item${bookWideItems !== 1 ? "s" : ""} elsewhere in your book could use a look.`;
+  }
+  if (opts.cadence.compliancePct >= 90) {
+    return "Your book is in great shape — stay on cadence and keep building.";
+  }
+  return "No fires today. Good time to prospect or enrich your pipeline.";
 }
 
 // ─── Cadence panel ────────────────────────────────────────────────────────────
@@ -308,18 +80,7 @@ export function CadencePanel({ cadence }: { cadence: CadenceHealth }) {
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Target className="size-4 text-muted-foreground" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Relationship cadence
-          </span>
-        </div>
-        <Link href="/outreach" className="text-xs text-primary hover:underline underline-offset-2">
-          Outreach →
-        </Link>
-      </div>
-      <div className="p-4 space-y-3">
+      <div className="p-3 space-y-2.5">
         <div className="flex items-center gap-3">
           <div className="relative size-14 shrink-0">
             <svg viewBox="0 0 36 36" className="size-14 -rotate-90">
@@ -373,60 +134,63 @@ export function CadencePanel({ cadence }: { cadence: CadenceHealth }) {
 
 // ─── Expiring leases ──────────────────────────────────────────────────────────
 
+function leaseExposurePreview(items: LeaseRadarEntry[], limit = 6) {
+  const urgent = items.filter((l) => l.daysUntilExpiry <= 30);
+  const watch = items.filter((l) => l.daysUntilExpiry > 30 && l.daysUntilExpiry <= 90);
+  const urgentTake = urgent.slice(0, Math.min(4, limit));
+  return [...urgentTake, ...watch.slice(0, limit - urgentTake.length)];
+}
+
 export function ExpiringLeasesPanel({ items, total }: { items: LeaseRadarEntry[]; total: number }) {
-  return (
-    <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <CalendarClock className="size-3.5 text-muted-foreground" />
-          Rollover radar
-          {total > 0 && (
-            <span className="ml-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-bold px-1.5 py-0.5">
-              {total}
-            </span>
-          )}
-        </span>
-        {total > 0 && (
-          <Link href="/lease-radar" className="text-xs text-primary hover:underline underline-offset-2">Full radar</Link>
-        )}
+  if (total === 0) {
+    return (
+      <div className="rounded-xl border bg-card px-4 py-4 text-center text-sm text-muted-foreground">
+        No leases expiring in the next 90 days.
       </div>
-      {total === 0 ? (
-        <p className="px-4 py-6 text-xs text-muted-foreground text-center">
-          No leases expiring in the next 90 days.
-        </p>
-      ) : (
-        <div className="p-2 space-y-0.5">
-          {items.map((l) => (
-            <Link
-              key={l.id}
-              href={`/abstracts/${l.id}`}
-              className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors group"
-            >
-              <div className={cn(
-                "shrink-0 size-9 rounded-lg flex items-center justify-center text-xs font-bold tabular-nums",
-                l.daysUntilExpiry <= 30 ? "bg-red-500/15 text-red-600 dark:text-red-400" :
-                l.daysUntilExpiry <= 60 ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-                "bg-muted text-muted-foreground"
-              )}>
-                {l.daysUntilExpiry}d
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                  {leaseDisplayTitle(l)}
-                </p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {l.property_address ? (
-                    <span>{l.property_address} · </span>
-                  ) : null}
-                  {l.base_rate != null && `${formatLeaseRate(l.base_rate)} · `}
-                  Exp {formatLocalDate(l.expiration_date)}
-                </p>
-              </div>
-              <ArrowRight className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-            </Link>
-          ))}
-        </div>
-      )}
+    );
+  }
+
+  const shown = leaseExposurePreview(items);
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden divide-y">
+      {shown.map((l) => {
+        const showComps = l.daysUntilExpiry > 30 && l.daysUntilExpiry <= 90 && !!l.property_id;
+        return (
+          <div key={l.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30 transition-colors group">
+            <div className={cn(
+              "shrink-0 size-9 rounded-lg flex items-center justify-center text-xs font-bold tabular-nums",
+              l.daysUntilExpiry <= 30 ? "bg-red-500/15 text-red-600 dark:text-red-400" :
+              l.daysUntilExpiry <= 60 ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+              "bg-muted text-muted-foreground"
+            )}>
+              {l.daysUntilExpiry}d
+            </div>
+            <div className="flex-1 min-w-0">
+              <Link
+                href={`/abstracts/${l.id}`}
+                className="text-sm font-medium truncate block group-hover:text-primary transition-colors"
+              >
+                {leaseDisplayTitle(l)}
+              </Link>
+              <p className="text-xs text-muted-foreground truncate">
+                {l.property_address ? <span>{l.property_address} · </span> : null}
+                {l.base_rate != null && `${formatLeaseRate(l.base_rate)} · `}
+                Exp {formatLocalDate(l.expiration_date)}
+              </p>
+              {showComps && (
+                <Link
+                  href={`/properties/${l.property_id}`}
+                  className="text-[11px] text-primary hover:underline underline-offset-2"
+                >
+                  Check comps / rent
+                </Link>
+              )}
+            </div>
+            <ArrowRight className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -438,14 +202,7 @@ export function PortfolioPanel({ portfolio }: { portfolio: PortfolioSnapshot }) 
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <TrendingUp className="size-3.5 text-muted-foreground" />
-          Book composition
-        </span>
-        <Link href="/crm" className="text-xs text-primary hover:underline underline-offset-2">Workspace →</Link>
-      </div>
-      <div className="p-4 space-y-4">
+      <div className="p-3 space-y-3">
         {portfolio.byType.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-4">
             Add properties to see your portfolio breakdown.
@@ -456,7 +213,7 @@ export function PortfolioPanel({ portfolio }: { portfolio: PortfolioSnapshot }) 
               <div key={type}>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="capitalize text-muted-foreground">{type}</span>
-                  <span className="font-medium tabular-nums">{count} · {fmtSqft(sqft)}</span>
+                  <span className="font-medium tabular-nums">{count} · {fmtKpiSqft(sqft)}</span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
                   <div
@@ -522,13 +279,7 @@ export function DataHealthPanel({ health }: { health: DataHealth }) {
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <ShieldAlert className="size-3.5" />
-          Data integrity
-        </span>
-      </div>
-      <div className="p-4 space-y-3">
+      <div className="p-3 space-y-2.5">
         {health.totalProperties > 0 && (
           <div>
             <div className="flex items-baseline justify-between mb-2">
@@ -582,23 +333,18 @@ export function PriorityPills({ metrics }: { metrics: BriefingMetrics }) {
   if (metrics.followUpsOverdue > 0) items.push({ label: "follow-ups overdue", value: metrics.followUpsOverdue, href: "/follow-ups", urgent: true });
   if (metrics.dueTodayOutreach > 0) items.push({ label: "outreach today", value: metrics.dueTodayOutreach, href: "/outreach" });
   if (metrics.followUpsToday > 0) items.push({ label: "follow-ups today", value: metrics.followUpsToday, href: "/follow-ups" });
-  if (metrics.unworkedOpportunities > 0) items.push({ label: "ready to pursue", value: metrics.unworkedOpportunities, href: "/dashboard#unworked", urgent: true });
-  if (metrics.coldTier1 > 0) items.push({ label: "Tier 1 going cold", value: metrics.coldTier1, href: "/outreach", urgent: true });
-  if (metrics.expiringLeases > 0) items.push({ label: "lease expirations", value: metrics.expiringLeases, href: "/lease-radar", urgent: true });
-  if (metrics.ownershipChanges > 0) items.push({ label: "ownership changes", value: metrics.ownershipChanges, href: "/crm", urgent: true });
   if (metrics.dataIssues > 0) items.push({ label: "data issues", value: metrics.dataIssues, href: "/properties/audit", urgent: true });
-  if (metrics.activitiesThisWeek > 0) items.push({ label: "touchpoints this week", value: metrics.activitiesThisWeek, href: "/dashboard" });
 
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <Link
           key={item.label}
           href={item.href}
           className={cn(
-            "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all hover:scale-[1.02]",
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
             item.urgent
               ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
               : "border-border bg-card hover:bg-muted/50"
@@ -651,7 +397,7 @@ function dayGroupLabel(iso: string): string {
 export function ActivityTimeline({ activities }: { activities: RecentActivity[] }) {
   if (activities.length === 0) {
     return (
-      <div className="rounded-xl border bg-card py-12 text-center">
+      <div className="rounded-xl border bg-card py-6 text-center">
         <Activity className="size-10 mx-auto mb-3 text-muted-foreground/30" />
         <p className="text-sm font-medium text-muted-foreground">No touchpoints logged yet</p>
         <p className="text-xs text-muted-foreground/70 mt-1">Outreach sends and contact activities appear here.</p>
@@ -678,7 +424,7 @@ export function ActivityTimeline({ activities }: { activities: RecentActivity[] 
               const Icon = ACTIVITY_ICON[a.activity_type] ?? PenLine;
               const color = ACTIVITY_COLOR[a.activity_type] ?? ACTIVITY_COLOR.note;
               return (
-                <li key={a.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+                <li key={a.id} className="flex items-start gap-2.5 px-3 py-2 hover:bg-muted/20 transition-colors">
                   <span className={cn("shrink-0 size-7 rounded-lg flex items-center justify-center mt-0.5", color)}>
                     <Icon className="size-3.5" />
                   </span>
@@ -734,23 +480,15 @@ export function OwnershipChangedPanel({
       </div>
     );
   }
+  const shown = items.slice(0, 4);
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <AlertTriangle className="size-3.5 text-amber-600" />
-          Ownership changes
-          <span className="ml-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-bold px-1.5 py-0.5">
-            {items.length}
-          </span>
-        </span>
-      </div>
       <div className="divide-y">
-        {items.map((p) => (
+        {shown.map((p) => (
           <Link
             key={p.id}
             href={`/properties/${p.id}`}
-            className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors group"
+            className="flex items-start gap-2.5 px-3 py-2 hover:bg-muted/30 transition-colors group"
           >
             <div className="flex-1 min-w-0 space-y-0.5">
               <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
@@ -777,20 +515,25 @@ export function SectionHeader({
   badge,
   href,
   hrefLabel,
+  sub,
 }: {
   title: string;
   badge?: React.ReactNode;
   href?: string;
   hrefLabel?: string;
+  sub?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-        {title}
-        {badge}
-      </h2>
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+          {title}
+          {badge}
+        </h2>
+        {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
+      </div>
       {href && hrefLabel && (
-        <Link href={href} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+        <Link href={href} className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
           {hrefLabel}
         </Link>
       )}

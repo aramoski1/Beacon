@@ -141,7 +141,7 @@ export function DealsView({
   const staleCount = filteredDeals.filter((d) => isDealStale(d)).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 w-full">
       {/* Sub-header */}
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm text-muted-foreground shrink-0">
@@ -237,7 +237,7 @@ export function DealsView({
       )}
 
       {view === "kanban" && typeFilter === "all" && (
-        <div className="space-y-8">
+        <div className="space-y-8 min-w-0 w-full">
           {DEAL_TYPES.map((t) => {
             const typeDeals = filteredDeals.filter((d) => (d.deal_type ?? "tenant_rep") === t);
             if (typeDeals.length === 0) return null;

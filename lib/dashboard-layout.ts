@@ -1,10 +1,11 @@
 // Dashboard show/hide customization — module catalog + resolution.
 //
 // Visibility only: no drag-and-drop, no reordering. Beacon's fixed section
-// order (hero → KPIs → signals → primary → secondary) never changes; this
-// only controls whether a given block renders at all. DashboardHero and Ask
-// Beacon (BeaconCopilot) are never in this catalog — they're not hideable,
-// full stop, so there's no id for them to accidentally toggle off.
+// order (header → KPIs → signals → primary → secondary) never changes; this
+// only controls whether a given block renders at all. Every section on the
+// page is in this catalog, including Command center and Ask Beacon. The
+// Customize button itself is not a module — it always stays so a broker can
+// restore anything they hid.
 //
 // Persisted as user_settings.dashboard_layout JSONB:
 //   { "version": 1, "visible": { "<module_id>": boolean, ... } }
@@ -12,6 +13,11 @@
 // account that has never touched Customize must render pixel-identical to
 // today's fixed layout. resolveVisible is the single place that guarantee
 // lives; nothing else should read the raw JSONB column directly.
+
+export const HEADER_MODULE_IDS = [
+  "command_center",
+  "ask_beacon",
+] as const;
 
 export const KPI_MODULE_IDS = [
   "kpi_pursuits",
@@ -32,7 +38,6 @@ export const PRIMARY_MODULE_IDS = [
   "upcoming_followups",
   "ready_to_pursue",
   "cold_tier1",
-  "stale_tier1_owners",
 ] as const;
 
 export const SECONDARY_MODULE_IDS = [
@@ -45,12 +50,14 @@ export const SECONDARY_MODULE_IDS = [
 ] as const;
 
 export const ALL_MODULE_IDS = [
+  ...HEADER_MODULE_IDS,
   ...KPI_MODULE_IDS,
   ...SIGNAL_MODULE_IDS,
   ...PRIMARY_MODULE_IDS,
   ...SECONDARY_MODULE_IDS,
 ] as const;
 
+export type HeaderModuleId = (typeof HEADER_MODULE_IDS)[number];
 export type KpiModuleId = (typeof KPI_MODULE_IDS)[number];
 export type SignalModuleId = (typeof SIGNAL_MODULE_IDS)[number];
 export type PrimaryModuleId = (typeof PRIMARY_MODULE_IDS)[number];
@@ -114,32 +121,34 @@ export function sanitizeVisiblePatch(
 
 // ─── Customize UI metadata ─────────────────────────────────────────────────────
 
-export type ModuleGroupId = "kpis" | "signals" | "primary" | "secondary";
+export type ModuleGroupId = "header" | "kpis" | "signals" | "primary" | "secondary";
 
 export const MODULE_GROUPS: { id: ModuleGroupId; label: string; moduleIds: readonly ModuleId[] }[] = [
-  { id: "kpis", label: "KPIs", moduleIds: KPI_MODULE_IDS },
-  { id: "signals", label: "Signals", moduleIds: SIGNAL_MODULE_IDS },
-  { id: "primary", label: "Primary", moduleIds: PRIMARY_MODULE_IDS },
-  { id: "secondary", label: "Secondary", moduleIds: SECONDARY_MODULE_IDS },
+  { id: "header", label: "Header", moduleIds: HEADER_MODULE_IDS },
+  { id: "kpis", label: "Counts", moduleIds: KPI_MODULE_IDS },
+  { id: "signals", label: "Status", moduleIds: SIGNAL_MODULE_IDS },
+  { id: "primary", label: "Today", moduleIds: PRIMARY_MODULE_IDS },
+  { id: "secondary", label: "Book", moduleIds: SECONDARY_MODULE_IDS },
 ];
 
 export const MODULE_LABELS: Record<ModuleId, string> = {
+  command_center: "Command center",
+  ask_beacon: "Ask Beacon",
   kpi_pursuits: "Active pursuits",
   kpi_leases_90: "Leases ≤90 days",
   kpi_tier1_overdue: "Tier-1 overdue",
   kpi_ownership: "Ownership changes",
   kpi_book: "Book size",
-  priority_pills: "Priority pills",
+  priority_pills: "Overdue shortcuts",
   week_momentum: "This week's momentum",
   since_last_visit: "Since last visit",
   today_desk: "Do these today",
   upcoming_followups: "Upcoming follow-ups",
   ready_to_pursue: "Ready to pursue",
   cold_tier1: "Tier 1 going cold",
-  stale_tier1_owners: "Tier-1 owners not contacted",
   pipeline: "Pipeline",
   lease_exposure: "Lease exposure",
-  book_owners: "Book & owners",
+  book_owners: "Book composition",
   cadence: "Relationship cadence",
   ops_health: "Ops & data health",
   recent_activity: "Recent activity",

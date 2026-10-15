@@ -130,7 +130,7 @@ describe("buildTodayDeskItems", () => {
     expect(items.map((i) => i.kind)).toContain("lease_urgent");
     expect(items.map((i) => i.kind)).toContain("ownership");
     expect(items.map((i) => i.kind)).toContain("follow_up");
-    expect(items.map((i) => i.kind)).toContain("deal_due");
+    expect(items.find((i) => i.kind === "deal_due")?.href).toBe("/deals/d1");
     expect(items.map((i) => i.kind)).toContain("outreach");
     expect(items.map((i) => i.kind)).toContain("option_notice");
     expect(items.map((i) => i.kind)).toContain("exchange_1031");
