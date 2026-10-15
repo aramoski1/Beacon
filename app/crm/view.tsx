@@ -2168,14 +2168,14 @@ function LeasesTable({
                     href={`/abstracts/${a.id}`}
                     className="font-medium hover:underline underline-offset-2 flex items-center gap-1.5 max-w-64 truncate"
                     title={leaseDisplayTitle({
-                      tenant_contact: a.tenant_name ? { id: a.tenant_contact_id ?? "", name: a.tenant_name, email: null, company: null } : null,
+                      tenant_contact: a.tenant_name ? { name: a.tenant_name } : null,
                       property_address: a.property_address,
                       source_document: a.source_document,
                     })}
                   >
                     <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                     {leaseDisplayTitle({
-                      tenant_contact: a.tenant_name ? { id: a.tenant_contact_id ?? "", name: a.tenant_name, email: null, company: null } : null,
+                      tenant_contact: a.tenant_name ? { name: a.tenant_name } : null,
                       property_address: a.property_address,
                       source_document: a.source_document,
                     })}

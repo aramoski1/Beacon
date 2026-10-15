@@ -114,7 +114,7 @@ export function leaseLabel(path: string | null): string {
 
 /** Broker-facing title: tenant, then property, never a seed filename. */
 export function leaseDisplayTitle(entry: {
-  tenant_contact?: RadarContactRef | null;
+  tenant_contact?: { name?: string | null } | null;
   property_address?: string | null;
   source_document?: string | null;
 }): string {

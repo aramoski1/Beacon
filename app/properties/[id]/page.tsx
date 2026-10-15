@@ -864,8 +864,13 @@ export default async function PropertyPage({
                 const status = !exp ? "unknown" : exp < now ? "expired" : exp < now + 90 * 86_400_000 ? "expiring" : "active";
                 const statusCls = status === "active" ? "bg-green-100 text-green-700" : status === "expiring" ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground";
                 const statusLabel = status === "active" ? "Active" : status === "expiring" ? "Expiring soon" : status === "expired" ? "Expired" : "No expiry";
+                const tenantJoin = la.tenant_contact as unknown;
+                const tenantRow = (Array.isArray(tenantJoin) ? tenantJoin[0] : tenantJoin) as
+                  | { name?: string | null }
+                  | null
+                  | undefined;
                 const title = leaseDisplayTitle({
-                  tenant_contact: (la as { tenant_contact?: { name: string | null } | null }).tenant_contact,
+                  tenant_contact: tenantRow ?? null,
                   property_address: p.address,
                   source_document: la.source_document,
                 });

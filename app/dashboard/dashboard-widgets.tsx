@@ -305,7 +305,9 @@ export function DealsDashboardPanel({ summary }: { summary: DealsDashboard }) {
                     {deal.name}
                   </Link>
                   {stale && (
-                    <AlertTriangle className="size-3 text-amber-500 shrink-0" title="No stage change in 14+ days" />
+                    <span title="No stage change in 14+ days">
+                      <AlertTriangle className="size-3 text-amber-500 shrink-0" aria-hidden="true" />
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
